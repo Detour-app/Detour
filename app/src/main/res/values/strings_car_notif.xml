@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- car/NavScreen.kt -->
+    <string name="car_nav_other_app_navigating">Another app is navigating — stop it to get turn guidance here</string>
+    <string name="car_nav_exit">Exit</string>
+    <string name="car_nav_destination">Destination</string>
+    <string name="car_nav_off_route">Off route</string>
+    <string name="car_nav_continue">Continue</string>
+    <!-- car/SearchScreen.kt -->
+    <string name="car_search_hint">Search for a destination</string>
+    <string name="car_search_spin_title">Spin for a Destination</string>
+    <string name="car_search_spin_text">Pick a random road nearby</string>
+    <string name="car_search_nothing_found">Nothing found</string>
+    <string name="car_search_failed">Search failed</string>
+    <string name="car_search_route_failed">Could not build a route</string>
+    <string name="car_waiting_for_location">Waiting for your location…</string>
+    <!-- car/SpinScreen.kt -->
+    <string name="car_spin_location_needed_title">Location needed</string>
+    <string name="car_spin_location_needed_text">Open Detour on your phone once to grant location access, then come back.</string>
+    <string name="car_spin_radius">Radius: %1$d km</string>
+    <string name="car_spin_radius_hint">Tap the radius button below to change it</string>
+    <string name="car_spin_spinning">Spinning…</string>
+    <string name="car_spin_no_destination">Couldn\'t find a destination</string>
+    <string name="car_spin_random_road">Random road</string>
+    <string name="car_spin_start_navigation">Start Navigation</string>
+    <string name="car_spin_navigate">Navigate</string>
+    <string name="car_spin_failed">Spin failed</string>
+    <!-- car/CarMapRenderer.kt -->
+    <string name="car_hud_speed_unit">km/h</string>
+    <string name="car_hud_avg_unit">avg km/h</string>
+
+    <!-- notif/* -->
+    <string name="notif_channel_trip_tracking">Trip tracking</string>
+    <string name="notif_trip_ended">Trip ended — saved to your logbook.</string>
+    <string name="notif_channel_circle_arrivals">Circle arrivals</string>
+    <string name="notif_channel_circle_service">Circle notifications running</string>
+    <string name="notif_circle_service_text">Watching your circles for arrivals and departures</string>
+
+    <!-- update/* -->
+    <string name="update_channel">Updates</string>
+    <string name="update_channel_reopen">Reopening after an update</string>
+    <string name="update_available">Detour %1$s is available</string>
+    <string name="update_available_text">Open Detour to install it.</string>
+    <string name="update_installed">Detour %1$s installed</string>
+    <string name="update_installed_text">Tap to reopen Detour.</string>
+    <string name="update_downloading_title">Downloading Detour %1$s</string>
+    <string name="update_downloading">Downloading…</string>
+    <string name="update_percent">%1$d%%</string>
+    <string name="update_cancel">Cancel</string>
+    <string name="update_install">Install</string>
+    <string name="update_ready">Detour %1$s is ready</string>
+    <string name="update_ready_text">Tap Install to finish updating.</string>
+    <string name="update_download_failed_title">Detour %1$s didn\'t download</string>
+    <string name="update_download_failed_text">Open Detour to try again.</string>
+    <!-- update/UpdateRowState.kt (Settings row) -->
+    <string name="update_row_download">Download %1$s</string>
+    <string name="update_row_downloading">Downloading %1$s</string>
+    <string name="update_row_failed">Download of %1$s failed</string>
+    <string name="update_row_retry">Retry</string>
+    <string name="update_row_check_title">Check for updates</string>
+    <string name="update_row_check_idle">Check for a new release</string>
+    <string name="update_row_checking">Checking…</string>
+    <string name="update_row_up_to_date">No update found</string>
+    <string name="update_row_found">Detour %1$s available</string>
+    <string name="update_row_check_failed">Couldn\'t reach GitHub</string>
+    <string name="update_row_rate_limited">Checked a few times just now — try again shortly</string>
+
+    <!-- convoy/ConvoyLiveService.kt -->
+    <string name="convoy_channel">Convoy</string>
+    <string name="convoy_live_title">Convoy live</string>
+    <string name="convoy_live_text">Sharing location, listening for push-to-talk</string>
+    <string name="convoy_stop">Stop</string>
+</resources>

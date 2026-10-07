@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- HistoryScreen.kt -->
+    <string name="history_title">Logboek</string>
+    <string name="history_load_failed">Je logboek kon niet van dit toestel worden gelezen.</string>
+    <string name="history_delete_failed">Die rit kon niet worden verwijderd — hij staat nog in je logboek. Probeer het opnieuw.</string>
+    <string name="history_filter_all">Alle</string>
+    <string name="history_filter_moto">Moto</string>
+    <string name="history_filter_car">Auto</string>
+    <string name="history_no_rides">Nog geen ritten.</string>
+    <string name="history_no_moto_rides">Nog geen motorritten.</string>
+    <string name="history_no_car_rides">Nog geen autoritten.</string>
+    <string name="history_empty_title">Nog geen ritten</string>
+    <string name="history_empty_text">Registreer een rit of spin een bestemming — je ritten komen hier terecht.</string>
+    <string name="history_try_again">Opnieuw proberen</string>
+    <string name="history_year_so_far">%1$d tot nu toe</string>
+    <string name="history_week_streak">weken op rij</string>
+    <string name="history_collapse_month">Maand inklappen</string>
+    <string name="history_expand_month">Maand uitklappen</string>
+    <string name="history_this_week">Deze week</string>
+    <string name="history_last_week">Vorige week</string>
+    <string name="history_week_of">Week van %1$s</string>
+    <string name="history_badge_unlocked">BADGE ONTGRENDELD</string>
+    <string name="history_trip_options">Ritopties</string>
+    <string name="history_rename">Naam wijzigen</string>
+    <string name="history_change_vehicle">Voertuig wijzigen</string>
+    <string name="history_share_card">Ritkaart delen</string>
+    <string name="history_delete">Verwijderen</string>
+    <string name="history_rename_title">Naam van rit wijzigen</string>
+    <string name="history_save">Opslaan</string>
+    <string name="history_use_generated">Automatische naam</string>
+    <string name="history_cancel">Annuleren</string>
+    <string name="history_close">Sluiten</string>
+    <string name="history_delete_title">Deze rit verwijderen?</string>
+    <string name="history_delete_text">%1$s — %2$s. Dit kan niet ongedaan worden gemaakt.</string>
+    <plurals name="history_towns_unit">
+        <item quantity="one">gemeente</item>
+        <item quantity="other">gemeenten</item>
+    </plurals>
+    <plurals name="history_rides_unit">
+        <item quantity="one">rit</item>
+        <item quantity="other">ritten</item>
+    </plurals>
+    <plurals name="history_rides">
+        <item quantity="one">%1$d rit</item>
+        <item quantity="other">%1$d ritten</item>
+    </plurals>
+    <plurals name="history_new_places">
+        <item quantity="one">%1$d nieuwe plaats</item>
+        <item quantity="other">%1$d nieuwe plaatsen</item>
+    </plurals>
+
+    <!-- TripDetailScreen.kt -->
+    <string name="trip_share_card">Ritkaart delen</string>
+    <string name="trip_export_gpx">GPX exporteren</string>
+    <string name="trip_no_gpx_app">Geen app om een GPX-bestand te ontvangen</string>
+    <string name="trip_gpx_not_saved">Exporteren mislukt: het GPX-bestand kon niet worden opgeslagen. Maak wat opslagruimte vrij en probeer het opnieuw.</string>
+    <string name="trip_no_route">Geen route geregistreerd</string>
+    <string name="trip_replay">Afspelen</string>
+    <string name="trip_replay_elapsed">%1$s · %2$s verstreken</string>
+    <string name="trip_replay_start">Begin van de rit</string>
+    <string name="trip_pause_replay">Afspelen pauzeren</string>
+    <string name="trip_play_replay">Rit afspelen</string>
+    <string name="trip_highlights">Hoogtepunten</string>
+    <string name="trip_more_options">Meer ritopties</string>
+
+    <!-- TripDeepDive.kt -->
+    <string name="deepdive_very_sharp">zeer scherp</string>
+    <string name="deepdive_sharp">scherp</string>
+    <string name="deepdive_very_hard">zeer hard</string>
+    <string name="deepdive_hard">hard</string>
+    <string name="deepdive_lean_left">%1$s links</string>
+    <string name="deepdive_lean_right">%1$s rechts</string>
+    <string name="deepdive_best_stretch">Beste stuk</string>
+    <string name="deepdive_twistiest">bochtigste %1$s</string>
+    <string name="deepdive_deepest_lean">Diepste helling</string>
+    <string name="deepdive_sharpest_corner">Scherpste bocht</string>
+    <string name="deepdive_hardest_braking">Hardste remming</string>
+    <string name="deepdive_top_speed">Topsnelheid</string>
+    <string name="deepdive_title">Alle cijfers</string>
+    <string name="deepdive_collapse">Alle cijfers inklappen</string>
+    <string name="deepdive_expand">Alle cijfers uitklappen</string>
+    <string name="deepdive_overview">Overzicht</string>
+    <string name="deepdive_distance">Afstand</string>
+    <string name="deepdive_total_time">Totale tijd</string>
+    <string name="deepdive_moving_time">Rijtijd</string>
+    <string name="deepdive_stops">Stops</string>
+    <string name="deepdive_none">geen</string>
+    <string name="deepdive_average_speed">Gemiddelde snelheid</string>
+    <string name="deepdive_moving_average">Gemiddelde rijsnelheid</string>
+    <string name="deepdive_twistiness">Bochtigheid</string>
+    <string name="deepdive_speed">Snelheid</string>
+    <string name="deepdive_over_limit">Boven de snelheidslimiet</string>
+    <string name="deepdive_cornering">Bochten</string>
+    <string name="deepdive_lean_unit">helling °</string>
+    <string name="deepdive_deepest_left">Diepst links</string>
+    <string name="deepdive_deepest_right">Diepst rechts</string>
+    <string name="deepdive_leaning_left">Naar links hellend</string>
+    <string name="deepdive_leaning_right">Naar rechts hellend</string>
+    <string name="deepdive_max_g">Max. g</string>
+    <string name="deepdive_events">Remmen, optrekken &amp; bochten</string>
+    <string name="deepdive_list_and">%1$s en %2$s</string>
+    <string name="deepdive_events_note">Opgepikt door de sensoren van je telefoon — puur uit nieuwsgierigheid, geen score.</string>
+    <string name="deepdive_splits">Tussentijden · elke %1$s</string>
+    <string name="deepdive_twisty">bochtig %1$d%%</string>
+    <string name="deepdive_split_best">%1$s · beste</string>
+    <string name="deepdive_roads">Wegen</string>
+    <string name="deepdive_engine">Motor (OBD2)</string>
+    <string name="deepdive_peak_rpm">Max. toerental</string>
+    <string name="deepdive_average_rpm">Gemiddeld toerental</string>
+    <string name="deepdive_max_throttle">Max. gas</string>
+    <string name="deepdive_wide_open_throttle">Vol gas</string>
+    <string name="deepdive_pct_of_samples">%1$d%% van de metingen</string>
+    <string name="deepdive_fuel">Brandstof</string>
+    <string name="deepdive_fuel_estimate_note">Een schatting op basis van de MAF — dit voertuig heeft geen directe PID voor brandstofverbruik, dus ze volgt de motorbelasting, niet de injectoren, en kan afwijken. Stel ze per voertuig bij onder de instellingen van de OBD2-adapter.</string>
+    <string name="deepdive_recording_details">Registratiedetails</string>
+    <string name="deepdive_hide_recording_details">Registratiedetails verbergen</string>
+    <string name="deepdive_show_recording_details">Registratiedetails tonen</string>
+    <string name="deepdive_vehicle">Voertuig</string>
+    <string name="deepdive_started_by">Gestart door</string>
+    <string name="deepdive_speed_source">Snelheidsbron</string>
+    <string name="deepdive_speed_source_obd2_under_1" formatted="false">OBD2 &lt;1% · GPS de rest</string>
+    <string name="deepdive_speed_source_obd2">OBD2 %1$d%% · GPS de rest</string>
+    <string name="deepdive_mount_offset">Montagecorrectie (huidige kalibratie)</string>
+    <string name="deepdive_stored_points">Opgeslagen punten (elke 25 m)</string>
+    <string name="deepdive_signal_gaps">Signaalonderbrekingen</string>
+    <plurals name="deepdive_hard_brakes">
+        <item quantity="one">%1$d keer hard geremd</item>
+        <item quantity="other">%1$d keer hard geremd</item>
+    </plurals>
+    <plurals name="deepdive_fast_starts">
+        <item quantity="one">%1$d snelle start</item>
+        <item quantity="other">%1$d snelle starts</item>
+    </plurals>
+    <plurals name="deepdive_sharp_corners">
+        <item quantity="one">%1$d scherpe bocht</item>
+        <item quantity="other">%1$d scherpe bochten</item>
+    </plurals>
+
+    <!-- TripCardRenderer.kt -->
+    <string name="card_layout_standard">Standaard</string>
+    <string name="card_layout_minimal">Minimaal</string>
+    <string name="card_layout_poster">Poster</string>
+    <string name="card_share_title">Ritkaart delen</string>
+    <string name="card_loading_route">Route laden…</string>
+    <string name="card_theme_light">Licht</string>
+    <string name="card_theme_dark">Donker</string>
+    <string name="card_trimmed">Route ingekort bij begin en einde voor je privacy.</string>
+    <string name="card_include_full_route">Volledige route tonen</string>
+    <string name="card_no_image_app">Geen app om een afbeelding te ontvangen</string>
+    <string name="card_not_saved">Kaart exporteren mislukt: de afbeelding kon niet worden opgeslagen. Maak wat opslagruimte vrij en probeer het opnieuw.</string>
+    <string name="card_share">Delen</string>
+    <string name="card_cancel">Annuleren</string>
+    <string name="card_preview">Voorbeeld van de ritkaart</string>
+    <string name="card_map_failed">De kaart voor deze ritkaart kon niet worden getekend — controleer je verbinding en kies dan een andere opmaak of een ander thema.</string>
+    <string name="card_rendering">Voorbeeld maken…</string>
+    <string name="card_distance">AFSTAND</string>
+    <string name="card_duration">DUUR</string>
+    <string name="card_top_speed">TOPSNELHEID</string>
+    <string name="card_avg_speed">GEM. SNELHEID</string>
+    <string name="card_peak_lean">MAX. HELLING</string>
+    <string name="card_peak_g">MAX. G</string>
+
+    <!-- RoutesScreen.kt -->
+    <string name="routes_no_maps_app">Geen app om een route met meerdere stops te openen</string>
+    <string name="routes_exported">%1$s geëxporteerd</string>
+    <string name="routes_imported">%1$s geïmporteerd</string>
+    <string name="routes_import_unreadable">Dat bestand is geen route die Detour kan lezen</string>
+    <string name="routes_share_route">Route delen</string>
+    <string name="routes_no_gpx_app">Geen app om een GPX-bestand te ontvangen</string>
+    <string name="routes_share_failed">Delen mislukt: het GPX-bestand kon niet worden opgeslagen. Maak wat opslagruimte vrij en probeer het opnieuw.</string>
+    <string name="routes_pulled_none">Geen nieuwe gedeelde routes</string>
+    <string name="routes_title">Routes</string>
+    <string name="routes_pull">Gedeelde routes ophalen</string>
+    <string name="routes_import">Route importeren</string>
+    <string name="routes_new">Nieuwe route</string>
+    <string name="routes_empty_title">Nog geen opgeslagen routes</string>
+    <string name="routes_empty_text">Plan een rit met meerdere stops op de kaart en sla die op, of importeer er een.</string>
+    <string name="routes_delete_title">Route verwijderen?</string>
+    <string name="routes_delete_text">\"%1$s\" wordt van dit toestel verwijderd.</string>
+    <string name="routes_delete">Verwijderen</string>
+    <string name="routes_sent">\"%1$s\" verstuurd naar %2$s</string>
+    <string name="routes_more_for">Meer voor %1$s</string>
+    <string name="routes_rename">Naam wijzigen</string>
+    <string name="routes_edit">Bewerken</string>
+    <string name="routes_share_file">Delen als bestand</string>
+    <string name="routes_export">Exporteren…</string>
+    <string name="routes_send_friend">Naar een vriend sturen</string>
+    <string name="routes_rename_title">Naam van route wijzigen</string>
+    <string name="routes_save">Opslaan</string>
+    <string name="routes_cancel">Annuleren</string>
+    <string name="routes_no_friends">Voeg eerst een vriend toe, op het scherm Vrienden.</string>
+    <plurals name="routes_pulled">
+        <item quantity="one">%1$d gedeelde route opgehaald</item>
+        <item quantity="other">%1$d gedeelde routes opgehaald</item>
+    </plurals>
+
+    <!-- SavedPlacesScreen.kt -->
+    <string name="places_title">Opgeslagen plaatsen</string>
+    <string name="places_add">Plaats toevoegen</string>
+    <string name="places_delete_title">Deze plaats verwijderen?</string>
+    <string name="places_delete_text">\"%1$s\" wordt van dit toestel verwijderd. Dit kan niet ongedaan worden gemaakt.</string>
+    <string name="places_delete">Verwijderen</string>
+    <string name="places_empty_title">Nog geen opgeslagen plaatsen</string>
+    <string name="places_empty_text">Voeg Thuis, Werk of een andere plek toe waar je vaak stopt.</string>
+    <string name="places_more_for">Meer voor %1$s</string>
+    <string name="places_set_home">Instellen als Thuis</string>
+    <string name="places_set_work">Instellen als Werk</string>
+    <string name="places_remove_favourite">Verwijderen uit favorieten</string>
+    <string name="places_add_favourite">Toevoegen aan favorieten</string>
+    <string name="places_clear_label">Label wissen</string>
+    <string name="places_rename">Naam wijzigen</string>
+    <string name="places_no_results">Geen resultaten</string>
+    <string name="places_search_failed">Zoeken mislukt — controleer je verbinding</string>
+    <string name="places_name_label">Naam (Thuis, Werk…)</string>
+    <string name="places_address_label">Adres of plaats</string>
+    <string name="places_selected">Gekozen: %1$s</string>
+    <string name="places_save">Opslaan</string>
+    <string name="places_cancel">Annuleren</string>
+    <string name="places_rename_title">Naam van plaats wijzigen</string>
+</resources>

@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dutch (nl-BE, "je") for values/strings_settings.xml. Same key set. -->
+<resources>
+    <!-- Hub -->
+    <string name="settings_title">Instellingen</string>
+    <string name="settings_section_riding">RIJDEN</string>
+    <string name="settings_section_map">KAART</string>
+    <string name="settings_section_devices">APPARATEN</string>
+    <string name="settings_section_account">ACCOUNT</string>
+    <string name="settings_section_about">OVER</string>
+    <string name="settings_obd2_subtitle">Koppel de OBD2-adapter van een voertuig voor een nauwkeurige snelheid</string>
+    <string name="settings_licences_subtitle">Bronvermelding van open data voor flitsers, wegen en de basiskaart</string>
+    <string name="settings_whats_new">Wat is er nieuw</string>
+    <string name="settings_collapse">Inklappen</string>
+    <string name="settings_expand">Uitklappen</string>
+
+    <!-- Spoke titles -->
+    <string name="settings_spoke_appearance_map">Weergave &amp; kaart</string>
+    <string name="settings_spoke_tracking_vehicles">Registratie &amp; voertuigen</string>
+    <string name="settings_spoke_navigation">Navigatie</string>
+    <string name="settings_spoke_fog">Fog of war</string>
+    <string name="settings_spoke_displays_media">Schermen &amp; media</string>
+    <string name="settings_spoke_servers_sync">Servers &amp; sync</string>
+    <string name="settings_spoke_obd2">OBD2-adapter</string>
+    <string name="settings_spoke_licences">Licenties</string>
+
+    <!-- Shared buttons -->
+    <string name="settings_reset">Herstellen</string>
+    <string name="settings_remove">Verwijderen</string>
+    <string name="settings_save">Opslaan</string>
+    <string name="settings_add">Toevoegen</string>
+    <string name="settings_close">Sluiten</string>
+    <string name="settings_cancel">Annuleren</string>
+    <string name="settings_allow_bluetooth">Bluetooth toestaan</string>
+
+    <!-- Appearance -->
+    <string name="settings_appearance">Weergave</string>
+    <string name="settings_theme_system">Systeem</string>
+    <string name="settings_theme_light">Licht</string>
+    <string name="settings_theme_dark">Donker</string>
+    <string name="settings_theme_auto">Auto</string>
+    <string name="settings_theme_auto_hint">Licht overdag, donker \'s nachts — volgt zonsopgang en zonsondergang op je locatie.</string>
+    <string name="settings_decimal_separator">Decimaalteken</string>
+    <string name="settings_decimal_system">Systeem</string>
+    <string name="settings_decimal_hint">Hoe waarden met een decimaal worden geschreven — afstanden, g, verbruik, montagecorrectie, kaartzoom. Snelheden worden afgerond op hele km/u, dus die tonen er nooit een. Kaartcoördinaten gebruiken altijd een punt, zodat een paar breedte-/lengtegraad leesbaar blijft.</string>
+
+    <!-- Tracking -->
+    <string name="settings_tracking">Registratie</string>
+    <string name="settings_auto_detect">Ritten automatisch herkennen</string>
+    <string name="settings_auto_detect_hint">Start automatisch een rit zodra rijden wordt herkend</string>
+    <string name="settings_dormancy_activity">De tracker van Detour blijft aan, met zijn melding zichtbaar, ook als je geparkeerd staat. Hij heeft toegang tot fysieke activiteit nodig om te merken dat je gestopt bent, zodat hij zichzelf kan uitschakelen tot je weer rijdt.</string>
+    <string name="settings_dormancy_background">De tracker van Detour blijft aan, met zijn melding zichtbaar, ook als je geparkeerd staat. Zet locatietoegang op \"Altijd toestaan\" en hij kan zichzelf uitschakelen terwijl je geparkeerd staat, en weer wakker worden als je wegrijdt.</string>
+    <string name="settings_allow_activity">Fysieke activiteit toestaan</string>
+    <string name="settings_change_location">Locatietoegang wijzigen</string>
+
+    <!-- Navigation -->
+    <string name="settings_nav_ask">Elke keer vragen</string>
+    <string name="settings_nav_in_app">Navigeren in de app</string>
+    <string name="settings_nav_other">Andere app</string>
+    <string name="settings_voice">Gesproken begeleiding</string>
+    <string name="settings_voice_hint">Afslaginstructies worden voorgelezen tijdens het navigeren, hier en op het autoscherm. Onderweg te dempen met de luidsprekerknop daar.</string>
+    <string name="settings_remembered_nav">Onthouden navigatie-app</string>
+    <string name="settings_remembered_nav_hint">Go opent nu: %1$s. Houd Go lang ingedrukt om dat te wijzigen.</string>
+    <string name="settings_avoid_highways">Snelwegen vermijden</string>
+    <string name="settings_avoid_highways_hint">Navigatie in de app slaat autosnelwegen over (automodus; moto gebruikt ze nooit)</string>
+    <string name="settings_avoid_small_roads">Kleine wegen vermijden</string>
+    <string name="settings_avoid_small_roads_hint">Echte wegen verkiezen boven smalle landweggetjes, dienstwegen en onverharde paden</string>
+
+    <!-- Map -->
+    <string name="settings_marker">Jouw markering</string>
+    <string name="settings_marker_hint">Getekend waar je bent, op de kaart van je gsm en op het autoscherm. Voertuigen draaien mee met je rijrichting.</string>
+    <string name="settings_route_line">Routelijn</string>
+    <string name="settings_route_line_hint">De lijn naar je bestemming, op de kaart van je gsm en op het autoscherm. Tijdens het navigeren vervaagt het stuk dat je al gereden hebt naar de donkerdere tint.</string>
+    <string name="settings_map">Kaart</string>
+    <string name="settings_default_zoom">Standaardzoom</string>
+    <string name="settings_default_zoom_hint">Waar de kaart staat terwijl ze je volgt. Ze zoomt tot twee niveaus uit bij snelheid en weer in vlak bij een afslag.</string>
+
+    <!-- Fog of war -->
+    <string name="settings_reveal_radius">Onthullingsstraal</string>
+    <string name="settings_share_fog">Fog delen met vrienden</string>
+    <string name="settings_share_fog_hint">Ontdek de kaart samen: je geaccepteerde vrienden zien de wegen die jij gereden hebt, en jij ziet die van hen. Alleen vrienden die terug delen zien de jouwe. Uit: niemand ziet iets.</string>
+    <string name="settings_reset_explored">Verkend gebied wissen</string>
+    <string name="settings_reset_explored_title">Verkend gebied wissen?</string>
+    <string name="settings_reset_explored_text">Alle fog-of-war-voortgang wordt definitief verwijderd. Opgeslagen ritten blijven bewaard.</string>
+
+    <!-- Displays & media -->
+    <string name="settings_external_display">Extern scherm</string>
+    <string name="settings_external_display_hint">Zend navigatie uit via Bluetooth Low Energy naar een scherm op je stuur — afslag, afstand, snelheid, snelheidslimiet, straatnaam en resterende afstand/aankomsttijd.</string>
+    <string name="settings_broadcast_external">Uitzenden naar extern scherm</string>
+    <string name="settings_now_playing">Nu aan het spelen op extern scherm</string>
+    <string name="settings_now_playing_hint">Stuur titel, artiest en afspeelpositie van wat er speelt (Spotify enz.) door naar het stuurscherm. Leest alleen mediasessies, nooit de inhoud van meldingen — Android vereist toegang tot meldingen voor beide, dus de naam van de toestemming is ruimer dan wat er echt gebruikt wordt.</string>
+    <string name="settings_allow_notification_access">Toegang tot meldingen toestaan</string>
+    <string name="settings_now_playing_enabled">Ingeschakeld. Zet hierboven ook \"Uitzenden naar extern scherm\" aan — muziek deelt die Bluetooth-verbinding.</string>
+
+    <!-- Vehicles -->
+    <string name="settings_vehicles">Voertuigen</string>
+    <string name="settings_vehicles_hint">Koppel een Bluetooth-apparaat aan een voertuig. Als het verbonden is, worden ritten automatisch onder dat voertuig geregistreerd. Zonder verbinding wordt een rit die nooit echt rijtempo haalt verworpen in plaats van opgeslagen.</string>
+    <string name="settings_vehicles_grant">Geef Bluetooth-toegang om je gekoppelde apparaten toe te voegen.</string>
+    <string name="settings_add_device">Apparaat toevoegen</string>
+    <string name="settings_no_devices">Geen apparaten</string>
+    <string name="settings_rename_named">%1$s hernoemen</string>
+    <string name="settings_remove_named">%1$s verwijderen</string>
+    <string name="settings_share_vehicle_name">\"%1$s\" delen met je konvooi</string>
+    <string name="settings_remove_vehicle_title">%1$s verwijderen?</string>
+    <string name="settings_remove_vehicle_text">Ritten worden niet langer als %1$s geregistreerd wanneer dit apparaat verbindt. Je kunt het opnieuw toevoegen uit de lijst met gekoppelde apparaten.</string>
+    <string name="settings_rename_vehicle">Voertuig hernoemen</string>
+    <string name="settings_name_vehicle">Geef deze %1$s een naam</string>
+    <string name="settings_add_vehicle_device">Apparaat toevoegen voor %1$s</string>
+    <string name="settings_no_unassigned">Geen vrije gekoppelde apparaten. Koppel het apparaat eerst in de Bluetooth-instellingen van Android, of verwijder het bij een ander voertuig.</string>
+    <string name="settings_vehicle_name_hint">Getoond in je geschiedenis en aan je konvooi. Laat leeg om de apparaatnaam te gebruiken.</string>
+
+    <!-- Vehicle mounting -->
+    <string name="settings_no_rotation_sensor">Geen rotatiesensor op deze gsm</string>
+    <string name="settings_calibrated">Gekalibreerd: correctie %1$s°</string>
+    <string name="settings_no_readings">Geen metingen — probeer opnieuw</string>
+    <string name="settings_vehicle_mounting">Montage op het voertuig</string>
+    <string name="settings_mounting_hint">Corrigeert een houder die niet helemaal recht op het stuur staat, zodat rechtdoor rijden 0° helling toont. Zet de moto rechtop op zijn wielen, motor uit, gsm in zijn gewone houder, en kalibreer dan.</string>
+    <string name="settings_current_offset">Huidige correctie: %1$s°</string>
+    <string name="settings_calibrating">Kalibreren…</string>
+    <string name="settings_calibrate">Kalibreren</string>
+
+    <!-- Servers & sync -->
+    <string name="settings_status">STATUS</string>
+    <string name="settings_server">Server</string>
+    <string name="settings_backup_sync">Back-upsync</string>
+    <string name="settings_server_config_file">Serverconfiguratiebestand</string>
+    <string name="settings_actions">Acties</string>
+    <string name="settings_syncing">Synchroniseren…</string>
+    <string name="settings_synced">Gesynchroniseerd: %1$d ritten, %2$d spoorsegmenten, %3$d badges</string>
+    <string name="settings_sync_now">Nu synchroniseren</string>
+    <string name="settings_config_exported">Configuratie geëxporteerd</string>
+    <string name="settings_config_imported">Configuratie geïmporteerd — herstart de app om de nieuwe servers te gebruiken</string>
+    <string name="settings_export_config">Configuratie exporteren</string>
+    <string name="settings_import_config">Configuratie importeren</string>
+    <string name="settings_import_title">Deze configuratie importeren?</string>
+    <string name="settings_import_text">De serveradressen op dit toestel worden vervangen door die uit het bestand. Wat er nu staat, is niet terug te halen.</string>
+    <string name="settings_import">Importeren</string>
+    <string name="settings_server_summary">Optioneel: je eigen adres voor routes, zoeken, sync en live.</string>
+    <string name="settings_server_detail">Optioneel: één zelfgehost adres voor routes, zoeken, sync en de live relay voor konvooien (zie de indeling met één hostnaam). Laat leeg om de ingebouwde route- en zoekservers te gebruiken, met sync en live uit.</string>
+    <string name="settings_announced_routing">Je server stelt een routeadres voor: %1$s</string>
+    <string name="settings_announced_search">Je server stelt een zoekadres voor: %1$s</string>
+    <string name="settings_use_it">Gebruiken</string>
+    <string name="settings_no_thanks">Nee, bedankt</string>
+    <string name="settings_server_url">Server-URL</string>
+    <string name="settings_hide_advanced">Geavanceerd verbergen</string>
+    <string name="settings_advanced">Geavanceerd</string>
+    <string name="settings_invalid_address">“%1$s” is geen serveradres — gebruik http:// of https:// en een hostnaam.</string>
+    <string name="settings_saved">Opgeslagen ✓</string>
+    <string name="settings_save_server">Server opslaan</string>
+    <string name="settings_advanced_hint">Voor een installatie verspreid over meerdere hostnamen. Wat leeg blijft, gebruikt het serveradres hierboven. Routes en zoeken kunnen geen host delen met sync, want de API beantwoordt /api/trips en de zoekserver beantwoordt /api/ — één adres kan dus niet beide bedienen.</string>
+    <string name="settings_api_url">Sync- &amp; sociale API (optioneel)</string>
+    <string name="settings_routing_url">Routeserver (optioneel)</string>
+    <string name="settings_search_url">Zoekserver (optioneel)</string>
+    <string name="settings_realm_url">URL van de aanmeldrealm (verouderd)</string>
+    <string name="settings_realm_hint">Verouderd — nieuwere servers vertellen de app welke realm ze moet gebruiken, dus laat dit leeg tenzij je server niet bijgewerkt is. Wat je hier invult, wint nog altijd van wat de server zegt. Wijzigen meldt dit toestel af: tokens van de ene realm betekenen niets voor een andere.</string>
+    <string name="settings_public_search">Terugvallen op openbaar zoeken</string>
+    <string name="settings_public_search_hint">Als je zoekserver onbereikbaar is, opnieuw proberen via de openbare Photon-instantie (komoot.io) — dat stuurt de zoekopdracht, je geschatte locatie en de coördinaten van te benoemen plaatsen buiten je eigen hardware.</string>
+    <string name="settings_remove_custom">Eigen server verwijderen</string>
+    <string name="settings_remove_custom_title">De eigen server verwijderen?</string>
+    <string name="settings_remove_custom_text_builtin">Alle vijf adressen worden gewist en de app valt terug op de ingebouwde server.</string>
+    <string name="settings_remove_custom_text_public">Alle vijf adressen worden gewist en de app valt terug op de openbare servers.</string>
+    <string name="settings_sync_summary">Je ritten, verkend gebied en badges worden op je eigen server bewaard.</string>
+    <string name="settings_sync_detail">Ritten, verkend gebied en badges worden na elke rit en bij het opstarten van de app samengevoegd met je server, zodat een herinstallatie alles terugzet. Gebruikt de server-URL onder Serverinstellingen.</string>
+    <string name="settings_not_signed_in">Niet aangemeld — open Vrienden om een account aan te maken.</string>
+    <string name="settings_signed_in_as">Aangemeld als %1$s</string>
+    <string name="settings_config_summary">Bewaar je serverinstellingen in een bestand en importeer het na een herinstallatie.</string>
+    <string name="settings_config_detail">Sla de serveradressen op in een bestand. Importeer het na een herinstallatie in plaats van ze opnieuw te typen.</string>
+    <string name="settings_config_warning">Het bestand bevat je aanmelding niet. Meld je na het importeren op een andere gsm daar opnieuw aan.</string>
+    <string name="settings_show_less">Minder tonen</string>
+    <string name="settings_learn_more">Meer info</string>
+
+    <!-- Diagnostics -->
+    <string name="settings_diagnostics">Diagnose</string>
+    <string name="settings_record_timings">Functietijden registreren</string>
+    <string name="settings_record_timings_hint">Meet de trage delen van de app tegenover hoeveel data ze verwerkten, zodat je kunt zien of ze trager worden naarmate je geschiedenis groeit. Blijft op dit toestel — nooit gesynchroniseerd, nooit geback-upt.</string>
+    <string name="settings_nothing_recorded">Nog niets geregistreerd</string>
+    <string name="settings_export_timings">Tijden exporteren</string>
+    <string name="settings_suppressed_events">Onderdrukte kringgebeurtenissen</string>
+    <string name="settings_none">Geen</string>
+    <string name="settings_suppressed_row">%1$s · plaats %2$s · %3$s · %4$s</string>
+    <string name="settings_server_config_resolved">Serverconfiguratie (opgelost)</string>
+    <string name="settings_service_announced">aangekondigd: %1$s, wacht op toestemming</string>
+    <string name="settings_service_declined">geweigerd: %1$s</string>
+    <string name="settings_features">Functies · %1$s</string>
+    <string name="settings_features_never">nooit opgevraagd, of geen enkele opvraging beantwoord</string>
+    <string name="settings_features_none">geen aangeboden</string>
+    <string name="settings_refresh">Vernieuwen</string>
+    <string name="settings_source_typed">ingevuld voor deze dienst</string>
+    <string name="settings_source_announced">aangekondigd door de server</string>
+    <string name="settings_source_general">ingevuld (één adres)</string>
+    <string name="settings_source_baked">ingebouwde standaard</string>
+    <string name="settings_source_none">niet ingesteld</string>
+
+    <!-- OBD2 -->
+    <string name="settings_obd2_intro">Koppel de OBD2-adapter van een voertuig (een Bluetooth ELM327-dongle in de poort) voor een nauwkeurige snelheid in plaats van gps. Geen score om na te jagen, geen nieuwe geschiedenis — gewoon een nauwkeurigere snelheid zolang hij verbonden is.</string>
+    <string name="settings_obd2_link">Adapterverbinding: %1$s</string>
+    <string name="settings_obd2_state_disconnected">Niet verbonden</string>
+    <string name="settings_obd2_state_connecting">Verbinden</string>
+    <string name="settings_obd2_state_connected">Verbonden</string>
+    <string name="settings_obd2_state_failed">Mislukt</string>
+    <string name="settings_obd2_speed">Snelheid: %1$d km/u</string>
+    <string name="settings_obd2_throttle">Gas: %1$d%%</string>
+    <string name="settings_obd2_rpm">Toerental: %1$d</string>
+    <string name="settings_obd2_last_data_s">Laatste data: %1$ds geleden</string>
+    <string name="settings_obd2_last_data_m">Laatste data: %1$d min geleden</string>
+    <string name="settings_obd2_retry">Nu opnieuw proberen</string>
+    <string name="settings_obd2_no_other">Geen andere gekoppelde apparaten om als OBD2-adapter te gebruiken.</string>
+    <string name="settings_obd2_use">%1$s gebruiken</string>
+    <string name="settings_obd2_adapter">Adapter: %1$s</string>
+    <string name="settings_obd2_forget">Vergeten</string>
+    <string name="settings_obd2_forget_title">%1$s vergeten?</string>
+    <string name="settings_obd2_forget_text">%1$s gaat terug naar gps-snelheid tot de adapter opnieuw gekoppeld wordt vanop dit scherm.</string>
+    <string name="settings_obd2_fuel_petrol">Benzine</string>
+    <string name="settings_obd2_fuel_diesel">Diesel</string>
+    <string name="settings_obd2_calibration">Kalibratie: %1$d%%</string>
+    <string name="settings_obd2_calibration_hint">Leest het brandstofverbruik van de rit hoger of lager dan het scherm van je auto zelf? Pas dit dan een beetje aan.</string>
+    <string name="settings_obd2_add_vehicle_first">Voeg eerst een voertuig toe onder Registratie &amp; voertuigen.</string>
+    <string name="settings_obd2_fail_unavailable">Kon de adapter niet bereiken — controleer of hij ingeplugd is en Bluetooth aanstaat.</string>
+    <string name="settings_obd2_fail_permission">Bluetooth-toestemming is geweigerd.</string>
+    <string name="settings_obd2_fail_handshake">De adapter antwoordde niet op de handshake — een goedkope kloon moet soms opnieuw ingeplugd worden.</string>
+    <string name="settings_obd2_fail_no_data">Verbonden, maar het voertuig stuurde geen data — probeer opnieuw met het contact aan.</string>
+    <string name="settings_obd2_fail_socket">Fout in de Bluetooth-verbinding — buiten bereik geraakt of de adapter is herstart.</string>
+
+    <!-- Licences -->
+    <string name="settings_licence_osm">Flitspalen, trajectcontroles en wegdata — © OpenStreetMap-bijdragers, Open Database License (ODbL).</string>
+    <string name="settings_licence_lufop">Extra flitspalen — data van lufop.net, Open Database License (ODbL).</string>
+    <string name="settings_no_app_to_open">Geen app om %1$s te openen</string>
+    <string name="settings_view_licence">Licentie bekijken</string>
+</resources>
