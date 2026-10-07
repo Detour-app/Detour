@@ -28,10 +28,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.ConfigFile
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.ServerConfig
@@ -128,20 +130,20 @@ private fun ServersStatusCard(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionLabel("STATUS")
+        SectionLabel(stringResource(R.string.settings_status))
         ListCard {
             HubRow(
-                Icons.Outlined.Dns, "Server", onServer,
+                Icons.Outlined.Dns, stringResource(R.string.settings_server), onServer,
                 subtitle = state.server, paintCard = false,
             )
             CardDivider()
             HubRow(
-                Icons.Outlined.CloudSync, "Backup sync", onSync,
+                Icons.Outlined.CloudSync, stringResource(R.string.settings_backup_sync), onSync,
                 subtitle = state.sync, paintCard = false,
             )
             CardDivider()
             HubRow(
-                Icons.Outlined.Description, "Server config file", onBackup,
+                Icons.Outlined.Description, stringResource(R.string.settings_server_config_file), onBackup,
                 subtitle = state.backup, paintCard = false,
             )
         }
@@ -161,7 +163,7 @@ private fun ServersActionsCard(
     onServerChange: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    SettingsSection("Actions", modifier) {
+    SettingsSection(stringResource(R.string.settings_actions), modifier) {
         SyncNowButton(canSync, onStatus)
         ConfigFileButtons(onStatus, onServerChange)
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
@@ -177,6 +179,7 @@ private fun SyncNowButton(
     onStatus: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var syncing by remember { mutableStateOf(false) }
     TextButton(
@@ -184,14 +187,13 @@ private fun SyncNowButton(
         enabled = enabled && !syncing,
         onClick = {
             syncing = true
-            onStatus("Syncing…")
+            onStatus(context.getString(R.string.settings_syncing))
             scope.launch {
                 onStatus(
                     withContext(Dispatchers.IO) {
                         try {
                             val r = SyncClient.sync()
-                            "Synced: ${r.trips} trips, ${r.traces} trace segments, " +
-                                "${r.badges} badges"
+                            context.getString(R.string.settings_synced, r.trips, r.traces, r.badges)
                         } catch (e: Exception) {
                             failureText("Sync", e)
                         }
@@ -200,7 +202,7 @@ private fun SyncNowButton(
                 syncing = false
             }
         },
-    ) { Text("Sync now") }
+    ) { Text(stringResource(R.string.settings_sync_now)) }
 }
 
 /** Export and import, with the file pickers and the import confirmation that
@@ -219,7 +221,7 @@ private fun ConfigFileButtons(
         onStatus(
             try {
                 ConfigFile.export(context, uri)
-                "Config exported"
+                context.getString(R.string.settings_config_exported)
             } catch (e: Exception) {
                 fileFailureText("Export", e)
             },
@@ -246,7 +248,7 @@ private fun ConfigFileButtons(
                 // the address fields and the Remove button all keep showing the
                 // server that was there before the file was applied.
                 onServerChange()
-                "Config imported — restart the app to use the new servers"
+                context.getString(R.string.settings_config_imported)
             } catch (e: Exception) {
                 fileFailureText("Import", e)
             },
@@ -257,20 +259,19 @@ private fun ConfigFileButtons(
         TextButton(onClick = {
             onStatus(null)
             exportLauncher.launch(ConfigFile.SUGGESTED_NAME)
-        }) { Text("Export config") }
+        }) { Text(stringResource(R.string.settings_export_config)) }
         TextButton(onClick = {
             onStatus(null)
             // Some file pickers hide application/json; */* keeps the file reachable.
             importLauncher.launch(arrayOf(ConfigFile.MIME_TYPE, "*/*"))
-        }) { Text("Import config") }
+        }) { Text(stringResource(R.string.settings_import_config)) }
     }
 
     pendingImport?.let { uri ->
         ConfirmDialog(
-            title = "Import this config?",
-            text = "It replaces the server addresses on this device with the " +
-                "file's. What is there now is not recoverable.",
-            confirmLabel = "Import",
+            title = stringResource(R.string.settings_import_title),
+            text = stringResource(R.string.settings_import_text),
+            confirmLabel = stringResource(R.string.settings_import),
             onConfirm = { runImport(uri) },
             onDismiss = { pendingImport = null },
         )
@@ -319,26 +320,21 @@ private fun ServerSection(
         )
     }
 
-    SettingsSection("Server", modifier) {
+    SettingsSection(stringResource(R.string.settings_server), modifier) {
         LearnMore(
-            "Optional: your own address for routing, search, sync and live.",
-            "Optional: one self-hosted address for routing, search, sync " +
-                "and the convoy live relay (see the one-hostname layout in " +
-                "one-hostname layout). Leave empty to use the built-in " +
-                "routing/search servers, with sync and live off.",
+            stringResource(R.string.settings_server_summary),
+            stringResource(R.string.settings_server_detail),
         )
         pendingRouting?.let { baseUrl ->
             AnnouncedServicePrompt(
-                label = "routing",
-                baseUrl = baseUrl,
+                message = stringResource(R.string.settings_announced_routing, baseUrl),
                 onAccept = { RoutingServer.acceptRoutingAnnouncement(); pendingRouting = null },
                 onDecline = { RoutingServer.declineRoutingAnnouncement(); pendingRouting = null },
             )
         }
         pendingGeocoder?.let { baseUrl ->
             AnnouncedServicePrompt(
-                label = "search",
-                baseUrl = baseUrl,
+                message = stringResource(R.string.settings_announced_search, baseUrl),
                 onAccept = { RoutingServer.acceptGeocoderAnnouncement(); pendingGeocoder = null },
                 onDecline = { RoutingServer.declineGeocoderAnnouncement(); pendingGeocoder = null },
             )
@@ -346,20 +342,20 @@ private fun ServerSection(
         CredentialTextField(
             value = draft.url,
             onValueChange = { draft = draft.copy(url = it); saved = false; invalid = null },
-            label = "Server URL",
+            label = stringResource(R.string.settings_server_url),
             keyboardType = KeyboardType.Uri,
             placeholder = "https://…",
             modifier = Modifier.fillMaxWidth(),
         )
         TextButton(onClick = { showAdvanced = !showAdvanced }) {
-            Text(if (showAdvanced) "Hide advanced" else "Advanced")
+            Text(stringResource(if (showAdvanced) R.string.settings_hide_advanced else R.string.settings_advanced))
         }
         if (showAdvanced) {
             ServerAdvanced(draft = draft, onDraftChange = { draft = it; saved = false; invalid = null })
         }
         invalid?.let {
             Text(
-                "“$it” is not a server address — use http:// or https:// and a host name.",
+                stringResource(R.string.settings_invalid_address, it),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -378,7 +374,7 @@ private fun ServerSection(
                 if (next == null) RoutingServer.clearCustom() else RoutingServer.save(next)
                 onCustomChange(next)
                 saved = true
-            }) { Text(if (saved) "Saved ✓" else "Save server") }
+            }) { Text(stringResource(if (saved) R.string.settings_saved else R.string.settings_save_server)) }
             if (custom != null) {
                 RemoveCustomServerButton(
                     builtInAvailable = builtInAvailable,
@@ -408,20 +404,16 @@ private fun ServerSection(
  */
 @Composable
 private fun AnnouncedServicePrompt(
-    label: String,
-    baseUrl: String,
+    message: String,
     onAccept: () -> Unit,
     onDecline: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            "Your server suggests a $label address: $baseUrl",
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Text(message, style = MaterialTheme.typography.bodyMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = onAccept) { Text("Use it") }
-            TextButton(onClick = onDecline) { Text("No thanks") }
+            TextButton(onClick = onAccept) { Text(stringResource(R.string.settings_use_it)) }
+            TextButton(onClick = onDecline) { Text(stringResource(R.string.settings_no_thanks)) }
         }
     }
 }
@@ -442,24 +434,20 @@ private fun ServerAdvanced(
     val geocoderPublicFallback by Settings.geocoderPublicFallback.collectAsStateWithLifecycle()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            "For a deployment split across hostnames. Anything left empty " +
-                "uses the server address above. Routing and search cannot " +
-                "share one host with sync, because the API answers /api/trips " +
-                "and the search server answers /api/ — so one address cannot " +
-                "serve both.",
+            stringResource(R.string.settings_advanced_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         CredentialTextField(
             value = draft.apiUrl, onValueChange = { onDraftChange(draft.copy(apiUrl = it)) },
-            label = "Sync & social API (optional)",
+            label = stringResource(R.string.settings_api_url),
             keyboardType = KeyboardType.Uri,
             placeholder = "https://api.example.com",
             modifier = Modifier.fillMaxWidth(),
         )
         CredentialTextField(
             value = draft.routingUrl, onValueChange = { onDraftChange(draft.copy(routingUrl = it)) },
-            label = "Routing server (optional)",
+            label = stringResource(R.string.settings_routing_url),
             keyboardType = KeyboardType.Uri,
             placeholder = "https://route.example.com",
             modifier = Modifier.fillMaxWidth(),
@@ -467,24 +455,20 @@ private fun ServerAdvanced(
         CredentialTextField(
             value = draft.geocoderUrl,
             onValueChange = { onDraftChange(draft.copy(geocoderUrl = it)) },
-            label = "Search server (optional)",
+            label = stringResource(R.string.settings_search_url),
             keyboardType = KeyboardType.Uri,
             placeholder = "https://search.example.com",
             modifier = Modifier.fillMaxWidth(),
         )
         CredentialTextField(
             value = draft.idpIssuer, onValueChange = { onDraftChange(draft.copy(idpIssuer = it)) },
-            label = "Sign-in realm URL (deprecated)",
+            label = stringResource(R.string.settings_realm_url),
             keyboardType = KeyboardType.Uri,
             placeholder = "https://idp.example.com/realms/detour",
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "Deprecated — newer servers tell the app which realm to use, so " +
-                "leave this empty unless your server has not been updated. " +
-                "Anything typed here still wins over what the server says. " +
-                "Changing it signs this device out: tokens from one realm mean " +
-                "nothing to another.",
+            stringResource(R.string.settings_realm_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -494,11 +478,9 @@ private fun ServerAdvanced(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Fall back to public search", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_public_search), style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "If your search server is unreachable, retry via the public " +
-                        "Photon instance (komoot.io) — sends the query and your " +
-                        "approximate location off your own hardware.",
+                    stringResource(R.string.settings_public_search_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -517,13 +499,18 @@ private fun ServerAdvanced(
 @Composable
 private fun RemoveCustomServerButton(builtInAvailable: Boolean, onRemove: () -> Unit) {
     var confirming by remember { mutableStateOf(false) }
-    TextButton(onClick = { confirming = true }) { Text("Remove custom server") }
+    TextButton(onClick = { confirming = true }) { Text(stringResource(R.string.settings_remove_custom)) }
     if (confirming) {
         ConfirmDialog(
-            title = "Remove the custom server?",
-            text = "All five addresses are cleared and the app falls back to " +
-                if (builtInAvailable) "the built-in server." else "the public servers.",
-            confirmLabel = "Remove",
+            title = stringResource(R.string.settings_remove_custom_title),
+            text = stringResource(
+                if (builtInAvailable) {
+                    R.string.settings_remove_custom_text_builtin
+                } else {
+                    R.string.settings_remove_custom_text_public
+                },
+            ),
+            confirmLabel = stringResource(R.string.settings_remove),
             onConfirm = onRemove,
             onDismiss = { confirming = false },
         )
@@ -533,16 +520,14 @@ private fun RemoveCustomServerButton(builtInAvailable: Boolean, onRemove: () -> 
 /** Backup sync with the owner's server (see backend/README.md). */
 @Composable
 private fun SyncSection(signedInAs: String, modifier: Modifier = Modifier) {
-    SettingsSection("Backup sync", modifier) {
+    SettingsSection(stringResource(R.string.settings_backup_sync), modifier) {
         LearnMore(
-            "Your trips, explored area and badges are kept on your own server.",
-            "Trips, explored area and badges are merged with your server after " +
-                "every trip and on app start, so a reinstall restores everything. " +
-                "Uses the Server URL under Server settings.",
+            stringResource(R.string.settings_sync_summary),
+            stringResource(R.string.settings_sync_detail),
         )
         Text(
-            if (signedInAs.isBlank()) "Not signed in — open Friends to create an account."
-            else "Signed in as $signedInAs",
+            if (signedInAs.isBlank()) stringResource(R.string.settings_not_signed_in)
+            else stringResource(R.string.settings_signed_in_as, signedInAs),
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Bold,
         )
@@ -557,13 +542,11 @@ private fun SyncSection(signedInAs: String, modifier: Modifier = Modifier) {
  */
 @Composable
 private fun ConfigFileSection(modifier: Modifier = Modifier) {
-    SettingsSection("Server config file", modifier) {
+    SettingsSection(stringResource(R.string.settings_server_config_file), modifier) {
         LearnMore(
-            "Keep your server setup in a file, and import it after a reinstall.",
-            "Save the server addresses to a file. After a reinstall, import it " +
-                "instead of typing them again.",
-            warning = "The file does not carry your sign-in. After importing it on " +
-                "another phone, sign in there again.",
+            stringResource(R.string.settings_config_summary),
+            stringResource(R.string.settings_config_detail),
+            warning = stringResource(R.string.settings_config_warning),
         )
     }
 }
@@ -600,7 +583,7 @@ private fun LearnMore(summary: String, detail: String, warning: String? = null) 
             }
         }
         TextButton(onClick = { open = !open }) {
-            Text(if (open) "Show less" else "Learn more")
+            Text(stringResource(if (open) R.string.settings_show_less else R.string.settings_learn_more))
         }
     }
 }
