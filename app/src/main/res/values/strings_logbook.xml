@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- HistoryScreen.kt -->
+    <string name="history_title">Logbook</string>
+    <string name="history_load_failed">Could not read your logbook from this device.</string>
+    <string name="history_delete_failed">Could not delete that trip — it is still in your logbook. Try again.</string>
+    <string name="history_filter_all">All</string>
+    <string name="history_filter_moto">Moto</string>
+    <string name="history_filter_car">Car</string>
+    <string name="history_no_rides">No rides yet.</string>
+    <string name="history_no_moto_rides">No moto rides yet.</string>
+    <string name="history_no_car_rides">No car rides yet.</string>
+    <string name="history_empty_title">No trips yet</string>
+    <string name="history_empty_text">Track a drive or spin a destination — your rides land here.</string>
+    <string name="history_try_again">Try again</string>
+    <string name="history_year_so_far">%1$d so far</string>
+    <string name="history_week_streak">week streak</string>
+    <string name="history_collapse_month">Collapse month</string>
+    <string name="history_expand_month">Expand month</string>
+    <string name="history_this_week">This week</string>
+    <string name="history_last_week">Last week</string>
+    <string name="history_week_of">Week of %1$s</string>
+    <string name="history_badge_unlocked">BADGE UNLOCKED</string>
+    <string name="history_trip_options">Trip options</string>
+    <string name="history_rename">Rename</string>
+    <string name="history_change_vehicle">Change vehicle</string>
+    <string name="history_share_card">Share trip card</string>
+    <string name="history_delete">Delete</string>
+    <string name="history_rename_title">Rename ride</string>
+    <string name="history_save">Save</string>
+    <string name="history_use_generated">Use generated</string>
+    <string name="history_cancel">Cancel</string>
+    <string name="history_close">Close</string>
+    <string name="history_delete_title">Delete this trip?</string>
+    <string name="history_delete_text">%1$s — %2$s. This can\'t be undone.</string>
+    <plurals name="history_towns_unit">
+        <item quantity="one">town</item>
+        <item quantity="other">towns</item>
+    </plurals>
+    <plurals name="history_rides_unit">
+        <item quantity="one">ride</item>
+        <item quantity="other">rides</item>
+    </plurals>
+    <plurals name="history_rides">
+        <item quantity="one">%1$d ride</item>
+        <item quantity="other">%1$d rides</item>
+    </plurals>
+    <plurals name="history_new_places">
+        <item quantity="one">%1$d new place</item>
+        <item quantity="other">%1$d new places</item>
+    </plurals>
+
+    <!-- TripDetailScreen.kt -->
+    <string name="trip_share_card">Share trip card</string>
+    <string name="trip_export_gpx">Export GPX</string>
+    <string name="trip_no_gpx_app">No app to receive a GPX file</string>
+    <string name="trip_gpx_not_saved">Export failed: the GPX file could not be saved. Free up some storage and try again.</string>
+    <string name="trip_no_route">No route recorded</string>
+    <string name="trip_replay">Replay</string>
+    <string name="trip_replay_elapsed">%1$s · %2$s elapsed</string>
+    <string name="trip_replay_start">Start of the ride</string>
+    <string name="trip_pause_replay">Pause replay</string>
+    <string name="trip_play_replay">Play replay</string>
+    <string name="trip_highlights">Highlights</string>
+    <string name="trip_more_options">More trip options</string>
+
+    <!-- TripDeepDive.kt -->
+    <string name="deepdive_very_sharp">very sharp</string>
+    <string name="deepdive_sharp">sharp</string>
+    <string name="deepdive_very_hard">very hard</string>
+    <string name="deepdive_hard">hard</string>
+    <string name="deepdive_lean_left">%1$s left</string>
+    <string name="deepdive_lean_right">%1$s right</string>
+    <string name="deepdive_best_stretch">Best stretch</string>
+    <string name="deepdive_twistiest">twistiest %1$s</string>
+    <string name="deepdive_deepest_lean">Deepest lean</string>
+    <string name="deepdive_sharpest_corner">Sharpest corner</string>
+    <string name="deepdive_hardest_braking">Hardest braking</string>
+    <string name="deepdive_top_speed">Top speed</string>
+    <string name="deepdive_title">Deep dive</string>
+    <string name="deepdive_collapse">Collapse deep dive</string>
+    <string name="deepdive_expand">Expand deep dive</string>
+    <string name="deepdive_overview">Overview</string>
+    <string name="deepdive_distance">Distance</string>
+    <string name="deepdive_total_time">Total time</string>
+    <string name="deepdive_moving_time">Moving time</string>
+    <string name="deepdive_stops">Stops</string>
+    <string name="deepdive_none">none</string>
+    <string name="deepdive_average_speed">Average speed</string>
+    <string name="deepdive_moving_average">Moving average</string>
+    <string name="deepdive_twistiness">Twistiness</string>
+    <string name="deepdive_speed">Speed</string>
+    <string name="deepdive_over_limit">Over the posted limit</string>
+    <string name="deepdive_cornering">Cornering</string>
+    <string name="deepdive_lean_unit">lean °</string>
+    <string name="deepdive_deepest_left">Deepest left</string>
+    <string name="deepdive_deepest_right">Deepest right</string>
+    <string name="deepdive_leaning_left">Leaning left</string>
+    <string name="deepdive_leaning_right">Leaning right</string>
+    <string name="deepdive_max_g">Max g</string>
+    <string name="deepdive_events">Stops, starts &amp; corners</string>
+    <string name="deepdive_list_and">%1$s and %2$s</string>
+    <string name="deepdive_events_note">Picked up by the phone\'s sensors — just for your curiosity, not a score.</string>
+    <string name="deepdive_splits">Splits · every %1$s</string>
+    <string name="deepdive_twisty">twisty %1$d%%</string>
+    <string name="deepdive_split_best">%1$s · best</string>
+    <string name="deepdive_roads">Roads</string>
+    <string name="deepdive_engine">Engine (OBD2)</string>
+    <string name="deepdive_peak_rpm">Peak rpm</string>
+    <string name="deepdive_average_rpm">Average rpm</string>
+    <string name="deepdive_max_throttle">Max throttle</string>
+    <string name="deepdive_wide_open_throttle">Wide-open throttle</string>
+    <string name="deepdive_pct_of_samples">%1$d%% of samples</string>
+    <string name="deepdive_fuel">Fuel</string>
+    <string name="deepdive_fuel_estimate_note">A MAF-based estimate — this vehicle has no direct fuel-rate PID, so it tracks engine load, not the injectors, and can drift. Tune it per vehicle under the OBD2 adapter settings.</string>
+    <string name="deepdive_recording_details">Recording details</string>
+    <string name="deepdive_hide_recording_details">Hide recording details</string>
+    <string name="deepdive_show_recording_details">Show recording details</string>
+    <string name="deepdive_vehicle">Vehicle</string>
+    <string name="deepdive_started_by">Started by</string>
+    <string name="deepdive_speed_source">Speed source</string>
+    <string name="deepdive_speed_source_obd2_under_1" formatted="false">OBD2 &lt;1% · GPS the rest</string>
+    <string name="deepdive_speed_source_obd2">OBD2 %1$d%% · GPS the rest</string>
+    <string name="deepdive_mount_offset">Mount offset (current calibration)</string>
+    <string name="deepdive_stored_points">Stored points (every 25 m)</string>
+    <string name="deepdive_signal_gaps">Signal gaps</string>
+    <plurals name="deepdive_hard_brakes">
+        <item quantity="one">%1$d hard brake</item>
+        <item quantity="other">%1$d hard brakes</item>
+    </plurals>
+    <plurals name="deepdive_fast_starts">
+        <item quantity="one">%1$d fast start</item>
+        <item quantity="other">%1$d fast starts</item>
+    </plurals>
+    <plurals name="deepdive_sharp_corners">
+        <item quantity="one">%1$d sharp corner</item>
+        <item quantity="other">%1$d sharp corners</item>
+    </plurals>
+
+    <!-- TripCardRenderer.kt -->
+    <string name="card_layout_standard">Standard</string>
+    <string name="card_layout_minimal">Minimal</string>
+    <string name="card_layout_poster">Poster</string>
+    <string name="card_share_title">Share trip card</string>
+    <string name="card_loading_route">Loading route…</string>
+    <string name="card_theme_light">Light</string>
+    <string name="card_theme_dark">Dark</string>
+    <string name="card_trimmed">Route trimmed near start/end for privacy.</string>
+    <string name="card_include_full_route">Include full route</string>
+    <string name="card_no_image_app">No app to receive an image</string>
+    <string name="card_not_saved">Card export failed: the image could not be saved. Free up some storage and try again.</string>
+    <string name="card_share">Share</string>
+    <string name="card_cancel">Cancel</string>
+    <string name="card_preview">Trip card preview</string>
+    <string name="card_map_failed">The map for this card could not be drawn — check your connection, then pick a different layout or theme.</string>
+    <string name="card_rendering">Rendering preview…</string>
+    <string name="card_distance">DISTANCE</string>
+    <string name="card_duration">DURATION</string>
+    <string name="card_top_speed">TOP SPEED</string>
+    <string name="card_avg_speed">AVG SPEED</string>
+    <string name="card_peak_lean">PEAK LEAN</string>
+    <string name="card_peak_g">PEAK G</string>
+
+    <!-- RoutesScreen.kt -->
+    <string name="routes_no_maps_app">No app to open a multi-stop route</string>
+    <string name="routes_exported">Exported %1$s</string>
+    <string name="routes_imported">Imported %1$s</string>
+    <string name="routes_import_unreadable">That file isn\'t a route Detour can read</string>
+    <string name="routes_share_route">Share route</string>
+    <string name="routes_no_gpx_app">No app to receive a GPX file</string>
+    <string name="routes_share_failed">Share failed: the GPX file could not be saved. Free up some storage and try again.</string>
+    <string name="routes_pulled_none">No new shared routes</string>
+    <string name="routes_title">Routes</string>
+    <string name="routes_pull">Pull shared routes</string>
+    <string name="routes_import">Import route</string>
+    <string name="routes_new">New route</string>
+    <string name="routes_empty_title">No saved routes yet</string>
+    <string name="routes_empty_text">Plan a multi-stop ride on the map and save it, or import one.</string>
+    <string name="routes_delete_title">Delete route?</string>
+    <string name="routes_delete_text">\"%1$s\" will be removed from this device.</string>
+    <string name="routes_delete">Delete</string>
+    <string name="routes_sent">Sent \"%1$s\" to %2$s</string>
+    <string name="routes_more_for">More for %1$s</string>
+    <string name="routes_rename">Rename</string>
+    <string name="routes_edit">Edit</string>
+    <string name="routes_share_file">Share as file</string>
+    <string name="routes_export">Export…</string>
+    <string name="routes_send_friend">Send to a friend</string>
+    <string name="routes_rename_title">Rename route</string>
+    <string name="routes_save">Save</string>
+    <string name="routes_cancel">Cancel</string>
+    <string name="routes_no_friends">Add a friend first, on the Friends screen.</string>
+    <plurals name="routes_pulled">
+        <item quantity="one">Pulled %1$d shared route</item>
+        <item quantity="other">Pulled %1$d shared routes</item>
+    </plurals>
+
+    <!-- SavedPlacesScreen.kt -->
+    <string name="places_title">Saved places</string>
+    <string name="places_add">Add place</string>
+    <string name="places_delete_title">Delete this place?</string>
+    <string name="places_delete_text">\"%1$s\" will be removed from this device. This can\'t be undone.</string>
+    <string name="places_delete">Delete</string>
+    <string name="places_empty_title">No saved places yet</string>
+    <string name="places_empty_text">Add Home, Work, or anywhere you stop often.</string>
+    <string name="places_more_for">More for %1$s</string>
+    <string name="places_set_home">Set as Home</string>
+    <string name="places_set_work">Set as Work</string>
+    <string name="places_remove_favourite">Remove from favourites</string>
+    <string name="places_add_favourite">Add to favourites</string>
+    <string name="places_clear_label">Clear label</string>
+    <string name="places_rename">Rename</string>
+    <string name="places_no_results">No results</string>
+    <string name="places_search_failed">Search failed — check your connection</string>
+    <string name="places_name_label">Name (Home, Work…)</string>
+    <string name="places_address_label">Address or place</string>
+    <string name="places_selected">Selected: %1$s</string>
+    <string name="places_save">Save</string>
+    <string name="places_cancel">Cancel</string>
+    <string name="places_rename_title">Rename place</string>
+</resources>

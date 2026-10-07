@@ -1,5 +1,9 @@
 package com.jellemax.detour.ui
 
+import android.content.res.Resources
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import com.jellemax.detour.R
 import com.jellemax.detour.drive.HardEventDetector
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
@@ -85,20 +89,26 @@ private fun isCorner(e: RidingEvent) =
 
 /** An event's strength in words: m/s² and °/s mean nothing to most riders.
  *  A lean angle is the one figure riders already read, so it stays a number. */
-private fun eventValue(e: RidingEvent): String {
+private fun eventValue(res: Resources, e: RidingEvent): String {
     val threshold = when (e.kind) {
         RidingEventKind.HARD_BRAKE -> HardEventDetector.HARD_BRAKE_MPS2
         RidingEventKind.HARD_ACCEL -> HardEventDetector.HARD_ACCEL_MPS2
         RidingEventKind.HARD_CORNER_TURN -> HardEventDetector.HARD_CORNER_DEG_PER_SEC
         RidingEventKind.HARD_CORNER_LEAN ->
-            return formatLeanAngle(abs(e.magnitude)) + if (e.magnitude < 0) " left" else " right"
+            return leanSide(res, e.magnitude)
     }
     val very = abs(e.magnitude) >= abs(threshold) * VERY_HARD_FACTOR
     return when (e.kind) {
-        RidingEventKind.HARD_CORNER_TURN -> if (very) "very sharp" else "sharp"
-        else -> if (very) "very hard" else "hard"
+        RidingEventKind.HARD_CORNER_TURN ->
+            res.getString(if (very) R.string.deepdive_very_sharp else R.string.deepdive_sharp)
+        else -> res.getString(if (very) R.string.deepdive_very_hard else R.string.deepdive_hard)
     }
 }
+
+/** "32° left" / "32° right" for a signed lean (negative is left). */
+private fun leanSide(res: Resources, deg: Double): String = res.getString(
+    if (deg < 0) R.string.deepdive_lean_left else R.string.deepdive_lean_right, formatLeanAngle(abs(deg)),
+)
 
 /** How far past its detection threshold an event has to go to read as "very". */
 private const val VERY_HARD_FACTOR = 1.5
@@ -108,27 +118,42 @@ private const val VERY_HARD_FACTOR = 1.5
  *  story view, so top speed is listed, never headlined (#428, #431).
  *  In app/, not commonMain, because every value is built with app-side
  *  formatters; moving it to shared goes with iOS parity (#470). */
-fun tripHighlights(trip: Trip, points: List<TraceStore.TracePoint>, bestStretch: IntRange?): List<TripHighlight> {
+fun tripHighlights(
+    res: Resources,
+    trip: Trip,
+    points: List<TraceStore.TracePoint>,
+    bestStretch: IntRange?,
+): List<TripHighlight> {
     val m = trip.moments
     val out = mutableListOf<TripHighlight>()
     if (bestStretch != null) {
         val stretch = points.subList(bestStretch.first, bestStretch.last + 1).map { it.at }
         out += TripHighlight(
-            "stretch", "Best stretch", "twistiest ${formatDistanceKm(TripInsights.BEST_STRETCH_METERS)}",
+            "stretch", res.getString(R.string.deepdive_best_stretch),
+            res.getString(R.string.deepdive_twistiest, formatDistanceKm(TripInsights.BEST_STRETCH_METERS)),
             COLOR_BEST_STRETCH, stretch[stretch.size / 2], stretch,
         )
     }
     m.maxLean?.takeIf { trip.mode.tracksLean && it.value != 0.0 }?.let {
-        out += TripHighlight("lean", "Deepest lean",
-            formatLeanAngle(abs(it.value)) + if (it.value < 0) " left" else " right", COLOR_LEAN, it.at)
+        out += TripHighlight(
+            "lean", res.getString(R.string.deepdive_deepest_lean), leanSide(res, it.value), COLOR_LEAN, it.at,
+        )
     }
     m.events.filter(::isCorner).maxByOrNull { abs(it.magnitude) }?.let {
-        out += TripHighlight("corner", "Sharpest corner", eventValue(it), COLOR_CORNER, it.at)
+        out += TripHighlight(
+            "corner", res.getString(R.string.deepdive_sharpest_corner), eventValue(res, it), COLOR_CORNER, it.at,
+        )
     }
     m.events.filter { it.kind == RidingEventKind.HARD_BRAKE }.minByOrNull { it.magnitude }?.let {
-        out += TripHighlight("brake", "Hardest braking", eventValue(it), COLOR_BRAKE, it.at)
+        out += TripHighlight(
+            "brake", res.getString(R.string.deepdive_hardest_braking), eventValue(res, it), COLOR_BRAKE, it.at,
+        )
     }
-    m.topSpeed?.let { out += TripHighlight("speed", "Top speed", formatSpeedKmh(it.value), COLOR_TOP_SPEED, it.at) }
+    m.topSpeed?.let {
+        out += TripHighlight(
+            "speed", res.getString(R.string.deepdive_top_speed), formatSpeedKmh(it.value), COLOR_TOP_SPEED, it.at,
+        )
+    }
     return out
 }
 
@@ -169,9 +194,12 @@ fun TripDeepDive(
                 .padding(vertical = 12.dp, horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Deep dive", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(
+                stringResource(R.string.deepdive_title),
+                style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f),
+            )
             Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = if (open) "Collapse deep dive" else "Expand deep dive")
+                contentDescription = stringResource(if (open) R.string.deepdive_collapse else R.string.deepdive_expand))
         }
         AnimatedVisibility(open) {
             // Off the main thread, like the highlights: splits score every
@@ -251,24 +279,35 @@ private fun ShareRow(label: String, ms: Long, totalMs: Long) {
 @Composable
 private fun OverviewSection(trip: Trip, n: DeepDiveNumbers) {
     Column {
-        SectionTitle("Overview")
-        Stat("Distance", formatDistanceKm(trip.distanceMeters))
-        Stat("Total time", formatDurationHistory(trip.durationMs))
+        SectionTitle(stringResource(R.string.deepdive_overview))
+        Stat(stringResource(R.string.deepdive_distance), formatDistanceKm(trip.distanceMeters))
+        Stat(stringResource(R.string.deepdive_total_time), formatDurationHistory(trip.durationMs))
         // A trace written before points carried a time has none to measure;
         // "0 min" would read as a measurement.
-        if (n.movingMs > 0) Stat("Moving time", formatDurationHistory(n.movingMs))
+        if (n.movingMs > 0) Stat(stringResource(R.string.deepdive_moving_time), formatDurationHistory(n.movingMs))
         val ds = trip.drivingStats
-        Stat("Stops", if (ds.stopCount == 0) "none" else "${ds.stopCount} · ${formatDurationHistory(ds.idleMs)}")
-        Stat("Average speed", formatSpeedKmh(trip.avgSpeedMps))
-        if (n.movingMs > 0) Stat("Moving average", formatSpeedKmh(trip.distanceMeters / (n.movingMs / 1000.0)))
-        if (ds.twistinessScore > 0.0) Stat("Twistiness", "${(ds.twistinessScore * 100).roundToInt()}%")
+        Stat(
+            stringResource(R.string.deepdive_stops),
+            if (ds.stopCount == 0) stringResource(R.string.deepdive_none)
+            else "${ds.stopCount} · ${formatDurationHistory(ds.idleMs)}",
+        )
+        Stat(stringResource(R.string.deepdive_average_speed), formatSpeedKmh(trip.avgSpeedMps))
+        if (n.movingMs > 0) {
+            Stat(
+                stringResource(R.string.deepdive_moving_average),
+                formatSpeedKmh(trip.distanceMeters / (n.movingMs / 1000.0)),
+            )
+        }
+        if (ds.twistinessScore > 0.0) {
+            Stat(stringResource(R.string.deepdive_twistiness), "${(ds.twistinessScore * 100).roundToInt()}%")
+        }
     }
 }
 
 @Composable
 private fun SpeedSection(trip: Trip, n: DeepDiveNumbers) {
     Column {
-        SectionTitle("Speed")
+        SectionTitle(stringResource(R.string.deepdive_speed))
         DistanceChart(n.profile.map { it.meters to it.speedKmh }, "km/h")
         val moving = n.speedBands.sumOf { it.ms }
         for (b in n.speedBands) if (b.ms > 0) {
@@ -277,27 +316,31 @@ private fun SpeedSection(trip: Trip, n: DeepDiveNumbers) {
         val ds = trip.drivingStats
         if (ds.secondsOverLimit > 0) {
             Stat(
-                "Over the posted limit",
+                stringResource(R.string.deepdive_over_limit),
                 "${formatDurationHistory(ds.secondsOverLimit * 1000)} · ${ds.pctOverLimit.roundToInt()}%",
             )
         }
-        Stat("Top speed", formatSpeedKmh(trip.topSpeedMps))
+        Stat(stringResource(R.string.deepdive_top_speed), formatSpeedKmh(trip.topSpeedMps))
     }
 }
 
 @Composable
 private fun CorneringSection(trip: Trip, n: DeepDiveNumbers) {
     Column {
-        SectionTitle("Cornering")
+        SectionTitle(stringResource(R.string.deepdive_cornering))
         val lean = n.lean
         if (trip.mode.tracksLean && lean != null) {
-            DistanceChart(n.profile.mapNotNull { s -> s.leanDeg?.let { s.meters to it } }, "lean °", signed = true)
-            Stat("Deepest left", formatLeanAngle(lean.maxLeftDeg))
-            Stat("Deepest right", formatLeanAngle(lean.maxRightDeg))
+            DistanceChart(
+                n.profile.mapNotNull { s -> s.leanDeg?.let { s.meters to it } },
+                stringResource(R.string.deepdive_lean_unit),
+                signed = true,
+            )
+            Stat(stringResource(R.string.deepdive_deepest_left), formatLeanAngle(lean.maxLeftDeg))
+            Stat(stringResource(R.string.deepdive_deepest_right), formatLeanAngle(lean.maxRightDeg))
             val leaned = lean.leftMs + lean.rightMs
             if (leaned > 0) {
-                ShareRow("Leaning left", lean.leftMs, leaned)
-                ShareRow("Leaning right", lean.rightMs, leaned)
+                ShareRow(stringResource(R.string.deepdive_leaning_left), lean.leftMs, leaned)
+                ShareRow(stringResource(R.string.deepdive_leaning_right), lean.rightMs, leaned)
             }
             for (b in lean.bands) if (b.ms > 0) {
                 ShareRow(if (b.toDeg == null) "${b.fromDeg}°+" else "${b.fromDeg}–${b.toDeg}°", b.ms, leaned)
@@ -305,7 +348,7 @@ private fun CorneringSection(trip: Trip, n: DeepDiveNumbers) {
         }
         // Before #478 the figure counted gravity (1-2 g for any drive): not shown.
         if (trip.mode.tracksGForce && trip.gForceGravityFree && trip.maxGForce > 0.0) {
-            Stat("Max g", formatGForce(trip.maxGForce))
+            Stat(stringResource(R.string.deepdive_max_g), formatGForce(trip.maxGForce))
         }
     }
 }
@@ -315,18 +358,18 @@ private fun CorneringSection(trip: Trip, n: DeepDiveNumbers) {
 @Composable
 private fun EventsSection(trip: Trip) {
     val ds = trip.drivingStats
-    fun count(n: Int, one: String, many: String) = if (n == 0) null else "$n ${if (n == 1) one else many}"
     val parts = listOfNotNull(
-        count(ds.hardBrakeCount, "hard brake", "hard brakes"),
-        count(ds.hardAccelCount, "fast start", "fast starts"),
-        count(ds.hardCornerCount, "sharp corner", "sharp corners"),
+        ds.hardBrakeCount.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.deepdive_hard_brakes, it, it) },
+        ds.hardAccelCount.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.deepdive_fast_starts, it, it) },
+        ds.hardCornerCount.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.deepdive_sharp_corners, it, it) },
     )
     if (parts.isEmpty()) return
     Column {
-        SectionTitle("Stops, starts & corners")
-        val sentence = if (parts.size == 1) parts[0] else parts.dropLast(1).joinToString(", ") + " and " + parts.last()
+        SectionTitle(stringResource(R.string.deepdive_events))
+        val sentence = if (parts.size == 1) parts[0]
+        else stringResource(R.string.deepdive_list_and, parts.dropLast(1).joinToString(", "), parts.last())
         Text(sentence.replaceFirstChar { it.uppercase() } + ".", style = MaterialTheme.typography.bodyMedium)
-        Text("Picked up by the phone's sensors — just for your curiosity, not a score.",
+        Text(stringResource(R.string.deepdive_events_note),
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -336,18 +379,18 @@ private fun SplitsSection(n: DeepDiveNumbers) {
     // Untimed legacy traces give every split "0 min · 0 km/h" — skip them.
     if (n.splits.size < 2 || n.splits.all { it.durationMs == 0L }) return
     Column {
-        SectionTitle("Splits · every ${formatDistanceKm(TripInsights.SPLIT_METERS)}")
+        SectionTitle(stringResource(R.string.deepdive_splits, formatDistanceKm(TripInsights.SPLIT_METERS)))
         for (s in n.splits) {
             val best = s.index == n.bestSplitIndex
             val parts = listOfNotNull(
                 formatDurationHistory(s.durationMs),
                 formatSpeedKmh(s.avgSpeedMps),
                 s.maxLeanDeg?.let { formatLeanAngle(it) },
-                "twisty ${(s.twistiness * 100).roundToInt()}%",
+                stringResource(R.string.deepdive_twisty, (s.twistiness * 100).roundToInt()),
             )
+            val range = "${formatDistanceKm(s.startMeters)}–${formatDistanceKm(s.startMeters + s.distanceMeters)}"
             Stat(
-                "${formatDistanceKm(s.startMeters)}–${formatDistanceKm(s.startMeters + s.distanceMeters)}" +
-                    if (best) " · best" else "",
+                if (best) stringResource(R.string.deepdive_split_best, range) else range,
                 parts.joinToString(" · "),
                 emphasis = best,
             )
@@ -360,7 +403,7 @@ private fun RoadsSection(trip: Trip) {
     val roads = trip.drivingStats.roadTypeMeters
     if (roads.values.sum() <= 0.0) return
     Column {
-        SectionTitle("Roads")
+        SectionTitle(stringResource(R.string.deepdive_roads))
         for (c in HighwayClass.entries) roads[c]?.takeIf { it > 0 }?.let {
             Stat(TripInsights.roadWords(c).replaceFirstChar { ch -> ch.uppercase() }, formatDistanceKm(it))
         }
@@ -372,7 +415,7 @@ private fun StopsSection(trip: Trip, extras: TripDetailExtras?) {
     val stops = trip.moments.stops
     if (stops.isEmpty()) return
     Column {
-        SectionTitle("Stops")
+        SectionTitle(stringResource(R.string.deepdive_stops))
         for (s in stops) {
             val place = extras?.let { TripInsights.placeAt(s.at, it.municipalities) }
             Stat(
@@ -390,20 +433,21 @@ private fun EngineSection(trip: Trip) {
     val d = trip.drivingStats
     if (d.maxRpm <= 0.0 && d.fuelMilliliters <= 0) return
     Column {
-        SectionTitle("Engine (OBD2)")
+        SectionTitle(stringResource(R.string.deepdive_engine))
         if (d.maxRpm > 0.0) {
-            Stat("Peak rpm", "${d.maxRpm.roundToInt()}")
-            Stat("Average rpm", "${d.avgRpm.roundToInt()}")
-            Stat("Max throttle", "${d.maxThrottlePct.roundToInt()}%")
-            Stat("Wide-open throttle", "${d.pctWideOpenThrottle.roundToInt()}% of samples")
+            Stat(stringResource(R.string.deepdive_peak_rpm), "${d.maxRpm.roundToInt()}")
+            Stat(stringResource(R.string.deepdive_average_rpm), "${d.avgRpm.roundToInt()}")
+            Stat(stringResource(R.string.deepdive_max_throttle), "${d.maxThrottlePct.roundToInt()}%")
+            Stat(
+                stringResource(R.string.deepdive_wide_open_throttle),
+                stringResource(R.string.deepdive_pct_of_samples, d.pctWideOpenThrottle.roundToInt()),
+            )
         }
         tripFuelEconomyLper100Km(trip)?.let {
-            Stat("Fuel", (if (d.fuelEstimated) "~" else "") + formatFuelPer100Km(it))
+            Stat(stringResource(R.string.deepdive_fuel), (if (d.fuelEstimated) "~" else "") + formatFuelPer100Km(it))
             if (d.fuelEstimated) {
                 Text(
-                    "A MAF-based estimate — this vehicle has no direct fuel-rate PID, so it tracks " +
-                        "engine load, not the injectors, and can drift. Tune it per vehicle " +
-                        "under the OBD2 adapter settings.",
+                    stringResource(R.string.deepdive_fuel_estimate_note),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -426,28 +470,33 @@ private fun RecordingSection(trip: Trip, storedPoints: Int, n: DeepDiveNumbers, 
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Recording details", style = MaterialTheme.typography.titleSmall,
+            Text(stringResource(R.string.deepdive_recording_details), style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
             Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = if (open) "Hide recording details" else "Show recording details",
+                contentDescription = stringResource(
+                    if (open) R.string.deepdive_hide_recording_details else R.string.deepdive_show_recording_details,
+                ),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         AnimatedVisibility(open) {
             Column {
                 val ds = trip.drivingStats
                 val obd2Pct = ds.obd2SpeedPct.roundToInt()
-                Stat("Vehicle", trip.mode.label)
-                trip.startedBy?.let { Stat("Started by", it.label) }
-                Stat("Speed source", when {
+                Stat(stringResource(R.string.deepdive_vehicle), trip.mode.label)
+                trip.startedBy?.let { Stat(stringResource(R.string.deepdive_started_by), it.label) }
+                Stat(stringResource(R.string.deepdive_speed_source), when {
                     ds.obd2SpeedPct <= 0.0 -> "GPS"
-                    obd2Pct == 0 -> "OBD2 <1% · GPS the rest"
-                    else -> "OBD2 $obd2Pct% · GPS the rest"
+                    obd2Pct == 0 -> stringResource(R.string.deepdive_speed_source_obd2_under_1)
+                    else -> stringResource(R.string.deepdive_speed_source_obd2, obd2Pct)
                 })
                 if (trip.mode.tracksLean) {
-                    Stat("Mount offset (current calibration)", formatLeanAngle(leanOffsetDeg.toDouble()))
+                    Stat(stringResource(R.string.deepdive_mount_offset), formatLeanAngle(leanOffsetDeg.toDouble()))
                 }
-                Stat("Stored points (every 25 m)", "$storedPoints")
-                Stat("Signal gaps", if (n.signalGaps == 0) "none" else "${n.signalGaps}")
+                Stat(stringResource(R.string.deepdive_stored_points), "$storedPoints")
+                Stat(
+                    stringResource(R.string.deepdive_signal_gaps),
+                    if (n.signalGaps == 0) stringResource(R.string.deepdive_none) else "${n.signalGaps}",
+                )
             }
         }
     }
