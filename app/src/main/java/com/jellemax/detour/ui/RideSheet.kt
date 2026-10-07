@@ -124,6 +124,34 @@ internal fun DriveSheet(
                 Modifier.padding(horizontal = 16.dp).padding(bottom = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // A route with no destination is a loop spin, and its Go is
+                // this one: without it, a loop spun before the trip started
+                // had no way to be navigated until End trip.
+                //
+                // Above the bar, not below it (#508). The sheet is anchored at
+                // the bottom, so whatever is added grows it upward: below the
+                // bar, Go landed exactly where the bar and its avatar had just
+                // been — the next tap meant for "You and settings" launched a
+                // hand-off instead. Here the bar and End trip keep their
+                // places, and Go takes a slot that only held the stats.
+                // Hidden during a search, like everything else around the bar.
+                if (!whereTo.open && (go.destination != null || go.route != null)) {
+                    ResultCallout(
+                        title = go.destinationName ?: "Loop found",
+                        subtitle = go.route?.distanceMeters?.let { formatDistanceKm(it) },
+                        onRespin = null,
+                    )
+                    NavButton(
+                        destination = go.destination,
+                        route = go.route?.waypoints,
+                        origin = go.origin,
+                        mode = go.mode,
+                        inAppAvailable = go.inAppAvailable,
+                        onNavigateInApp = go.onNavigateInApp,
+                        onNavigate = go.onNavigate,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 SearchIsland(
                     open = whereTo.open,
                     onOpenChange = whereTo.onOpenChange,
@@ -136,26 +164,6 @@ internal fun DriveSheet(
                 )
                 // Nothing below the bar survives a search, as in the home sheet.
                 if (!whereTo.open) {
-                    // A route with no destination is a loop spin, and its Go is
-                    // this one: without it, a loop spun before the trip started
-                    // had no way to be navigated until End trip.
-                    if (go.destination != null || go.route != null) {
-                        ResultCallout(
-                            title = go.destinationName ?: "Loop found",
-                            subtitle = go.route?.distanceMeters?.let { formatDistanceKm(it) },
-                            onRespin = null,
-                        )
-                        NavButton(
-                            destination = go.destination,
-                            route = go.route?.waypoints,
-                            origin = go.origin,
-                            mode = go.mode,
-                            inAppAvailable = go.inAppAvailable,
-                            onNavigateInApp = go.onNavigateInApp,
-                            onNavigate = go.onNavigate,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
                     EndButton(
                         label = "End trip",
                         icon = Icons.Rounded.Stop,
