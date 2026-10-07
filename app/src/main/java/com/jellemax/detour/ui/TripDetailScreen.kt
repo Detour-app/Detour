@@ -258,6 +258,9 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     // (see the "Do not modify MapLibreMap.kt" constraint), so they're set up
     // and pushed to directly against the raw Style.
     var mapStyle by remember { mutableStateOf<Style?>(null) }
+    // Which style load is the current one — see the setStyle effect below.
+    // Plain holder, not state: nothing recomposes on it.
+    val styleGeneration = remember { intArrayOf(0) }
 
     // MapView lifecycle, same pattern MapScreen uses: the map arrives
     // asynchronously, so effects that touch it guard on `mapLibreMap`.
@@ -281,7 +284,19 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     // arrival, and again if the day/night theme flips while this is open.
     LaunchedEffect(darkTheme, mapLibreMap) {
         val map = mapLibreMap ?: return@LaunchedEffect
+        // setStyle tears the current Style down at once, and any getSource on
+        // it throws from then on (#551). Retract it before asking for the new
+        // one so the highlight and replay writes find null and skip, rather
+        // than hitting the dead Style until the callback below replaces it.
+        // The AUTO theme can flip on cold open (clock guess, then location),
+        // so this is not only a theme change while the screen is open.
+        mapStyle = null
+        mapOverlays = null
+        val generation = ++styleGeneration[0]
         map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
+            // A superseded load still calls back with a Style the newer
+            // setStyle has already invalidated — same guard as RetainedMap.
+            if (generation != styleGeneration[0]) return@setStyle
             mapOverlays = MapOverlays(style, context, darkTheme)
             // Own sources/layers for replay, set up once per style load same as
             // MapOverlays does for its own — added after, so they draw on top of

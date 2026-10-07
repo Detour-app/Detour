@@ -53,9 +53,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.auth.AuthBrowser
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.data.Account
@@ -104,7 +106,7 @@ fun HubScreen(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            SubScreenTopBar("You", onBack, scrollBehavior) {
+            SubScreenTopBar(stringResource(R.string.hub_title), onBack, scrollBehavior) {
                 IconButton(onClick = onOpenSettings, modifier = Modifier.padding(end = 16.dp)) {
                     Box(
                         Modifier
@@ -115,7 +117,7 @@ fun HubScreen(
                     ) {
                         Icon(
                             Icons.Rounded.Settings,
-                            contentDescription = "Settings",
+                            contentDescription = stringResource(R.string.hub_settings),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -141,33 +143,33 @@ fun HubScreen(
 
             YouStatsRow(state)
 
-            SectionLabel("RIDES")
+            SectionLabel(stringResource(R.string.hub_rides_section))
 
             ListCard {
                 HubRow(
                     icon = Icons.Rounded.MenuBook,
-                    title = "Logbook",
+                    title = stringResource(R.string.hub_logbook),
                     onClick = onOpenHistory,
                     paintCard = false,
                 )
                 CardDivider()
                 HubRow(
                     icon = Icons.Rounded.Route,
-                    title = "Routes",
+                    title = stringResource(R.string.hub_routes),
                     onClick = onOpenRoutes,
                     paintCard = false,
                 )
                 CardDivider()
                 HubRow(
                     icon = Icons.Rounded.BookmarkBorder,
-                    title = "Saved places",
+                    title = stringResource(R.string.hub_saved_places),
                     onClick = onOpenSavedPlaces,
                     paintCard = false,
                 )
                 CardDivider()
                 HubRow(
                     icon = Icons.Rounded.MilitaryTech,
-                    title = "Badges & coverage",
+                    title = stringResource(R.string.hub_badges_coverage),
                     trailingText = state.badgeFractionLabel,
                     onClick = onOpenBadges,
                     paintCard = false,
@@ -181,7 +183,7 @@ fun HubScreen(
             ListCard {
                 HubRow(
                     icon = Icons.Rounded.Diversity3,
-                    title = "Social",
+                    title = stringResource(R.string.hub_social),
                     onClick = onOpenSocial,
                     paintCard = false,
                 )
@@ -217,7 +219,7 @@ private fun YouProfileCard(state: YouState, onClick: () -> Unit) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(state.username, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                 Text(
-                    "Profile & account",
+                    stringResource(R.string.hub_profile_account),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -268,10 +270,13 @@ private fun YouGuestCard() {
                     )
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Riding as guest", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        "Trips and badges are saved on this phone. Sign in to ride with " +
-                            "friends and back them up.",
+                        stringResource(R.string.hub_guest_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        stringResource(R.string.hub_guest_text),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -279,8 +284,7 @@ private fun YouGuestCard() {
             }
             if (!AuthBrowser.configured) {
                 Text(
-                    "No server or sign-in realm is configured, so there is nobody to " +
-                        "sign in to. Set your server address under Settings → Servers & sync.",
+                    stringResource(R.string.friends_signin_unconfigured),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -301,21 +305,17 @@ private fun YouGuestCard() {
                                 // owns the rest, including clearing busy.
                                 null -> {}
                                 AuthBrowser.StartFailure.InvalidRealmUrl -> PendingSignIn.fail(
-                                    "The sign-in realm address is not a valid URL. Check it " +
-                                        "under Settings → Servers & sync."
+                                    context.getString(R.string.friends_signin_invalid_realm)
                                 )
                                 AuthBrowser.StartFailure.NoBrowserAvailable ->
-                                    PendingSignIn.fail("No browser available to sign in with.")
+                                    PendingSignIn.fail(context.getString(R.string.friends_signin_no_browser))
                                 AuthBrowser.StartFailure.NoRealmAdvertised ->
                                     PendingSignIn.fail(
-                                        "Your server did not say which realm to sign in to. " +
-                                            "Update the server, or set the sign-in realm URL " +
-                                            "under Settings → Servers & sync."
+                                        context.getString(R.string.friends_signin_no_realm_advertised)
                                     )
                                 AuthBrowser.StartFailure.NotConfigured ->
                                     PendingSignIn.fail(
-                                        "No identity provider is configured. Set the sign-in " +
-                                            "realm URL under Settings → Servers & sync."
+                                        context.getString(R.string.friends_signin_no_idp)
                                     )
                             }
                         }
@@ -334,7 +334,7 @@ private fun YouGuestCard() {
                     } else {
                         Icon(Icons.AutoMirrored.Rounded.Login, contentDescription = null, Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Sign in", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.friends_signin), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -359,17 +359,17 @@ private fun YouStatsRow(state: YouState) {
                 Modifier.fillMaxHeight(),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
             )
-            StatCell("${state.rides}", "rides", Modifier.weight(1f))
+            StatCell("${state.rides}", stringResource(R.string.hub_stat_rides), Modifier.weight(1f))
             VerticalDivider(
                 Modifier.fillMaxHeight(),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
             )
-            StatCell("${state.places}", "places", Modifier.weight(1f))
+            StatCell("${state.places}", stringResource(R.string.hub_stat_places), Modifier.weight(1f))
             VerticalDivider(
                 Modifier.fillMaxHeight(),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
             )
-            StatCell("${state.badgesEarned}", "badges", Modifier.weight(1f))
+            StatCell("${state.badgesEarned}", stringResource(R.string.hub_stat_badges), Modifier.weight(1f))
         }
     }
 }

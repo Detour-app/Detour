@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MapChrome.kt -->
+    <string name="map_follow_stop">Mijn locatie niet meer volgen</string>
+    <string name="map_follow">Mijn locatie volgen</string>
+    <string name="map_face_north">Noorden boven</string>
+    <string name="map_fog_hide">Mist verbergen</string>
+    <string name="map_fog_show">Mist tonen</string>
+
+    <!-- MapScreen.kt -->
+    <string name="map_no_location">Kan je locatie niet bepalen; staat gps aan?</string>
+    <string name="map_waiting_location">Wachten op je locatie…</string>
+    <string name="map_no_turn_data">Geen afslaginstructies voor deze lus — spin opnieuw terwijl de routeserver bereikbaar is</string>
+    <string name="map_rider_not_found">%1$s is niet te vinden op de kaart — misschien delen ze hun locatie niet meer</string>
+    <string name="map_dropped_pin">Geplaatste pin</string>
+
+    <!-- MapDialogs.kt -->
+    <string name="map_bg_location_title">Ritten op de achtergrond opnemen</string>
+    <string name="map_bg_location_collects">Detour verzamelt locatiegegevens om je ritten automatisch te starten, op te nemen en af te sluiten, ook wanneer de app gesloten is of niet gebruikt wordt.</string>
+    <string name="map_bg_location_without">Zonder deze toestemming wordt een rit alleen opgenomen terwijl Detour open op het scherm staat. Je routes blijven op dit toestel, tenzij je synchronisatie met je eigen server aanzet.</string>
+    <string name="map_allow">Toestaan</string>
+    <string name="map_not_now">Niet nu</string>
+    <string name="map_save_place_title">Deze plek opslaan</string>
+    <string name="map_save_place_name">Naam (Thuis, Werk…)</string>
+    <string name="map_save">Opslaan</string>
+    <string name="map_cancel">Annuleren</string>
+
+    <!-- ConfirmDialog.kt -->
+    <string name="confirm_cancel">Annuleren</string>
+
+    <!-- HomeSheet.kt -->
+    <string name="home_routes">Routes</string>
+    <string name="home_social">Sociaal</string>
+    <string name="home_spin">Spin</string>
+    <string name="home_spin_collapsed">Spin-instellingen, ingeklapt</string>
+    <string name="home_expand">Uitklappen</string>
+
+    <!-- SpinCards.kt -->
+    <string name="spin_respin">Opnieuw spinnen</string>
+    <string name="spin_expanded">Spin-instellingen, uitgeklapt</string>
+    <string name="spin_collapse">Inklappen</string>
+    <string name="spin_title">Spin de kaart</string>
+    <string name="spin_mode">Modus</string>
+    <string name="spin_mode_selected">Vervoerswijze, %1$s gekozen</string>
+    <string name="spin_unexplored">Onverkend</string>
+    <string name="spin_distance">Afstand</string>
+    <string name="spin_time">Tijd</string>
+    <string name="spin_size_by_distance">Lus bepalen op afstand</string>
+    <string name="spin_size_by_time">Lus bepalen op tijd</string>
+    <string name="spin_trip_time">Rittijd</string>
+    <string name="spin_trip_length">Ritlengte</string>
+    <string name="spin_radius">Straal</string>
+    <string name="spin_min_distance">Min. afstand</string>
+    <string name="spin_off">Uit</string>
+    <string name="spin_direction">Richting</string>
+    <string name="spin_direction_any">Om het even</string>
+    <string name="spin_loop_found">Lus gevonden</string>
+    <string name="spin_cancel">Annuleren</string>
+    <string name="spin_spin">Spin</string>
+
+    <!-- CandidatesCard.kt -->
+    <string name="candidates_pick_title">Kies een bestemming</string>
+    <string name="candidates_vote_title">Stem op een bestemming</string>
+    <string name="candidates_pick_hint">Alle drie staan op de kaart — tik op een pin of een rij.</string>
+    <string name="candidates_vote_hint">Iedereen ziet dezelfde drie — tik op een pin of een rij om te stemmen.</string>
+    <string name="candidates_no_votes">Nog geen stemmen</string>
+    <plurals name="candidates_votes">
+        <item quantity="one">%1$d stem · %2$s</item>
+        <item quantity="other">%1$d stemmen · %2$s</item>
+    </plurals>
+    <string name="candidates_share">Delen met konvooi</string>
+    <string name="candidates_go_with_lead">Volg de keuze van de koploper</string>
+    <string name="candidates_cancel">Annuleren</string>
+    <string name="candidates_reroll">Opnieuw</string>
+
+    <!-- NavigationDock.kt, NavAppLaunch.kt -->
+    <string name="nav_navigate_to">Navigeren naar</string>
+    <string name="nav_save_pin">Pin opslaan</string>
+    <string name="nav_clear_destination">Bestemming wissen</string>
+    <string name="nav_destination">Bestemming</string>
+    <string name="nav_mode">Modus</string>
+    <string name="nav_mode_selected">Vervoerswijze, %1$s gekozen</string>
+    <string name="nav_routing">Route berekenen…</string>
+    <string name="nav_start">Start</string>
+    <string name="nav_in_app">Navigeren in de app</string>
+    <string name="nav_google_maps_round_trip">Google Maps (rondrit)</string>
+    <string name="nav_other_app">Andere app</string>
+    <string name="nav_go">Ga</string>
+
+    <!-- RouteEditorScreen.kt, RouteFillControls.kt -->
+    <string name="route_editor_new">Nieuwe route</string>
+    <string name="route_editor_edit">Route bewerken</string>
+    <string name="route_editor_empty_map">Tik op de kaart of zoek om je eerste stop toe te voegen</string>
+    <string name="route_editor_search">Zoek een plek</string>
+    <string name="route_editor_no_results">Geen resultaten</string>
+    <string name="route_editor_search_failed">Zoeken mislukt — controleer je verbinding</string>
+    <string name="route_editor_move_up">Stop %1$d omhoog</string>
+    <string name="route_editor_move_down">Stop %1$d omlaag</string>
+    <string name="route_editor_remove_stop">Stop %1$d verwijderen</string>
+    <string name="route_editor_name">Routenaam</string>
+    <string name="route_editor_need_two_stops">Voeg minstens twee stops toe om ertussen te routeren.</string>
+    <string name="route_editor_routing">Route berekenen…</string>
+    <string name="route_editor_no_route">Nog geen route</string>
+    <string name="route_editor_save">Route opslaan</string>
+    <string name="route_editor_save_failed">Kon deze route niet op dit toestel opslaan. Probeer het opnieuw.</string>
+    <string name="route_editor_stops_too_long">Je stops alleen duren al %1$s — kies een langere tijd</string>
+    <string name="route_fill_title">Aanvullen tot rijtijd</string>
+    <string name="route_fill_hint">Je stops blijven staan; de rest van de tijd wordt gevuld met omwegen ertussen. Met één stop wordt het een lus vanaf die stop en terug.</string>
+    <string name="route_fill">Route aanvullen</string>
+    <string name="route_fill_again">Opnieuw aanvullen</string>
+    <string name="route_fill_remove">Aanvulling wissen</string>
+
+    <!-- HubScreen.kt -->
+    <string name="hub_title">Jij</string>
+    <string name="hub_settings">Instellingen</string>
+    <string name="hub_rides_section">RITTEN</string>
+    <string name="hub_logbook">Logboek</string>
+    <string name="hub_routes">Routes</string>
+    <string name="hub_saved_places">Opgeslagen plekken</string>
+    <string name="hub_badges_coverage">Badges &amp; dekking</string>
+    <string name="hub_social">Sociaal</string>
+    <string name="hub_profile_account">Profiel &amp; account</string>
+    <string name="hub_guest_title">Je rijdt als gast</string>
+    <string name="hub_guest_text">Ritten en badges worden op deze telefoon bewaard. Meld je aan om met vrienden te rijden en er een back-up van te maken.</string>
+    <string name="hub_stat_rides">ritten</string>
+    <string name="hub_stat_places">plekken</string>
+    <string name="hub_stat_badges">badges</string>
+</resources>

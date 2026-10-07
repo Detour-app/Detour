@@ -25,6 +25,7 @@ public class TripConfiguration : IEntityTypeConfiguration<Trip>
         builder.Property(t => t.Mode).HasMaxLength(32);
         builder.Property(t => t.StartTimeMs);
         builder.Property(t => t.EndTimeMs);
+        builder.Property(t => t.EditedAtMs);
         builder.Property(t => t.UpdatedAt);
 
         builder.HasOne<User>()

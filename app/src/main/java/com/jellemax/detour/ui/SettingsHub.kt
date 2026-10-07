@@ -21,14 +21,8 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextLinkStyles
 import com.jellemax.detour.R
-import com.mikepenz.markdown.m3.Markdown
-import com.mikepenz.markdown.m3.markdownColor
-import com.mikepenz.markdown.m3.markdownTypography
-import com.mikepenz.markdown.model.markdownPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +40,7 @@ import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.presentation.settingsHubStateFrom
+import com.jellemax.detour.update.InstalledNotes
 import com.jellemax.detour.update.UpdateAction
 import com.jellemax.detour.update.UpdateChecker
 import com.jellemax.detour.update.UpdateStatus
@@ -161,7 +156,8 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
         // UPDATE_REPO in the environment has no update mechanism at all, and a
         // row that silently does nothing when tapped is worse than no row.
         if (UpdateChecker.isConfigured) {
-            val row = updateRowStateFrom(manualCheck, updateStatus) { id, version ->
+            val installedNotes = remember { InstalledNotes.current() }
+            val row = updateRowStateFrom(manualCheck, updateStatus, installedNotes) { id, version ->
                 if (version == null) context.getString(id) else context.getString(id, version)
             }
             ListCard {
@@ -245,10 +241,10 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
  */
 @Composable
 private fun ColumnScope.UpdateNotesSection(row: UpdateRowState, updateStatus: UpdateStatus) {
-    // An expandable summary, Available only (#295): notes are for
-    // deciding whether to download, not for a download already
-    // running or done, and row.notes is already null everywhere
-    // else. Collapsed by default.
+    // An expandable summary (#295): notes are for deciding whether to
+    // download, not for a download already running or done, so row.notes
+    // is null in those phases. With nothing on offer it carries the
+    // running version's own notes (#359). Collapsed by default.
     //
     // Rendered as Markdown rather than shown as source (#357): the
     // body is GitHub's generated list, so as plain text a rider read
@@ -304,69 +300,9 @@ private fun ColumnScope.UpdateNotesSection(row: UpdateRowState, updateStatus: Up
             )
         }
         if (notesExpanded) {
-            Markdown(
-                content = notes,
-                // Every slot is set, none defaulted. The library's
-                // defaults are sized for a full-page document —
-                // h1 is displayLarge, and `link` is bodyLarge +
-                // Bold + Underline, which is why an unstyled render
-                // put two wrapped, oversized URLs where the changes
-                // should be. Inside a settings card everything is
-                // one size (bodySmall) and hierarchy comes from
-                // weight and colour instead.
-                colors = markdownColor(
-                    text = MaterialTheme.colorScheme.onSurfaceVariant,
-                    linkText = MaterialTheme.colorScheme.primary,
-                    inlineCodeText = MaterialTheme.colorScheme.onSurfaceVariant,
-                    codeText = MaterialTheme.colorScheme.onSurfaceVariant,
-                    inlineCodeBackground = Color.Transparent,
-                    codeBackground = Color.Transparent,
-                    dividerColor = MaterialTheme.colorScheme.outlineVariant,
-                ),
-                typography = markdownTypography(
-                    text = MaterialTheme.typography.bodySmall,
-                    paragraph = MaterialTheme.typography.bodySmall,
-                    list = MaterialTheme.typography.bodySmall,
-                    ordered = MaterialTheme.typography.bodySmall,
-                    bullet = MaterialTheme.typography.bodySmall,
-                    quote = MaterialTheme.typography.bodySmall,
-                    code = MaterialTheme.typography.bodySmall,
-                    inlineCode = MaterialTheme.typography.bodySmall,
-                    table = MaterialTheme.typography.bodySmall,
-                    // A link is body text in the accent colour, not
-                    // a headline. No underline: the colour already
-                    // marks it and an underlined 60-character URL
-                    // is the thing that made this unreadable.
-                    link = MaterialTheme.typography.bodySmall,
-                    textLink = TextLinkStyles(
-                        style = MaterialTheme.typography.bodySmall
-                            .copy(color = MaterialTheme.colorScheme.primary)
-                            .toSpanStyle(),
-                    ),
-                    // GitHub emits `## What's Changed` then a
-                    // `### <label group>` per category. Both are
-                    // labels above a short list, so they are sized
-                    // as labels — not as the display scale the
-                    // defaults reach for.
-                    h1 = MaterialTheme.typography.labelLarge,
-                    h2 = MaterialTheme.typography.labelLarge,
-                    h3 = MaterialTheme.typography.labelMedium,
-                    h4 = MaterialTheme.typography.labelMedium,
-                    h5 = MaterialTheme.typography.labelMedium,
-                    h6 = MaterialTheme.typography.labelMedium,
-                ),
-                // The card already pads 16dp; the defaults add a
-                // document's worth on top, which is what made the
-                // bullet, its URL and the changelog line each start
-                // at a different left edge.
-                padding = markdownPadding(
-                    block = 4.dp,
-                    list = 2.dp,
-                    listItemTop = 1.dp,
-                    listItemBottom = 1.dp,
-                    listIndent = 6.dp,
-                ),
-                modifier = Modifier
+            ReleaseNotesMarkdown(
+                notes,
+                Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 12.dp),

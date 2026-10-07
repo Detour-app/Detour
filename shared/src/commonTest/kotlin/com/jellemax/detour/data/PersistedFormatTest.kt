@@ -171,10 +171,28 @@ class PersistedFormatTest {
         assertEquals(null, TripStore.decodeAll(future).first().startedBy)
     }
 
+    // V5 (#486): each trip gains "editedAtMs", when the rider last edited it —
+    // 0 when never edited. V1-V4 still read, editedAtMs 0.
+    private val tripsV5 = tripsV4
+        .replace(""""startedBy":"ANDROID_AUTO"}""", """"startedBy":"ANDROID_AUTO", "editedAtMs":1726200000000}""")
+        .replace(""""startedBy":null}]""", """"startedBy":null, "editedAtMs":0}]""")
+
+    private val tripEdited = tripWithStart.copy(editedAtMs = 1_726_200_000_000L)
+
     @Test
-    fun tripsWriterMatchesV4() {
-        val written = listOf(tripWithStart, tripNoDestination).map { TripStore.encode(it) }
-        assertEquals(jsonArrayOf(tripsV4).toList(), written)
+    fun tripsV4ReadsAsNeverEdited() {
+        assertEquals(0L, TripStore.decodeAll(tripsV4).first().editedAtMs)
+    }
+
+    @Test
+    fun tripsV5Reads() {
+        assertEquals(listOf(tripEdited, tripNoDestination), TripStore.decodeAll(tripsV5))
+    }
+
+    @Test
+    fun tripsWriterMatchesV5() {
+        val written = listOf(tripEdited, tripNoDestination).map { TripStore.encode(it) }
+        assertEquals(jsonArrayOf(tripsV5).toList(), written)
     }
 
     // --- traces.jsonl (one line per recorded segment) ------------------------
