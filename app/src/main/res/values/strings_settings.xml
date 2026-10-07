@@ -175,6 +175,7 @@
     <string name="settings_record_timings">Record function timings</string>
     <string name="settings_record_timings_hint">Times the slow parts of the app against how much data they ran over, so it is possible to see whether they are getting slower as your history grows. Stays on this device — never synced, never backed up.</string>
     <string name="settings_nothing_recorded">Nothing recorded yet</string>
+    <string name="settings_timings_not_saved">Export failed: the timings file could not be saved. Free up some storage and try again.</string>
     <string name="settings_export_timings">Export timings</string>
     <string name="settings_suppressed_events">Suppressed circle events</string>
     <string name="settings_none">None</string>

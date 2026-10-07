@@ -36,7 +36,6 @@
     <string name="friends_their_username">Hun gebruikersnaam</string>
     <string name="friends_now_friends">Je bent nu bevriend met %1$s</string>
     <string name="friends_request_sent">Verzoek verstuurd naar %1$s</string>
-    <string name="friends_failed">Mislukt</string>
     <string name="friends_send">Versturen</string>
     <string name="friends_close">Sluiten</string>
     <string name="friends_convoys">Konvooien</string>

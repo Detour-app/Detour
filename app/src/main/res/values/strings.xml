@@ -40,7 +40,6 @@
     <string name="friends_their_username">Their username</string>
     <string name="friends_now_friends">You are now friends with %1$s</string>
     <string name="friends_request_sent">Request sent to %1$s</string>
-    <string name="friends_failed">Failed</string>
     <string name="friends_send">Send</string>
     <string name="friends_close">Close</string>
     <string name="friends_convoys">Convoys</string>

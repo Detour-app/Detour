@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -30,6 +31,10 @@ data class Trip(
     /** What began the recording (#472). Null for every trip saved before it
      *  was recorded, and for iOS, which doesn't record it. */
     val startedBy: TripStart? = null,
+    /** When the rider last edited this trip (its vehicle mode), epoch ms; 0
+     *  when never edited (#486). The sync server keeps whichever copy has the
+     *  newer stamp, so another device's stale copy can't revert the edit. */
+    val editedAtMs: Long = 0L,
 ) {
     val durationMs: Long get() = endTimeMs - startTimeMs
     val avgSpeedMps: Double
@@ -122,8 +127,9 @@ object TripStore {
         val overrides = modeOverrides()
         overrides[startTimeMs] = mode.name
         writeModeOverrides(overrides)
+        val editedAtMs = nowMs()
         writeAll(trips.map {
-            if (it.startTimeMs == startTimeMs) it.copy(mode = mode) else it
+            if (it.startTimeMs == startTimeMs) it.copy(mode = mode, editedAtMs = editedAtMs) else it
         })
     }
 
@@ -183,6 +189,7 @@ object TripStore {
         put("moments", encodeTripMoments(t.moments))
         put("gForceGravityFree", t.gForceGravityFree)
         put("startedBy", t.startedBy?.name)
+        put("editedAtMs", t.editedAtMs)
     }
 
     private fun encodeDrivingStats(d: DrivingStats): JsonObject = buildJsonObject {
@@ -287,6 +294,7 @@ object TripStore {
         moments = decodeTripMoments(o.optObject("moments")),
         gForceGravityFree = o.optBoolean("gForceGravityFree"),
         startedBy = TripStart.of(o.optString("startedBy")),
+        editedAtMs = o.optLong("editedAtMs"),
     )
 
     /** Raw stored JSON array, for server sync. */
@@ -305,7 +313,8 @@ object TripStore {
      * dropping deleted trips (tombstones) and re-applying local vehicle-mode
      * edits — otherwise the server's copy would revert an edit or resurrect a
      * deletion on every sync. A mode override clears itself once the server
-     * echoes the same value back, so it never masks a genuine later change.
+     * echoes the same value back or holds a newer edit, so it never masks a
+     * genuine later change. See [mergeServerTrips].
      */
     fun replaceRaw(json: String) {
         val t = Perf.start()
@@ -320,27 +329,11 @@ object TripStore {
             }
             return
         }
-        var overridesChanged = false
-        val kept = buildJsonArray {
-            for (o in incoming.objects()) {
-                val start = o.optLong("startTimeMs")
-                if (start in tombstones) continue
-                val wanted = overrides[start]
-                when {
-                    wanted == null -> add(o)
-                    o.optString("mode") == wanted -> {
-                        overrides.remove(start) // server caught up; stop overriding
-                        overridesChanged = true
-                        add(o)
-                    }
-                    // Keep the local correction. JsonObject is immutable, so the
-                    // replacement is a copy with the one key swapped rather than
-                    // an in-place put.
-                    else -> add(JsonObject(o + ("mode" to JsonPrimitive(wanted))))
-                }
-            }
-        }
-        if (overridesChanged) writeModeOverrides(overrides)
+        val localEditedAtMs =
+            if (overrides.isEmpty()) emptyMap() else load().associate { it.startTimeMs to it.editedAtMs }
+        val overrideCount = overrides.size
+        val kept = mergeServerTrips(incoming, tombstones, overrides, localEditedAtMs)
+        if (overrides.size != overrideCount) writeModeOverrides(overrides)
         val text = kept.string()
         accountFile(FILE_NAME).writeText(text)
         Perf.end(t, "TripStore.replaceRaw") {
@@ -350,6 +343,46 @@ object TripStore {
         // trips can vanish, so no increment is even definable from here. Both
         // exits invalidate.
         RiderTotals.invalidate()
+    }
+
+    /**
+     * The merge [replaceRaw] stores: [incoming] minus [tombstones], with each
+     * pending mode override re-applied together with the local edit stamp, so
+     * the next upload carries the stamp the rider's edit was made at, not the
+     * server copy's (#486).
+     *
+     * An override is removed from [overrides] once the server echoes its mode
+     * back, or once the server copy's `editedAtMs` is newer than the local one —
+     * another device edited the trip after this one, and the server kept that
+     * edit. Re-applying it under the server's stamp would re-upload the older
+     * edit as a tie the server accepts, and the two devices would trade the
+     * mode back and forth.
+     */
+    internal fun mergeServerTrips(
+        incoming: JsonArray,
+        tombstones: Set<Long>,
+        overrides: MutableMap<Long, String>,
+        localEditedAtMs: Map<Long, Long>,
+    ): JsonArray = buildJsonArray {
+        for (o in incoming.objects()) {
+            val start = o.optLong("startTimeMs")
+            if (start in tombstones) continue
+            val wanted = overrides[start]
+            val localStamp = localEditedAtMs[start] ?: 0L
+            when {
+                wanted == null -> add(o)
+                o.optString("mode") == wanted || o.optLong("editedAtMs") > localStamp -> {
+                    overrides.remove(start) // server caught up or holds a newer edit
+                    add(o)
+                }
+                // Keep the local correction. JsonObject is immutable, so the
+                // replacement is a copy with the two keys swapped rather than
+                // in-place puts.
+                else -> add(JsonObject(
+                    o + ("mode" to JsonPrimitive(wanted)) + ("editedAtMs" to JsonPrimitive(localStamp)),
+                ))
+            }
+        }
     }
 
     private fun tombstones(): MutableSet<Long> {

@@ -59,6 +59,35 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_stale_copy_from_another_device_does_not_revert_an_edit()
+    {
+        // #486: phone A corrects the mode; phone B, which still holds the ride unedited, syncs
+        // after it. Last upload winning would put B's stale mode back on the server and on A.
+        var client = NewRider();
+        await Sync(client, new { trips = new[] { Trip(2_000, mode: "car", editedAtMs: 0) } });
+        await Sync(client, new { trips = new[] { Trip(2_000, mode: "motorcycle", editedAtMs: 9_000) } });
+
+        var merged = await Sync(client, new { trips = new[] { Trip(2_000, mode: "car", editedAtMs: 0) } });
+
+        merged.Trips.Should().ContainSingle();
+        merged.Trips[0].GetProperty("mode").GetString().Should().Be("motorcycle");
+        merged.Trips[0].GetProperty("editedAtMs").GetInt64().Should().Be(9_000);
+    }
+
+    [Fact]
+    public async Task A_copy_without_an_edit_stamp_still_overwrites()
+    {
+        // An older client sends no stamp; it keeps today's last-write-wins rather than being
+        // locked out of every trip a newer client has edited.
+        var client = NewRider();
+        await Sync(client, new { trips = new[] { Trip(2_000, mode: "motorcycle", editedAtMs: 9_000) } });
+
+        var merged = await Sync(client, new { trips = new[] { Trip(2_000, mode: "car") } });
+
+        merged.Trips[0].GetProperty("mode").GetString().Should().Be("car");
+    }
+
+    [Fact]
     public async Task A_deleted_trip_stays_deleted()
     {
         var client = NewRider();
@@ -298,8 +327,14 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
         return (await response.Content.ReadFromJsonAsync<SyncPayload>())!;
     }
 
-    private static object Trip(long startTimeMs, string mode = "motorcycle", double distanceMeters = 1_000) =>
-        new { startTimeMs, endTimeMs = startTimeMs + 60_000, mode, distanceMeters, topSpeedKmh = 80.0 };
+    private static object Trip(
+        long startTimeMs,
+        string mode = "motorcycle",
+        double distanceMeters = 1_000,
+        long? editedAtMs = null) =>
+        editedAtMs is { } edited
+            ? (object)new { startTimeMs, endTimeMs = startTimeMs + 60_000, mode, distanceMeters, topSpeedKmh = 80.0, editedAtMs = edited }
+            : new { startTimeMs, endTimeMs = startTimeMs + 60_000, mode, distanceMeters, topSpeedKmh = 80.0 };
 
     private static string Line(long startMs) =>
         $"[[51.05,3.72,{startMs},50.0,12.5],[51.06,3.73,{startMs + 1000},55.0,18.0]]";
