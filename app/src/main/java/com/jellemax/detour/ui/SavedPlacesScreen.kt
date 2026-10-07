@@ -43,10 +43,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
@@ -91,7 +93,7 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            SubScreenTopBar("Saved places", onBack, scrollBehavior) {
+            SubScreenTopBar(stringResource(R.string.places_title), onBack, scrollBehavior) {
                 IconButton(onClick = { addOpen = true }, modifier = Modifier.padding(end = 8.dp)) {
                     Box(
                         Modifier
@@ -100,7 +102,7 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
                             .background(MaterialTheme.colorScheme.surfaceContainer),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Add place")
+                        Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.places_add))
                     }
                 }
             }
@@ -157,9 +159,9 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
     }
     deleting?.let { row ->
         ConfirmDialog(
-            title = "Delete this place?",
-            text = "\"${row.name}\" will be removed from this device. This can't be undone.",
-            confirmLabel = "Delete",
+            title = stringResource(R.string.places_delete_title),
+            text = stringResource(R.string.places_delete_text, row.name),
+            confirmLabel = stringResource(R.string.places_delete),
             onConfirm = { SavedPlaces.remove(row.id) },
             onDismiss = { deleting = null },
         )
@@ -179,9 +181,9 @@ private fun NoPlacesYet(modifier: Modifier = Modifier) {
             Modifier.size(48.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text("No saved places yet", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.places_empty_title), style = MaterialTheme.typography.titleMedium)
         Text(
-            "Add Home, Work, or anywhere you stop often.",
+            stringResource(R.string.places_empty_text),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -241,32 +243,32 @@ private fun PlaceListRow(
         Box {
             IconButton(onClick = { onMenuOpenChange(true) }) {
                 Icon(
-                    Icons.Rounded.MoreVert, contentDescription = "More for ${row.name}",
+                    Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.places_more_for, row.name),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuOpenChange(false) }) {
                 if (row.kind != SavedPlaceKind.HOME) {
-                    DropdownMenuItem(text = { Text("Set as Home") },
+                    DropdownMenuItem(text = { Text(stringResource(R.string.places_set_home)) },
                         onClick = { onSetKind(SavedPlaceKind.HOME) })
                 }
                 if (row.kind != SavedPlaceKind.WORK) {
-                    DropdownMenuItem(text = { Text("Set as Work") },
+                    DropdownMenuItem(text = { Text(stringResource(R.string.places_set_work)) },
                         onClick = { onSetKind(SavedPlaceKind.WORK) })
                 }
                 if (row.kind == SavedPlaceKind.FAVOURITE) {
-                    DropdownMenuItem(text = { Text("Remove from favourites") },
+                    DropdownMenuItem(text = { Text(stringResource(R.string.places_remove_favourite)) },
                         onClick = { onSetKind(SavedPlaceKind.NONE) })
                 } else {
-                    DropdownMenuItem(text = { Text("Add to favourites") },
+                    DropdownMenuItem(text = { Text(stringResource(R.string.places_add_favourite)) },
                         onClick = { onSetKind(SavedPlaceKind.FAVOURITE) })
                 }
                 if (row.kind == SavedPlaceKind.HOME || row.kind == SavedPlaceKind.WORK) {
-                    DropdownMenuItem(text = { Text("Clear label") },
+                    DropdownMenuItem(text = { Text(stringResource(R.string.places_clear_label)) },
                         onClick = { onSetKind(SavedPlaceKind.NONE) })
                 }
-                DropdownMenuItem(text = { Text("Rename") }, onClick = onRename)
-                DropdownMenuItem(text = { Text("Delete") }, onClick = onDelete)
+                DropdownMenuItem(text = { Text(stringResource(R.string.places_rename)) }, onClick = onRename)
+                DropdownMenuItem(text = { Text(stringResource(R.string.places_delete)) }, onClick = onDelete)
             }
         }
     }
@@ -293,7 +295,7 @@ private fun AddPlaceDialog(
     var searching by remember { mutableStateOf(false) }
     // Why the list below is empty, in the rider's words. Null while there is
     // nothing to say; same one-slot shape SearchIsland uses.
-    var searchStatus by remember { mutableStateOf<String?>(null) }
+    var searchStatus by remember { mutableStateOf<Int?>(null) }
 
     // Debounced live search, same shape as the map's search dialog. Picking a
     // result sets `query = picked.name`, which re-keys this effect — only
@@ -322,7 +324,7 @@ private fun AddPlaceDialog(
         try {
             val hits = withContext(Dispatchers.IO) { Geocoder.search(query, null) }
             results = hits
-            searchStatus = if (hits.isEmpty()) "No results" else null
+            searchStatus = if (hits.isEmpty()) R.string.places_no_results else null
         } catch (e: CancellationException) {
             // The next keystroke cancelled us; a superseded search must not
             // report itself as an empty one.
@@ -330,40 +332,43 @@ private fun AddPlaceDialog(
         } catch (e: Exception) {
             // Not "your address does not exist" — the geocoder was never asked.
             results = emptyList()
-            searchStatus = "Search failed — check your connection"
+            searchStatus = R.string.places_search_failed
         }
         searching = false
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add place") },
+        title = { Text(stringResource(R.string.places_add)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Name (Home, Work…)") },
+                    label = { Text(stringResource(R.string.places_name_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Address or place") },
+                    label = { Text(stringResource(R.string.places_address_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (searching) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 val chosen = picked
+                val status = searchStatus
                 if (chosen != null) {
-                    Text("Selected: ${chosen.name}", style = MaterialTheme.typography.bodySmall,
+                    Text(
+                        stringResource(R.string.places_selected, chosen.name),
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary)
-                } else if (searchStatus != null) {
+                } else if (status != null) {
                     // Without this the spinner just stopped and the dialog sat
                     // empty, whether the geocoder had nothing or was unreachable.
                     Text(
-                        searchStatus.orEmpty(),
+                        stringResource(status),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -386,9 +391,9 @@ private fun AddPlaceDialog(
             TextButton(
                 onClick = { if (chosen != null) onSave(name, chosen.location) },
                 enabled = chosen != null && name.isNotBlank(),
-            ) { Text("Save") }
+            ) { Text(stringResource(R.string.places_save)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.places_cancel)) } },
     )
 }
 
@@ -397,7 +402,7 @@ private fun RenameDialog(initial: String, onSave: (String) -> Unit, onDismiss: (
     var name by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename place") },
+        title = { Text(stringResource(R.string.places_rename_title)) },
         text = {
             OutlinedTextField(
                 value = name,
@@ -407,8 +412,10 @@ private fun RenameDialog(initial: String, onSave: (String) -> Unit, onDismiss: (
             )
         },
         confirmButton = {
-            TextButton(onClick = { onSave(name) }, enabled = name.isNotBlank()) { Text("Save") }
+            TextButton(onClick = { onSave(name) }, enabled = name.isNotBlank()) {
+                Text(stringResource(R.string.places_save))
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.places_cancel)) } },
     )
 }

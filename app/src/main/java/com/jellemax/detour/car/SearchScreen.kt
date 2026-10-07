@@ -15,6 +15,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.LocationServices
+import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
@@ -79,7 +80,7 @@ class SearchScreen(
             override fun onSearchSubmitted(searchText: String) = onQuery(searchText, immediate = true)
         })
             .setHeaderAction(Action.BACK)
-            .setSearchHint("Search for a destination")
+            .setSearchHint(carContext.getString(R.string.car_search_hint))
             .setShowKeyboardByDefault(false)
 
         if (searching) return builder.setLoading(true).build()
@@ -92,8 +93,8 @@ class SearchScreen(
             // is never empty here and "type to search" never has to be said.
             list.addItem(
                 Row.Builder()
-                    .setTitle("Spin for a Destination")
-                    .addText("Pick a random road nearby")
+                    .setTitle(carContext.getString(R.string.car_search_spin_title))
+                    .addText(carContext.getString(R.string.car_search_spin_text))
                     .setOnClickListener {
                         onSpin()
                         screenManager.pop()
@@ -110,7 +111,7 @@ class SearchScreen(
             }
         } else when {
             errorText != null -> list.setNoItemsMessage(errorText!!)
-            results.isEmpty() -> list.setNoItemsMessage("Nothing found")
+            results.isEmpty() -> list.setNoItemsMessage(carContext.getString(R.string.car_search_nothing_found))
             else -> results.forEach { result ->
                 list.addItem(
                     Row.Builder()
@@ -156,7 +157,7 @@ class SearchScreen(
 
     private fun navigateTo(result: GeocodeResult) {
         val from = myLocation ?: run {
-            errorText = "Waiting for your location…"
+            errorText = carContext.getString(R.string.car_waiting_for_location)
             fetchLocation()
             invalidate()
             return

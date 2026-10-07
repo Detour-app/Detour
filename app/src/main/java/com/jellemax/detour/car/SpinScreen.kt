@@ -149,20 +149,21 @@ class SpinScreen(
             != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             return MessageTemplate.Builder(
-                "Open Detour on your phone once to grant location access, then come back."
-            ).setTitle("Location needed").setHeaderAction(Action.APP_ICON).build()
+                carContext.getString(R.string.car_spin_location_needed_text)
+            ).setTitle(carContext.getString(R.string.car_spin_location_needed_title))
+                .setHeaderAction(Action.APP_ICON).build()
         }
 
         val pane = Pane.Builder()
         pane.addRow(
             Row.Builder()
-                .setTitle("Radius: ${radiusPresetsKm[radiusIndex].toInt()} km")
-                .addText("Tap the radius button below to change it")
+                .setTitle(carContext.getString(R.string.car_spin_radius, radiusPresetsKm[radiusIndex].toInt()))
+                .addText(carContext.getString(R.string.car_spin_radius_hint))
                 .build()
         )
         pane.addAction(
             Action.Builder()
-                .setTitle("Radius: ${radiusPresetsKm[radiusIndex].toInt()} km")
+                .setTitle(carContext.getString(R.string.car_spin_radius, radiusPresetsKm[radiusIndex].toInt()))
                 .setOnClickListener {
                     radiusIndex = (radiusIndex + 1) % radiusPresetsKm.size
                     invalidate()
@@ -170,16 +171,17 @@ class SpinScreen(
                 .build()
         )
         when {
-            spinning -> pane.addRow(Row.Builder().setTitle("Spinning…").build())
+            spinning -> pane.addRow(Row.Builder().setTitle(carContext.getString(R.string.car_spin_spinning)).build())
             errorText != null -> pane.addRow(
-                Row.Builder().setTitle("Couldn't find a destination").addText(errorText!!).build()
+                Row.Builder().setTitle(carContext.getString(R.string.car_spin_no_destination))
+                    .addText(errorText!!).build()
             )
             candidate != null -> {
                 val c = candidate!!
                 val meters = c.route?.distanceMeters ?: c.straightLineMeters
                 pane.addRow(
                     Row.Builder()
-                        .setTitle(c.name ?: "Random road")
+                        .setTitle(c.name ?: carContext.getString(R.string.car_spin_random_road))
                         .addText(formatDistanceKm(meters))
                         .build()
                 )
@@ -189,7 +191,11 @@ class SpinScreen(
                 val hasTurnData = c.route?.instructions?.isNotEmpty() == true
                 pane.addAction(
                     Action.Builder()
-                        .setTitle(if (hasTurnData) "Start Navigation" else "Navigate")
+                        .setTitle(
+                            carContext.getString(
+                                if (hasTurnData) R.string.car_spin_start_navigation else R.string.car_spin_navigate,
+                            ),
+                        )
                         .setOnClickListener {
                             val config = serverConfig
                             val from = myLocation
@@ -292,7 +298,7 @@ class SpinScreen(
 
     private fun spin() {
         val loc = myLocation ?: run {
-            errorText = "Waiting for your location…"
+            errorText = carContext.getString(R.string.car_waiting_for_location)
             fetchLocation()
             invalidate()
             return

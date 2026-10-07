@@ -91,13 +91,17 @@ fun failureReason(e: Throwable): String = when {
     e is NoRouteException -> "no road connects those points. Try moving them."
     // A 4xx the API explained says what to fix ("No rider goes by X") better
     // than any status reading; a 5xx detail may be internals, so it doesn't.
-    e is HttpStatusException && e.code in 400..499 && e.detail != null -> e.detail
-    e is HttpStatusException && e.code in 401..403 -> "the server refused the sign-in."
-    e is HttpStatusException && e.code == 404 -> "the server has nothing at that address."
-    e is HttpStatusException && e.code >= 500 -> "the server hit a problem. Try again later."
-    e is HttpStatusException -> "the server answered ${e.code}."
+    e is HttpStatusException -> statusReason(e)
     e is IOException -> "it could not be opened. Check your connection and try again."
     else -> "the contents were not what this app expected."
+}
+
+private fun statusReason(e: HttpStatusException): String = when {
+    e.code in 400..499 && e.detail != null -> e.detail
+    e.code in 401..403 -> "the server refused the sign-in."
+    e.code == 404 -> "the server has nothing at that address."
+    e.code >= 500 -> "the server hit a problem. Try again later."
+    else -> "the server answered ${e.code}."
 }
 
 internal object Http {

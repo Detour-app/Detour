@@ -11,6 +11,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
+import com.jellemax.detour.R
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.notif.PendingUpdateOpen
 
@@ -64,7 +65,11 @@ object UpdateNotification {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Updates", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(
+                    CHANNEL_ID,
+                    context.getString(R.string.update_channel),
+                    NotificationManager.IMPORTANCE_LOW,
+                )
             )
         }
         val open = PendingIntent.getActivity(
@@ -79,8 +84,8 @@ object UpdateNotification {
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_popup_sync)
-                .setContentTitle("Detour $version is available")
-                .setContentText("Open Detour to install it.")
+                .setContentTitle(context.getString(R.string.update_available, version))
+                .setContentText(context.getString(R.string.update_available_text))
                 .setContentIntent(open)
                 .setAutoCancel(true)
                 .build(),

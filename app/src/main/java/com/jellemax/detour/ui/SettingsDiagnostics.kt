@@ -2,6 +2,7 @@ package com.jellemax.detour.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,7 +21,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.AddressSource
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
@@ -50,19 +53,16 @@ fun DiagnosticsSection() {
     val tracing by Settings.perfTracing.collectAsStateWithLifecycle()
     var status by remember { mutableStateOf<String?>(null) }
 
-    SettingsSection("Diagnostics") {
+    SettingsSection(stringResource(R.string.settings_diagnostics)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Record function timings", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_record_timings), style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Times the slow parts of the app against how much data they " +
-                        "ran over, so it is possible to see whether they are getting " +
-                        "slower as your history grows. Stays on this device — never " +
-                        "synced, never backed up.",
+                    stringResource(R.string.settings_record_timings_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -83,16 +83,16 @@ fun DiagnosticsSection() {
                 val uri = try {
                     withContext(Dispatchers.IO) { PerfSink.writeForShare(context) }
                 } catch (e: IOException) {
-                    status = TIMINGS_NOT_SAVED
+                    status = context.getString(R.string.settings_timings_not_saved)
                     return@launch
                 } catch (e: IllegalArgumentException) {
-                    status = TIMINGS_NOT_SAVED
+                    status = context.getString(R.string.settings_timings_not_saved)
                     return@launch
                 }
-                status = if (uri == null) "Nothing recorded yet" else null
+                status = if (uri == null) context.getString(R.string.settings_nothing_recorded) else null
                 if (uri != null) context.startActivity(shareTimingsIntent(uri))
             }
-        }) { Text("Export timings") }
+        }) { Text(stringResource(R.string.settings_export_timings)) }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 
         // Announcements the #273 gate dropped. Empty is the expected steady state:
@@ -101,16 +101,21 @@ fun DiagnosticsSection() {
         // else that distinction can be seen after the logcat buffer rolls.
         val suppressed = remember { Settings.suppressedPlaceEvents() }
         Text(
-            "Suppressed circle events",
+            stringResource(R.string.settings_suppressed_events),
             style = MaterialTheme.typography.titleSmall,
         )
         if (suppressed.isEmpty()) {
-            Text("None", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.settings_none), style = MaterialTheme.typography.bodySmall)
         } else {
             for (row in suppressed) {
                 Text(
-                    "${row.kind.name.lowercase()} · place ${row.placeId} · " +
-                        "${row.reason.name.lowercase().replace('_', ' ')} · ${row.tsMs}",
+                    stringResource(
+                        R.string.settings_suppressed_row,
+                        row.kind.name.lowercase(),
+                        row.placeId,
+                        row.reason.name.lowercase().replace('_', ' '),
+                        row.tsMs,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -135,39 +140,47 @@ private fun ServerConfigurationReadout() {
     val services = remember(refreshes) { RoutingServer.resolvedServices() }
     val features = remember(refreshes) { RoutingServer.knownServerFeatures() }
     Column {
-        Text("Server configuration (resolved)", style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.settings_server_config_resolved), style = MaterialTheme.typography.titleSmall)
         for (s in services) {
             val line = buildString {
-                append("${s.name} · ${s.address.value.ifBlank { "—" }} · ${sourceLabel(s.address.source)}")
-                if (s.pending.isNotBlank()) append(" · announced ${s.pending}, awaiting consent")
-                if (s.declined.isNotBlank()) append(" · declined ${s.declined}")
+                append("${s.name} · ${s.address.value.ifBlank { "—" }} · ")
+                append(stringResource(sourceLabel(s.address.source)))
+                if (s.pending.isNotBlank()) {
+                    append(" · ")
+                    append(stringResource(R.string.settings_service_announced, s.pending))
+                }
+                if (s.declined.isNotBlank()) {
+                    append(" · ")
+                    append(stringResource(R.string.settings_service_declined, s.declined))
+                }
             }
             Text(line, style = MaterialTheme.typography.bodySmall)
         }
         // null and empty are different answers here: "never asked" vs "asked and
         // the server advertises nothing" — the distinction #352 exists to show.
         Text(
-            "Features · " + when {
-                features == null -> "never probed, or no probe has answered"
-                features.isEmpty() -> "none advertised"
-                else -> features.joinToString(", ")
-            },
+            stringResource(
+                R.string.settings_features,
+                when {
+                    features == null -> stringResource(R.string.settings_features_never)
+                    features.isEmpty() -> stringResource(R.string.settings_features_none)
+                    else -> features.joinToString(", ")
+                },
+            ),
             style = MaterialTheme.typography.bodySmall,
         )
-        TextButton(onClick = { refreshes++ }) { Text("Refresh") }
+        TextButton(onClick = { refreshes++ }) { Text(stringResource(R.string.settings_refresh)) }
     }
 }
 
-private fun sourceLabel(source: AddressSource): String = when (source) {
-    AddressSource.TYPED -> "typed for this service"
-    AddressSource.ANNOUNCED -> "announced by server"
-    AddressSource.GENERAL -> "typed (one address)"
-    AddressSource.BAKED -> "built-in default"
-    AddressSource.NONE -> "not configured"
+@StringRes
+private fun sourceLabel(source: AddressSource): Int = when (source) {
+    AddressSource.TYPED -> R.string.settings_source_typed
+    AddressSource.ANNOUNCED -> R.string.settings_source_announced
+    AddressSource.GENERAL -> R.string.settings_source_general
+    AddressSource.BAKED -> R.string.settings_source_baked
+    AddressSource.NONE -> R.string.settings_source_none
 }
-
-private const val TIMINGS_NOT_SAVED =
-    "Export failed: the timings file could not be saved. Free up some storage and try again."
 
 /** The read grant is what makes the content:// Uri usable on the other side —
  *  the provider is not exported, so without it the receiver sees nothing. Same
