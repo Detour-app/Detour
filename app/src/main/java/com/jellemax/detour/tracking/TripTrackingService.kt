@@ -374,16 +374,10 @@ class TripTrackingService : Service() {
          * hard. MapScreen calls [startMonitoring] again from onLocationGranted()
          * the moment permission arrives.
          *
-         * Coarse counts: the fused provider hands back whatever the granted
-         * level allows, and the fine-only behaviour degrades rather than breaks.
+         * Coarse counts: the idle tracker runs on approximate. A trip does
+         * not — [beginTrip] refuses without precise location (#500).
          */
-        private fun canStart(context: Context): Boolean =
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.ACCESS_FINE_LOCATION,
-            ) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.ACCESS_COARSE_LOCATION,
-                ) == PackageManager.PERMISSION_GRANTED
+        private fun canStart(context: Context): Boolean = hasLocationPermission(context)
 
         /** Start (or keep) the always-on tracker in idle mode. */
         fun startMonitoring(context: Context) {
@@ -854,8 +848,7 @@ class TripTrackingService : Service() {
                     destLon = intent.takeIf { it.hasExtra(EXTRA_DEST_LON) }
                         ?.getDoubleExtra(EXTRA_DEST_LON, 0.0)
                     val car = intent.getBooleanExtra(EXTRA_FROM_CAR, false)
-                    beginTrip(if (car) TripStart.ANDROID_AUTO else TripStart.NAVIGATION)
-                    navStarted = true
+                    navStarted = beginTrip(if (car) TripStart.ANDROID_AUTO else TripStart.NAVIGATION)
                 }
             }
             ACTION_END_TRIP -> endTrip()
@@ -878,12 +871,18 @@ class TripTrackingService : Service() {
     }
 
     /** [startTimeMs] backdates an auto-started trip to when the drive really
-     *  began, rather than to the fix that finally proved it. */
+     *  began, rather than to the fix that finally proved it. False, recording
+     *  nothing, without precise location (#500) — the phone asks first; auto-
+     *  detect and the car cannot, and reset the detector so it stops proposing. */
     private fun beginTrip(
         startedBy: TripStart,
         startTimeMs: Long = clock.nowMs(),
         initialDistanceMeters: Double = 0.0,
-    ) {
+    ): Boolean {
+        if (!hasPreciseLocation(this)) {
+            resetStartDetector()
+            return false
+        }
         autoStarted = startedBy == TripStart.AUTO_DETECT
         // Set true by the ACTION_START_TRIP caller, which is the only nav path.
         navStarted = false
@@ -905,6 +904,7 @@ class TripTrackingService : Service() {
         ensureLocationUpdates()
         startMotionSensors(mode)
         updateNotification()
+        return true
     }
 
     /**
