@@ -1413,6 +1413,6 @@ fun MapScreen(
 
     // The two dialogs and the state they read live together in MapDialogs.kt;
     // this screen just says when they are up.
-    MapScreenDialogs(s = s, bgLocationLauncher = permissions.bgLocationLauncher)
+    MapScreenDialogs(s = s, permissions = permissions)
 
 }
