@@ -85,4 +85,61 @@ class TripStoreTest {
         """.trimIndent()
         assertEquals(TripMoments(), TripStore.decodeTrip(jsonObjectOf(oldTripJson)).moments)
     }
+
+    // --- mergeServerTrips: the /sync merge's mode overrides (#486) -----------
+
+    private fun serverTrips(mode: String, editedAtMs: Long) =
+        jsonArrayOf("""[{"startTimeMs":1000,"mode":"$mode","editedAtMs":$editedAtMs}]""")
+
+    @Test
+    fun anOverrideOlderThanTheServersEditGivesWayToIt() {
+        // Device A set MOTO at 9000; device B set SCOOTER at 10000 and the
+        // server kept B's. Re-applying MOTO under B's stamp re-uploads it as a
+        // tie the server accepts, and the mode flips back on B (#486).
+        val overrides = mutableMapOf(1000L to "MOTO")
+
+        val merged = TripStore.mergeServerTrips(
+            serverTrips("SCOOTER", 10_000), emptySet(), overrides, mapOf(1000L to 9_000L),
+        )
+
+        val trip = merged.objects().single()
+        assertEquals("SCOOTER", trip.optString("mode"), "the other device's newer edit must stand")
+        assertEquals(10_000L, trip.optLong("editedAtMs"))
+        assertEquals(emptyMap(), overrides, "a superseded override must clear, or it re-applies next sync")
+    }
+
+    @Test
+    fun anOverrideNewerThanTheServerCopyKeepsItsOwnStamp() {
+        // The server hasn't taken this device's edit yet: keep the mode and the
+        // stamp it was made at, so the upload beats the server's older copy.
+        val overrides = mutableMapOf(1000L to "MOTO")
+
+        val merged = TripStore.mergeServerTrips(
+            serverTrips("SCOOTER", 5_000), emptySet(), overrides, mapOf(1000L to 9_000L),
+        )
+
+        val trip = merged.objects().single()
+        assertEquals("MOTO", trip.optString("mode"), "the unsynced local edit must not be reverted")
+        assertEquals(9_000L, trip.optLong("editedAtMs"), "the upload must carry the local edit's stamp")
+        assertEquals(mapOf(1000L to "MOTO"), overrides)
+    }
+
+    @Test
+    fun anOverrideClearsOnceTheServerEchoesItsMode() {
+        val overrides = mutableMapOf(1000L to "MOTO")
+
+        val merged = TripStore.mergeServerTrips(
+            serverTrips("MOTO", 9_000), emptySet(), overrides, mapOf(1000L to 9_000L),
+        )
+
+        assertEquals("MOTO", merged.objects().single().optString("mode"))
+        assertEquals(emptyMap(), overrides)
+    }
+
+    @Test
+    fun aTombstonedTripIsDroppedFromTheMerge() {
+        val merged = TripStore.mergeServerTrips(serverTrips("CAR", 0), setOf(1000L), mutableMapOf(), emptyMap())
+
+        assertEquals(0, merged.size)
+    }
 }
