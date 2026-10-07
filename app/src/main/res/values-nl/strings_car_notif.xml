@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- car/NavScreen.kt -->
+    <string name="car_nav_other_app_navigating">Een andere app navigeert — stop die om hier routebegeleiding te krijgen</string>
+    <string name="car_nav_exit">Stoppen</string>
+    <string name="car_nav_destination">Bestemming</string>
+    <string name="car_nav_off_route">Van de route</string>
+    <string name="car_nav_continue">Ga verder</string>
+    <!-- car/SearchScreen.kt -->
+    <string name="car_search_hint">Zoek een bestemming</string>
+    <string name="car_search_spin_title">Draai voor een bestemming</string>
+    <string name="car_search_spin_text">Kies een willekeurige weg in de buurt</string>
+    <string name="car_search_nothing_found">Niets gevonden</string>
+    <string name="car_search_failed">Zoeken mislukt</string>
+    <string name="car_search_route_failed">Kon geen route maken</string>
+    <string name="car_waiting_for_location">Wachten op je locatie…</string>
+    <!-- car/SpinScreen.kt -->
+    <string name="car_spin_location_needed_title">Locatie nodig</string>
+    <string name="car_spin_location_needed_text">Open Detour één keer op je telefoon om locatietoegang te geven en kom dan terug.</string>
+    <string name="car_spin_radius">Straal: %1$d km</string>
+    <string name="car_spin_radius_hint">Tik hieronder op de straalknop om ze te wijzigen</string>
+    <string name="car_spin_spinning">Aan het draaien…</string>
+    <string name="car_spin_no_destination">Geen bestemming gevonden</string>
+    <string name="car_spin_random_road">Willekeurige weg</string>
+    <string name="car_spin_start_navigation">Navigatie starten</string>
+    <string name="car_spin_navigate">Navigeren</string>
+    <string name="car_spin_failed">Draaien mislukt</string>
+    <!-- car/CarMapRenderer.kt -->
+    <string name="car_hud_speed_unit">km/u</string>
+    <string name="car_hud_avg_unit">gem. km/u</string>
+
+    <!-- notif/* -->
+    <string name="notif_channel_trip_tracking">Ritregistratie</string>
+    <string name="notif_trip_ended">Rit beëindigd — bewaard in je logboek.</string>
+    <string name="notif_channel_circle_arrivals">Aankomsten in kringen</string>
+    <string name="notif_channel_circle_service">Kringmeldingen actief</string>
+    <string name="notif_circle_service_text">Houdt je kringen in de gaten voor aankomsten en vertrekken</string>
+
+    <!-- update/* -->
+    <string name="update_channel">Updates</string>
+    <string name="update_channel_reopen">Heropenen na een update</string>
+    <string name="update_available">Detour %1$s is beschikbaar</string>
+    <string name="update_available_text">Open Detour om ze te installeren.</string>
+    <string name="update_installed">Detour %1$s geïnstalleerd</string>
+    <string name="update_installed_text">Tik om Detour opnieuw te openen.</string>
+    <string name="update_downloading_title">Detour %1$s downloaden</string>
+    <string name="update_downloading">Downloaden…</string>
+    <string name="update_percent">%1$d%%</string>
+    <string name="update_cancel">Annuleren</string>
+    <string name="update_install">Installeren</string>
+    <string name="update_ready">Detour %1$s is klaar</string>
+    <string name="update_ready_text">Tik op Installeren om de update af te ronden.</string>
+    <string name="update_download_failed_title">Detour %1$s is niet gedownload</string>
+    <string name="update_download_failed_text">Open Detour om het opnieuw te proberen.</string>
+    <!-- update/UpdateRowState.kt (Settings row) -->
+    <string name="update_row_download">%1$s downloaden</string>
+    <string name="update_row_downloading">%1$s wordt gedownload</string>
+    <string name="update_row_failed">Downloaden van %1$s mislukt</string>
+    <string name="update_row_retry">Opnieuw</string>
+    <string name="update_row_check_title">Op updates controleren</string>
+    <string name="update_row_check_idle">Zoek naar een nieuwe versie</string>
+    <string name="update_row_checking">Controleren…</string>
+    <string name="update_row_up_to_date">Geen update gevonden</string>
+    <string name="update_row_found">Detour %1$s beschikbaar</string>
+    <string name="update_row_check_failed">GitHub is niet bereikbaar</string>
+    <string name="update_row_rate_limited">Net een paar keer gecontroleerd — probeer het straks opnieuw</string>
+
+    <!-- convoy/ConvoyLiveService.kt -->
+    <string name="convoy_channel">Konvooi</string>
+    <string name="convoy_live_title">Konvooi live</string>
+    <string name="convoy_live_text">Locatie wordt gedeeld, luistert naar push-to-talk</string>
+    <string name="convoy_stop">Stoppen</string>
+</resources>

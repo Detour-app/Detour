@@ -1,6 +1,7 @@
 package com.jellemax.detour.ui
 
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +34,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
@@ -51,6 +55,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import com.jellemax.detour.R
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SyncClient
@@ -243,6 +248,7 @@ private sealed interface RideEdit {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Loaded off the main thread: parsing trips, traces and boundaries during
     // composition would stall the first frame. Null means the first load
@@ -262,7 +268,7 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
         val result = withContext(Dispatchers.IO) { runCatching { loadLogbook() } }
         result.onSuccess { data = it }.onFailure {
             Log.w("DetourHistory", "logbook load failed", it)
-            error = "Could not read your logbook from this device."
+            error = context.getString(R.string.history_load_failed)
         }
     }
     LaunchedEffect(Unit) { reload() }
@@ -281,7 +287,7 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
                 // with no hint that the delete never happened.
                 val deleted = withContext(Dispatchers.IO) { runCatching { TripStore.delete(trip.startTimeMs) } }
                 if (deleted.isFailure) {
-                    error = "Could not delete that trip — it is still in your logbook. Try again."
+                    error = context.getString(R.string.history_delete_failed)
                     return@launch
                 }
             }
@@ -292,7 +298,7 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = { SubScreenTopBar("Logbook", onBack, scrollBehavior) },
+        topBar = { SubScreenTopBar(stringResource(R.string.history_title), onBack, scrollBehavior) },
     ) { padding ->
         val loaded = data
         val slot = Modifier.fillMaxSize().padding(padding)
@@ -337,12 +343,14 @@ private fun LogbookList(
         }
         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (f in LogbookFilter.entries) {
-                FilterChip(selected = f == filter, onClick = { filter = f }, label = { Text(f.label) })
+                FilterChip(selected = f == filter, onClick = { filter = f }, label = {
+                    Text(stringResource(f.labelRes()))
+                })
             }
         }
         if (months.isEmpty()) {
             Text(
-                "No ${filter.label.lowercase()} rides yet.",
+                stringResource(filter.emptyRes()),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp),
@@ -421,9 +429,9 @@ private fun NoTripsYet(modifier: Modifier = Modifier) {
             Modifier.size(48.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text("No trips yet", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.history_empty_title), style = MaterialTheme.typography.titleMedium)
         Text(
-            "Track a drive or spin a destination — your rides land here.",
+            stringResource(R.string.history_empty_text),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -445,7 +453,7 @@ private fun HistoryLoadFailed(message: String, onRetry: () -> Unit, modifier: Mo
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = onRetry) { Text("Try again") }
+        TextButton(onClick = onRetry) { Text(stringResource(R.string.history_try_again)) }
     }
 }
 
@@ -460,16 +468,20 @@ private fun LogbookItem.key(): String = when (this) {
 private fun YearStrip(year: LogbookYear) {
     ListCard {
         Text(
-            "${year.year} so far",
+            stringResource(R.string.history_year_so_far, year.year),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 16.dp, top = 12.dp),
         )
         Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 14.dp, start = 8.dp, end = 8.dp)) {
             StatCell("${(year.meters / 1000).toLong()}", "km", Modifier.weight(1f))
-            StatCell("${year.towns}", if (year.towns == 1) "town" else "towns", Modifier.weight(1f))
-            StatCell("${year.rides}", if (year.rides == 1) "ride" else "rides", Modifier.weight(1f))
-            StatCell("${year.weekStreak}", "week streak", Modifier.weight(1f))
+            StatCell(
+                "${year.towns}", pluralStringResource(R.plurals.history_towns_unit, year.towns), Modifier.weight(1f),
+            )
+            StatCell(
+                "${year.rides}", pluralStringResource(R.plurals.history_rides_unit, year.rides), Modifier.weight(1f),
+            )
+            StatCell("${year.weekStreak}", stringResource(R.string.history_week_streak), Modifier.weight(1f))
         }
     }
 }
@@ -488,9 +500,9 @@ private fun MonthHeader(
 ) {
     val rides = month.rides.size
     val summary = listOfNotNull(
-        if (rides == 1) "1 ride" else "$rides rides",
+        pluralStringResource(R.plurals.history_rides, rides, rides),
         formatDistanceKm(month.meters),
-        month.newPlaces.takeIf { it > 0 }?.let { if (it == 1) "1 new place" else "$it new places" },
+        month.newPlaces.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.history_new_places, it, it) },
     )
     val comparison = Logbook.distanceComparison(month.meters)
     Column(
@@ -520,7 +532,9 @@ private fun MonthHeader(
             }
             if (!current) {
                 Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                    contentDescription = if (open) "Collapse month" else "Expand month")
+                    contentDescription = stringResource(
+                        if (open) R.string.history_collapse_month else R.string.history_expand_month,
+                    ))
             }
         }
         if (!overlay.isNullOrEmpty()) {
@@ -547,13 +561,29 @@ private fun MonthPill(text: String, color: Color, contentColor: Color) {
     }
 }
 
+@StringRes
+private fun LogbookFilter.labelRes() = when (this) {
+    LogbookFilter.ALL -> R.string.history_filter_all
+    LogbookFilter.MOTO -> R.string.history_filter_moto
+    LogbookFilter.CAR -> R.string.history_filter_car
+}
+
+/** A sentence per filter, not one with the label spliced in: the Dutch noun
+ *  doesn't lowercase into the English slot. */
+@StringRes
+private fun LogbookFilter.emptyRes() = when (this) {
+    LogbookFilter.ALL -> R.string.history_no_rides
+    LogbookFilter.MOTO -> R.string.history_no_moto_rides
+    LogbookFilter.CAR -> R.string.history_no_car_rides
+}
+
 /** "This week", "Last week", then "Week of 7 Sept". */
 @Composable
 private fun WeekHeader(weekStartMs: Long, nowMs: Long, modifier: Modifier = Modifier) {
     val label = when (Logbook.weeksAgo(weekStartMs, nowMs)) {
-        0 -> "This week"
-        1 -> "Last week"
-        else -> "Week of ${weekFormat.format(weekStartMs)}"
+        0 -> stringResource(R.string.history_this_week)
+        1 -> stringResource(R.string.history_last_week)
+        else -> stringResource(R.string.history_week_of, weekFormat.format(weekStartMs))
     }
     Text(
         label,
@@ -587,7 +617,10 @@ private fun MilestoneRow(m: LogbookItem.Milestone, modifier: Modifier = Modifier
                 Icon(Icons.Outlined.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             }
             Column {
-                Text("BADGE UNLOCKED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    stringResource(R.string.history_badge_unlocked),
+                    style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                )
                 Text(m.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
             }
         }
@@ -711,15 +744,25 @@ private fun RideMenu(onPick: (RideDialog) -> Unit) {
     }
     Box {
         IconButton(onClick = { open = true }) {
-            Icon(Icons.Outlined.MoreVert, contentDescription = "Trip options", Modifier.size(18.dp))
+            Icon(
+                Icons.Outlined.MoreVert, contentDescription = stringResource(R.string.history_trip_options),
+                Modifier.size(18.dp),
+            )
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("Rename") }, onClick = { pick(RideDialog.RENAME) })
-            DropdownMenuItem(text = { Text("Change vehicle") }, onClick = { pick(RideDialog.VEHICLE) })
-            DropdownMenuItem(text = { Text("Share trip card") }, onClick = { pick(RideDialog.CARD) })
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.history_rename)) }, onClick = { pick(RideDialog.RENAME) },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.history_change_vehicle)) },
+                onClick = { pick(RideDialog.VEHICLE) },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.history_share_card)) }, onClick = { pick(RideDialog.CARD) },
+            )
             HorizontalDivider()
             DropdownMenuItem(
-                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                text = { Text(stringResource(R.string.history_delete), color = MaterialTheme.colorScheme.error) },
                 leadingIcon = {
                     Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                 },
@@ -739,24 +782,28 @@ private fun RideDialogs(ride: LogbookItem.Ride, dialog: RideDialog, onDismiss: (
             var text by remember { mutableStateOf(TextFieldValue(ride.title, TextRange(0, ride.title.length))) }
             AlertDialog(
                 onDismissRequest = onDismiss,
-                title = { Text("Rename ride") },
+                title = { Text(stringResource(R.string.history_rename_title)) },
                 text = { OutlinedTextField(text, { text = it }, singleLine = true) },
                 confirmButton = {
-                    TextButton(onClick = { onDismiss(); onEdit(RideEdit.Rename(text.text)) }) { Text("Save") }
+                    TextButton(onClick = { onDismiss(); onEdit(RideEdit.Rename(text.text)) }) {
+                        Text(stringResource(R.string.history_save))
+                    }
                 },
                 dismissButton = {
                     // Blank goes back to the generated title (TripTitleStore.set).
                     if (ride.titleEdited) {
-                        TextButton(onClick = { onDismiss(); onEdit(RideEdit.Rename("")) }) { Text("Use generated") }
+                        TextButton(onClick = { onDismiss(); onEdit(RideEdit.Rename("")) }) {
+                            Text(stringResource(R.string.history_use_generated))
+                        }
                     } else {
-                        TextButton(onClick = onDismiss) { Text("Cancel") }
+                        TextButton(onClick = onDismiss) { Text(stringResource(R.string.history_cancel)) }
                     }
                 },
             )
         }
         RideDialog.VEHICLE -> AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Change vehicle") },
+            title = { Text(stringResource(R.string.history_change_vehicle)) },
             text = {
                 Column {
                     TravelMode.entries.forEach { m ->
@@ -774,12 +821,12 @@ private fun RideDialogs(ride: LogbookItem.Ride, dialog: RideDialog, onDismiss: (
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+            confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.history_close)) } },
         )
         RideDialog.DELETE -> ConfirmDialog(
-            title = "Delete this trip?",
-            text = "${ride.title} — ${formatDistanceKm(trip.distanceMeters)}. This can't be undone.",
-            confirmLabel = "Delete",
+            title = stringResource(R.string.history_delete_title),
+            text = stringResource(R.string.history_delete_text, ride.title, formatDistanceKm(trip.distanceMeters)),
+            confirmLabel = stringResource(R.string.history_delete),
             onConfirm = { onEdit(RideEdit.Delete) },
             onDismiss = onDismiss,
         )

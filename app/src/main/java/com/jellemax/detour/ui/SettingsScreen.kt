@@ -70,6 +70,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -79,6 +80,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.TravelMode
@@ -106,16 +108,19 @@ import kotlin.math.atan2
  */
 // internal, not private: SettingsHub.kt is a second file in this package
 // holding the Settings root, and it calls this to title each row.
-internal fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) {
-    Destination.SettingsAppearanceMap -> "Appearance & map"
-    Destination.SettingsTrackingVehicles -> "Tracking & vehicles"
-    Destination.SettingsNavigation -> "Navigation"
-    Destination.SettingsFog -> "Fog of war"
-    Destination.SettingsDisplaysMedia -> "Displays & media"
-    Destination.SettingsServersSync -> "Servers & sync"
-    Destination.SettingsObd2 -> "OBD2 adapter"
-    Destination.SettingsLicences -> "Licences"
-}
+@Composable
+internal fun spokeTitle(spoke: Destination.SettingsSpoke): String = stringResource(
+    when (spoke) {
+        Destination.SettingsAppearanceMap -> R.string.settings_spoke_appearance_map
+        Destination.SettingsTrackingVehicles -> R.string.settings_spoke_tracking_vehicles
+        Destination.SettingsNavigation -> R.string.settings_spoke_navigation
+        Destination.SettingsFog -> R.string.settings_spoke_fog
+        Destination.SettingsDisplaysMedia -> R.string.settings_spoke_displays_media
+        Destination.SettingsServersSync -> R.string.settings_spoke_servers_sync
+        Destination.SettingsObd2 -> R.string.settings_spoke_obd2
+        Destination.SettingsLicences -> R.string.settings_spoke_licences
+    },
+)
 
 /**
  * The Scaffold every Settings destination shares.
@@ -210,28 +215,36 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
 
 @Composable
 private fun AppearanceSection(theme: Settings.Theme, separator: Settings.DecimalSeparator) {
-    SettingsSection("Appearance") {
+    SettingsSection(stringResource(R.string.settings_appearance)) {
         val themes = Settings.Theme.entries
         ChoiceRow(
-            options = themes.map { t -> t.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
+            options = themes.map { t ->
+                stringResource(
+                    when (t) {
+                        Settings.Theme.SYSTEM -> R.string.settings_theme_system
+                        Settings.Theme.LIGHT -> R.string.settings_theme_light
+                        Settings.Theme.DARK -> R.string.settings_theme_dark
+                        Settings.Theme.AUTO -> R.string.settings_theme_auto
+                    },
+                )
+            },
             selectedIndex = themes.indexOf(theme),
             onSelect = { Settings.setTheme(themes[it]) },
         )
         if (theme == Settings.Theme.AUTO) {
             Text(
-                "Light by day, dark by night — follows sunrise and " +
-                    "sunset at your location.",
+                stringResource(R.string.settings_theme_auto_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
-        Text("Decimal separator", style = MaterialTheme.typography.bodyLarge)
+        Text(stringResource(R.string.settings_decimal_separator), style = MaterialTheme.typography.bodyLarge)
         val separators = Settings.DecimalSeparator.entries
         ChoiceRow(
             options = separators.map { d ->
                 when (d) {
-                    Settings.DecimalSeparator.SYSTEM -> "System"
+                    Settings.DecimalSeparator.SYSTEM -> stringResource(R.string.settings_decimal_system)
                     Settings.DecimalSeparator.POINT -> "1.2"
                     Settings.DecimalSeparator.COMMA -> "1,2"
                 }
@@ -240,11 +253,7 @@ private fun AppearanceSection(theme: Settings.Theme, separator: Settings.Decimal
             onSelect = { Settings.setDecimalSeparator(separators[it]) },
         )
         Text(
-            "How readouts with a decimal — distances, g, fuel economy, " +
-                "mount offset, map zoom — are written. Speeds round to whole " +
-                "km/h, so they never show one either way. Map coordinates " +
-                "always use a point, so a latitude/longitude pair stays " +
-                "readable.",
+            stringResource(R.string.settings_decimal_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -253,16 +262,16 @@ private fun AppearanceSection(theme: Settings.Theme, separator: Settings.Decimal
 
 @Composable
 private fun TrackingSection(autoDetect: Boolean, context: Context) {
-    SettingsSection("Tracking") {
+    SettingsSection(stringResource(R.string.settings_tracking)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Auto-detect drives", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_auto_detect), style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Start a trip automatically when driving is detected",
+                    stringResource(R.string.settings_auto_detect_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -352,14 +361,8 @@ private fun ParkedDormancyNotice(autoDetect: Boolean, context: Context) {
     if (blocker == DormancyBlocker.NONE) return
 
     val explanation = when (blocker) {
-        DormancyBlocker.ACTIVITY_RECOGNITION ->
-            "Detour's tracker stays on, with its notification showing, even when " +
-                "you're parked. It needs physical activity access to tell that " +
-                "you've stopped, so it can switch itself off until you ride again."
-        DormancyBlocker.BACKGROUND_LOCATION ->
-            "Detour's tracker stays on, with its notification showing, even when " +
-                "you're parked. Set location access to \"Allow all the time\" and it " +
-                "can switch itself off while parked, then wake when you ride away."
+        DormancyBlocker.ACTIVITY_RECOGNITION -> stringResource(R.string.settings_dormancy_activity)
+        DormancyBlocker.BACKGROUND_LOCATION -> stringResource(R.string.settings_dormancy_background)
         DormancyBlocker.NONE -> return
     }
 
@@ -385,8 +388,8 @@ private fun ParkedDormancyNotice(autoDetect: Boolean, context: Context) {
         ) {
             Text(
                 when (blocker) {
-                    DormancyBlocker.ACTIVITY_RECOGNITION -> "Allow physical activity"
-                    else -> "Change location access"
+                    DormancyBlocker.ACTIVITY_RECOGNITION -> stringResource(R.string.settings_allow_activity)
+                    else -> stringResource(R.string.settings_change_location)
                 }
             )
         }
@@ -411,12 +414,14 @@ private fun ParkedDormancyNotice(autoDetect: Boolean, context: Context) {
     }
 }
 
+@Composable
 private fun navAppLabel(app: Settings.NavApp): String = when (app) {
-    Settings.NavApp.ASK -> "Ask each time"
-    Settings.NavApp.IN_APP -> "Navigate in app"
+    Settings.NavApp.ASK -> stringResource(R.string.settings_nav_ask)
+    Settings.NavApp.IN_APP -> stringResource(R.string.settings_nav_in_app)
+    // Product names, the same in every language.
     Settings.NavApp.GOOGLE_MAPS -> "Google Maps"
     Settings.NavApp.WAZE -> "Waze"
-    Settings.NavApp.OTHER -> "Other app"
+    Settings.NavApp.OTHER -> stringResource(R.string.settings_nav_other)
 }
 
 @Composable
@@ -425,17 +430,16 @@ internal fun NavigationSection() {
     val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
     val preferredNavApp = goNavApp()
     val voiceGuidance by Settings.voiceGuidance.collectAsStateWithLifecycle()
-    SettingsSection("Navigation") {
+    SettingsSection(stringResource(R.string.settings_spoke_navigation)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Spoken guidance", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_voice), style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Turn instructions read aloud while navigating, here and on " +
-                        "the car screen. Mutable mid-drive from the speaker button there.",
+                    stringResource(R.string.settings_voice_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -451,17 +455,16 @@ internal fun NavigationSection() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Remembered nav app", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_remembered_nav), style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Go currently launches: ${navAppLabel(preferredNavApp)}. " +
-                        "Long-press Go to change it.",
+                    stringResource(R.string.settings_remembered_nav_hint, navAppLabel(preferredNavApp)),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (preferredNavApp != Settings.NavApp.ASK) {
                 TextButton(onClick = { Settings.setPreferredNavApp(Settings.NavApp.ASK) }) {
-                    Text("Reset")
+                    Text(stringResource(R.string.settings_reset))
                 }
             }
         }
@@ -471,10 +474,9 @@ internal fun NavigationSection() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Avoid highways", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_avoid_highways), style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "In-app navigation skips motorways (car mode; " +
-                        "moto never uses them)",
+                    stringResource(R.string.settings_avoid_highways_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -490,10 +492,9 @@ internal fun NavigationSection() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Avoid small roads", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_avoid_small_roads), style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Prefer real roads over narrow rural lanes, " +
-                        "service roads and unpaved tracks",
+                    stringResource(R.string.settings_avoid_small_roads_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -513,7 +514,7 @@ internal fun NavigationSection() {
 @Composable
 private fun MapIconSection() {
     val mapIcon by Settings.mapIcon.collectAsStateWithLifecycle()
-    SettingsSection("Your marker") {
+    SettingsSection(stringResource(R.string.settings_marker)) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -558,8 +559,7 @@ private fun MapIconSection() {
             }
         }
         Text(
-            "Drawn where you are, on the phone map and on the car screen. " +
-                "Vehicles turn to face the way you're heading.",
+            stringResource(R.string.settings_marker_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -579,7 +579,7 @@ private fun MapIconSection() {
 private fun RouteColorSection(theme: Settings.Theme) {
     val routeColor by Settings.routeColor.collectAsStateWithLifecycle()
     val darkTheme = isAppDarkTheme(theme)
-    SettingsSection("Route line") {
+    SettingsSection(stringResource(R.string.settings_route_line)) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -638,9 +638,7 @@ private fun RouteColorSection(theme: Settings.Theme) {
             }
         }
         Text(
-            "The line drawn to your destination, on the phone map and on the " +
-                "car screen. While navigating, the part you have already driven " +
-                "fades to the darker shade.",
+            stringResource(R.string.settings_route_line_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -653,12 +651,12 @@ private fun hexColor(hex: String): Color = Color(android.graphics.Color.parseCol
 @Composable
 private fun MapSection() {
     val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
-    SettingsSection("Map") {
+    SettingsSection(stringResource(R.string.settings_map)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("Default zoom", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.settings_default_zoom), style = MaterialTheme.typography.bodyLarge)
             Text(
                 formatFixed(defaultZoom.toDouble(), 1, Settings.decimalSeparatorChar()),
                 style = MaterialTheme.typography.bodyLarge,
@@ -671,8 +669,7 @@ private fun MapSection() {
             valueRange = Settings.DEFAULT_ZOOM_MIN..Settings.DEFAULT_ZOOM_MAX,
         )
         Text(
-            "Where the map sits while following you. It zooms out up to " +
-                "two levels at speed and back in near a turn.",
+            stringResource(R.string.settings_default_zoom_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -685,12 +682,12 @@ private fun FogSection(context: Context) {
     val shareFog by Settings.shareFog.collectAsStateWithLifecycle()
     var confirmReset by remember { mutableStateOf(false) }
 
-    SettingsSection("Fog of war") {
+    SettingsSection(stringResource(R.string.settings_spoke_fog)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("Reveal radius", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.settings_reveal_radius), style = MaterialTheme.typography.bodyLarge)
             Text(
                 "${fogRadius.toInt()} m",
                 style = MaterialTheme.typography.bodyLarge,
@@ -708,11 +705,9 @@ private fun FogSection(context: Context) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Share fog with friends", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.settings_share_fog), style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Uncover the map together: your accepted friends see the " +
-                        "roads you have driven, and you see theirs. Only friends " +
-                        "who share back can see yours. Off, nobody sees either.",
+                    stringResource(R.string.settings_share_fog_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -732,14 +727,14 @@ private fun FogSection(context: Context) {
     // Danger action at the bottom of its own spoke, same as before — just no
     // longer sharing a card with the rest of the fog settings.
     TextButton(onClick = { confirmReset = true }) {
-        Text("Reset explored area", color = MaterialTheme.colorScheme.error)
+        Text(stringResource(R.string.settings_reset_explored), color = MaterialTheme.colorScheme.error)
     }
 
     if (confirmReset) {
         ConfirmDialog(
-            title = "Reset explored area?",
-            text = "All fog-of-war progress will be permanently deleted. Saved trips are kept.",
-            confirmLabel = "Reset",
+            title = stringResource(R.string.settings_reset_explored_title),
+            text = stringResource(R.string.settings_reset_explored_text),
+            confirmLabel = stringResource(R.string.settings_reset),
             onConfirm = { TraceStore.clear() },
             onDismiss = { confirmReset = false },
         )
@@ -777,11 +772,9 @@ private fun ExternalDisplaySection() {
         }
     }
 
-    SettingsSection("External display") {
+    SettingsSection(stringResource(R.string.settings_external_display)) {
         Text(
-            "Broadcast turn-by-turn over Bluetooth Low Energy for a handlebar-mounted " +
-                "screen — turn, distance, speed, speed limit, road name, and remaining " +
-                "distance/ETA.",
+            stringResource(R.string.settings_external_display_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -793,7 +786,7 @@ private fun ExternalDisplaySection() {
                         Manifest.permission.BLUETOOTH_ADVERTISE,
                     ),
                 )
-            }) { Text("Allow Bluetooth") }
+            }) { Text(stringResource(R.string.settings_allow_bluetooth)) }
             return@SettingsSection
         }
         Row(
@@ -801,7 +794,7 @@ private fun ExternalDisplaySection() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Broadcast to external display", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.settings_broadcast_external), style = MaterialTheme.typography.bodyLarge)
             Switch(
                 checked = enabled,
                 onCheckedChange = {
@@ -846,12 +839,9 @@ private fun NowPlayingSection() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    SettingsSection("Now playing on external display") {
+    SettingsSection(stringResource(R.string.settings_now_playing)) {
         Text(
-            "Relay title, artist, and playback position from whatever's playing " +
-                "(Spotify, etc.) to the handlebar display. Reads media sessions only, " +
-                "never notification content — Android requires notification access to " +
-                "do either, so the permission name is broader than what's actually used.",
+            stringResource(R.string.settings_now_playing_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -862,12 +852,11 @@ private fun NowPlayingSection() {
                 context.startActivity(
                     Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
                 )
-            }) { Text("Allow notification access") }
+            }) { Text(stringResource(R.string.settings_allow_notification_access)) }
             return@SettingsSection
         }
         Text(
-            "Enabled. Also turn on \"Broadcast to external display\" above — music " +
-                "shares that Bluetooth connection.",
+            stringResource(R.string.settings_now_playing_enabled),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -920,23 +909,21 @@ private fun VehicleSection() {
     // A device picked from the "add" list, waiting for the rider to name it, by address.
     var naming by remember { mutableStateOf<String?>(null) }
 
-    SettingsSection("Vehicles") {
+    SettingsSection(stringResource(R.string.settings_vehicles)) {
         Text(
-            "Add a Bluetooth device to a vehicle. When it's connected, trips log " +
-                "under that vehicle automatically. With nothing connected, a trip " +
-                "that never picks up real driving pace is dropped rather than saved.",
+            stringResource(R.string.settings_vehicles_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!hasPerm) {
             Text(
-                "Grant Bluetooth access to add your paired devices.",
+                stringResource(R.string.settings_vehicles_grant),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             TextButton(onClick = {
                 permLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
-            }) { Text("Allow Bluetooth") }
+            }) { Text(stringResource(R.string.settings_allow_bluetooth)) }
             return@SettingsSection
         }
         TravelMode.entries.forEach { mode ->
@@ -951,11 +938,11 @@ private fun VehicleSection() {
                 TextButton(onClick = { addTarget = mode }) {
                     Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Add device")
+                    Text(stringResource(R.string.settings_add_device))
                 }
             }
             if (devices.isEmpty()) {
-                Text("No devices", style = MaterialTheme.typography.bodySmall,
+                Text(stringResource(R.string.settings_no_devices), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 devices.forEach { d ->
@@ -982,12 +969,18 @@ private fun VehicleSection() {
                             }
                         }
                         IconButton(onClick = { renaming = d.address }) {
-                            Icon(Icons.Outlined.Edit, contentDescription = "Rename $display",
-                                Modifier.size(18.dp))
+                            Icon(
+                                Icons.Outlined.Edit,
+                                contentDescription = stringResource(R.string.settings_rename_named, display),
+                                Modifier.size(18.dp),
+                            )
                         }
                         IconButton(onClick = { removing = d.address }) {
-                            Icon(Icons.Outlined.Close, contentDescription = "Remove $display",
-                                Modifier.size(18.dp))
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = stringResource(R.string.settings_remove_named, display),
+                                Modifier.size(18.dp),
+                            )
                         }
                     }
                     Row(
@@ -996,7 +989,7 @@ private fun VehicleSection() {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "Share \"$display\" with your convoy",
+                            stringResource(R.string.settings_share_vehicle_name, display),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1007,10 +1000,9 @@ private fun VehicleSection() {
                     }
                     if (removing == d.address) {
                         ConfirmDialog(
-                            title = "Remove $display?",
-                            text = "Trips stop logging as ${mode.label} when this device " +
-                                "connects. You can add it back from the paired list.",
-                            confirmLabel = "Remove",
+                            title = stringResource(R.string.settings_remove_vehicle_title, display),
+                            text = stringResource(R.string.settings_remove_vehicle_text, mode.label),
+                            confirmLabel = stringResource(R.string.settings_remove),
                             onConfirm = {
                                 Settings.removeVehicleDevice(d.address)
                                 TripTrackingService.refresh(context)
@@ -1020,9 +1012,9 @@ private fun VehicleSection() {
                     }
                     if (renaming == d.address) {
                         VehicleNameDialog(
-                            title = "Rename vehicle",
+                            title = stringResource(R.string.settings_rename_vehicle),
                             initial = display,
-                            confirmLabel = "Save",
+                            confirmLabel = stringResource(R.string.settings_save),
                             onConfirm = {
                                 // Equal to the device name = no custom name; store
                                 // blank so the entry falls back and the sub-line hides.
@@ -1046,9 +1038,9 @@ private fun VehicleSection() {
             val deviceName = bonded.firstOrNull { it.address == pending }
                 ?.let { runCatching { it.name }.getOrNull() } ?: pending
             VehicleNameDialog(
-                title = "Name this ${mode.label}",
+                title = stringResource(R.string.settings_name_vehicle, mode.label),
                 initial = deviceName,
-                confirmLabel = "Add",
+                confirmLabel = stringResource(R.string.settings_add),
                 onConfirm = {
                     Settings.addVehicleDevice(
                         pending, deviceName, mode,
@@ -1064,11 +1056,10 @@ private fun VehicleSection() {
             val unassigned = bonded.filter { !mapping.containsKey(it.address) }
             AlertDialog(
                 onDismissRequest = { addTarget = null },
-                title = { Text("Add a ${mode.label} device") },
+                title = { Text(stringResource(R.string.settings_add_vehicle_device, mode.label)) },
                 text = {
                     if (unassigned.isEmpty()) {
-                        Text("No unassigned paired devices. Pair the device in Android's " +
-                            "Bluetooth settings first, or remove it from another vehicle.")
+                        Text(stringResource(R.string.settings_no_unassigned))
                     } else {
                         Column {
                             unassigned.forEach { device ->
@@ -1087,7 +1078,7 @@ private fun VehicleSection() {
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { addTarget = null }) { Text("Close") }
+                    TextButton(onClick = { addTarget = null }) { Text(stringResource(R.string.settings_close)) }
                 },
             )
         }
@@ -1118,8 +1109,7 @@ private fun VehicleNameDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Shown in your history and to your convoy. Leave blank to use the " +
-                        "device name.",
+                    stringResource(R.string.settings_vehicle_name_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
@@ -1129,7 +1119,7 @@ private fun VehicleNameDialog(
         confirmButton = {
             TextButton(onClick = { onConfirm(name) }) { Text(confirmLabel) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_cancel)) } },
     )
 }
 
@@ -1152,7 +1142,7 @@ private fun LeanCalibrationSection() {
             val sensorManager = context.getSystemService(SensorManager::class.java)
             val sensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
             if (sensor == null) {
-                status = "No rotation sensor on this phone"
+                status = context.getString(R.string.settings_no_rotation_sensor)
                 calibrating = false
                 return@LaunchedEffect
             }
@@ -1175,25 +1165,28 @@ private fun LeanCalibrationSection() {
             status = if (samples.isNotEmpty()) {
                 val avg = samples.average()
                 Settings.setLeanOffsetDeg(avg.toFloat())
-                "Calibrated: offset ${formatFixed(avg, 1, Settings.decimalSeparatorChar())}°"
+                context.getString(
+                    R.string.settings_calibrated,
+                    formatFixed(avg, 1, Settings.decimalSeparatorChar()),
+                )
             } else {
-                "No readings — try again"
+                context.getString(R.string.settings_no_readings)
             }
             calibrating = false
         }
     }
 
-    SettingsSection("Vehicle mounting") {
+    SettingsSection(stringResource(R.string.settings_vehicle_mounting)) {
         Text(
-            "Corrects for a mount that isn't perfectly upright on the " +
-                "handlebar, so straight-line riding reads as 0° lean. " +
-                "Sit the bike upright on its wheels, engine off, phone " +
-                "in its normal mount, then calibrate.",
+            stringResource(R.string.settings_mounting_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Current offset: ${formatFixed(offsetDeg.toDouble(), 1, Settings.decimalSeparatorChar())}°",
+            stringResource(
+                R.string.settings_current_offset,
+                formatFixed(offsetDeg.toDouble(), 1, Settings.decimalSeparatorChar()),
+            ),
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
         )
@@ -1201,12 +1194,12 @@ private fun LeanCalibrationSection() {
             TextButton(
                 enabled = !calibrating,
                 onClick = { status = null; calibrating = true },
-            ) { Text(if (calibrating) "Calibrating…" else "Calibrate") }
+            ) { Text(stringResource(if (calibrating) R.string.settings_calibrating else R.string.settings_calibrate)) }
             if (offsetDeg != 0f) {
                 TextButton(onClick = {
                     Settings.setLeanOffsetDeg(0f)
                     status = null
-                }) { Text("Reset") }
+                }) { Text(stringResource(R.string.settings_reset)) }
             }
         }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

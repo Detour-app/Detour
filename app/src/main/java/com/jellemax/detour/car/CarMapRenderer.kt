@@ -17,6 +17,7 @@ import android.widget.FrameLayout
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
+import com.jellemax.detour.R
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.catchingCancellable
 import com.jellemax.detour.data.CircleFixes
@@ -950,7 +951,7 @@ private class HudOverlay(context: android.content.Context) : View(context) {
             fitText(speedTextPaint, text, diameter * 0.42f, diameter * 0.70f)
             unitTextPaint.textSize = diameter * 0.15f
             canvas.drawText(text, cx, cy + baselineOffset(speedTextPaint) - diameter * 0.06f, speedTextPaint)
-            canvas.drawText("km/h", cx, cy + radius * 0.62f, unitTextPaint)
+            canvas.drawText(context.getString(R.string.car_hud_speed_unit), cx, cy + radius * 0.62f, unitTextPaint)
             cx -= radius + gap
         }
 
@@ -993,14 +994,13 @@ private class HudOverlay(context: android.content.Context) : View(context) {
             // is the bare number under a rule, labelled "avg", which only
             // works because it has a column to itself. In a disc alongside two
             // others the glyph is what says "this one is the average" without
-            // a second line. Both strings are fitted rather than sized
-            // outright: "Ø 120" and "avg km/h" are both wider than the speed
-            // disc's "120"/"km/h" in a disc that is 10% smaller.
+            // a second line. Both strings are fitted, not sized: each outgrows a 10% smaller disc.
             val text = "Ø %.0f".format(average)
+            val unit = context.getString(R.string.car_hud_avg_unit)
             fitText(speedTextPaint, text, avgDiameter * 0.34f, avgDiameter * 0.76f)
-            fitText(unitTextPaint, "avg km/h", avgDiameter * 0.15f, avgDiameter * 0.80f)
+            fitText(unitTextPaint, unit, avgDiameter * 0.15f, avgDiameter * 0.80f)
             canvas.drawText(text, cx, cy + baselineOffset(speedTextPaint) - avgDiameter * 0.06f, speedTextPaint)
-            canvas.drawText("avg km/h", cx, cy + avgRadius * 0.62f, unitTextPaint)
+            canvas.drawText(unit, cx, cy + avgRadius * 0.62f, unitTextPaint)
         }
     }
 }

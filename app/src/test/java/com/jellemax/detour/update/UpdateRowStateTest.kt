@@ -1,5 +1,6 @@
 package com.jellemax.detour.update
 
+import com.jellemax.detour.R
 import com.jellemax.detour.data.UpdateClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -15,40 +16,46 @@ class UpdateRowStateTest {
         sha256 = "abc",
     )
 
+    /** Stands in for `Context.getString`: the resource id, then the version
+     *  argument if one was passed, so each assertion pins both. */
+    private fun text(id: Int, version: String? = null) = listOfNotNull(id, version).joinToString(" ")
+
+    private fun row(manual: ManualCheck, status: UpdateStatus) = updateRowStateFrom(manual, status, ::text)
+
     @Test fun idleOffersTheCheck() {
-        val row = updateRowStateFrom(ManualCheck.Idle, UpdateStatus.None)
-        assertEquals("Check for updates", row.title)
-        assertEquals("Check for a new release", row.subtitle)
+        val row = row(ManualCheck.Idle, UpdateStatus.None)
+        assertEquals(text(R.string.update_row_check_title), row.title)
+        assertEquals(text(R.string.update_row_check_idle), row.subtitle)
         assertEquals(UpdateAction.CHECK, row.action)
         assertNull(row.fraction)
     }
 
-    @Test fun theCheckOnlyOutcomesKeepTheirWording() {
-        assertEquals("Checking…", updateRowStateFrom(ManualCheck.Running, UpdateStatus.None).subtitle)
-        assertEquals("No update found", updateRowStateFrom(ManualCheck.UpToDate, UpdateStatus.None).subtitle)
-        assertEquals("Couldn't reach GitHub", updateRowStateFrom(ManualCheck.Failed, UpdateStatus.None).subtitle)
+    @Test fun eachCheckOutcomeHasItsOwnString() {
+        assertEquals(text(R.string.update_row_checking), row(ManualCheck.Running, UpdateStatus.None).subtitle)
+        assertEquals(text(R.string.update_row_up_to_date), row(ManualCheck.UpToDate, UpdateStatus.None).subtitle)
+        assertEquals(text(R.string.update_row_check_failed), row(ManualCheck.Failed, UpdateStatus.None).subtitle)
         assertEquals(
-            "Checked a few times just now — try again shortly",
-            updateRowStateFrom(ManualCheck.RateLimited(0L), UpdateStatus.None).subtitle,
+            text(R.string.update_row_rate_limited),
+            row(ManualCheck.RateLimited(0L), UpdateStatus.None).subtitle,
         )
     }
 
     @Test fun aRunningCheckOffersNoAction() {
-        assertNull(updateRowStateFrom(ManualCheck.Running, UpdateStatus.None).action)
+        assertNull(row(ManualCheck.Running, UpdateStatus.None).action)
     }
 
     @Test fun anAvailableUpdateOffersTheDownload() {
-        val row = updateRowStateFrom(ManualCheck.Found("2.14.0"), UpdateStatus.Available(update()))
-        assertEquals("Detour 2.14.0 is available", row.title)
+        val row = row(ManualCheck.Found("2.14.0"), UpdateStatus.Available(update()))
+        assertEquals(text(R.string.update_available, "2.14.0"), row.title)
         assertEquals(UpdateAction.DOWNLOAD, row.action)
-        assertEquals("Download 2.14.0", row.actionLabel)
+        assertEquals(text(R.string.update_row_download, "2.14.0"), row.actionLabel)
         assertNull(row.notes)
     }
 
     /** #295: the release's own notes ride along on the Available row so the
      *  Settings screen can offer an expandable "What's new". */
     @Test fun anAvailableUpdateCarriesTheReleaseNotes() {
-        val row = updateRowStateFrom(
+        val row = row(
             ManualCheck.Found("2.14.0"),
             UpdateStatus.Available(update().copy(notes = "* fix(nav): thing (#225)")),
         )
@@ -60,40 +67,40 @@ class UpdateRowStateTest {
      *  null even when the underlying [UpdateClient.PendingUpdate] has some. */
     @Test fun notesDoNotSurviveIntoOtherPhases() {
         val withNotes = update().copy(notes = "* fix(nav): thing (#225)")
-        assertNull(updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Downloading(withNotes, 0.5f)).notes)
-        assertNull(updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Downloaded(withNotes, "/tmp/x.apk")).notes)
-        assertNull(updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Failed(withNotes)).notes)
+        assertNull(row(ManualCheck.Idle, UpdateStatus.Downloading(withNotes, 0.5f)).notes)
+        assertNull(row(ManualCheck.Idle, UpdateStatus.Downloaded(withNotes, "/tmp/x.apk")).notes)
+        assertNull(row(ManualCheck.Idle, UpdateStatus.Failed(withNotes)).notes)
     }
 
     @Test fun aDownloadInFlightCarriesItsFraction() {
-        val row = updateRowStateFrom(ManualCheck.Found("2.14.0"), UpdateStatus.Downloading(update(), 0.54f))
-        assertEquals("Downloading 2.14.0", row.title)
+        val row = row(ManualCheck.Found("2.14.0"), UpdateStatus.Downloading(update(), 0.54f))
+        assertEquals(text(R.string.update_row_downloading, "2.14.0"), row.title)
         assertEquals(0.54f, row.fraction!!, 0.0001f)
         assertEquals(UpdateAction.CANCEL, row.action)
     }
 
     @Test fun anUnknownLengthIsANegativeFractionNotAMissingOne() {
-        val row = updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Downloading(update(), -1f))
+        val row = row(ManualCheck.Idle, UpdateStatus.Downloading(update(), -1f))
         assertEquals(-1f, row.fraction!!, 0.0001f)
     }
 
     @Test fun aFinishedDownloadOffersTheInstall() {
-        val row = updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Downloaded(update(), "/tmp/x.apk"))
-        assertEquals("Detour 2.14.0 is ready", row.title)
+        val row = row(ManualCheck.Idle, UpdateStatus.Downloaded(update(), "/tmp/x.apk"))
+        assertEquals(text(R.string.update_ready, "2.14.0"), row.title)
         assertEquals(UpdateAction.INSTALL, row.action)
-        assertEquals("Install", row.actionLabel)
+        assertEquals(text(R.string.update_install), row.actionLabel)
     }
 
     @Test fun aFailedDownloadOffersTheRetry() {
-        val row = updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Failed(update()))
-        assertEquals("Download of 2.14.0 failed", row.title)
+        val row = row(ManualCheck.Idle, UpdateStatus.Failed(update()))
+        assertEquals(text(R.string.update_row_failed, "2.14.0"), row.title)
         assertEquals(UpdateAction.DOWNLOAD, row.action)
-        assertEquals("Retry", row.actionLabel)
+        assertEquals(text(R.string.update_row_retry), row.actionLabel)
     }
 
     @Test fun theArtefactOutranksTheCheck() {
         // A check that just failed must not overwrite a download in flight.
-        val row = updateRowStateFrom(ManualCheck.Failed, UpdateStatus.Downloading(update(), 0.1f))
-        assertEquals("Downloading 2.14.0", row.title)
+        val row = row(ManualCheck.Failed, UpdateStatus.Downloading(update(), 0.1f))
+        assertEquals(text(R.string.update_row_downloading, "2.14.0"), row.title)
     }
 }
