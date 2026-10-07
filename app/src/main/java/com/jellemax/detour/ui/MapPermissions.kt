@@ -152,6 +152,7 @@ internal fun rememberMapPermissions(
         offerLocationIfDenied = offerLocationIfDenied,
         continueFromExplainer = ::continueFromExplainer,
         recordTrip = recording::recordTrip,
+        recordHandedOffTrip = recording::recordHandedOffTrip,
         dropPendingTrip = recording::dropPendingTrip,
     )
 }
@@ -297,6 +298,18 @@ private class PreciseForRecording(private val context: Context) {
         askForPrecise()
     }
 
+    /**
+     * Records a trip whose navigation another app runs. Never asks or waits:
+     * that app opens in the same frame, so the dialog would sit unseen behind
+     * it, and a late grant would start a trip nothing ends — no handoff calls
+     * [dropPendingTrip]. Without precise it records nothing and says so; the
+     * snackbar's action only asks for next time.
+     */
+    fun recordHandedOffTrip(to: LatLon?) {
+        if (hasPreciseLocation(context)) TripTrackingService.start(context, to?.lat, to?.lon)
+        else onRefused()
+    }
+
     fun dropPendingTrip() {
         isPending = false
         pendingTo = null
@@ -371,6 +384,9 @@ internal class MapPermissions(
      *  precise location if only approximate is granted, and recording
      *  nothing if the rider refuses (#500). */
     val recordTrip: (LatLon?) -> Unit,
+    /** As [recordTrip] for a handoff to another navigation app, which opens on
+     *  top at once: records without asking, or not at all without precise. */
+    val recordHandedOffTrip: (LatLon?) -> Unit,
     /** Forgets a trip still waiting on that answer; navigation ended first. */
     val dropPendingTrip: () -> Unit,
 )

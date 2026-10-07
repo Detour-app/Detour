@@ -1374,7 +1374,7 @@ fun MapScreen(
                 // #432: no second, parallel fetch from a repeat tap — the drive sheet's Go too.
                 onNavigateInApp = { if (!s.rerouting) startNavigation() },
                 onNavigate = {
-                    if (stats == null) permissions.recordTrip(s.destination)
+                    if (stats == null) permissions.recordHandedOffTrip(s.destination) // #500: never asks
                 },
                 // The navigation dock's ✕: drop the destination and everything
                 // derived from it. `settingsCollapsed` is left untouched, so
