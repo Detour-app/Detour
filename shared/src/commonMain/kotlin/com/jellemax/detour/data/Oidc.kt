@@ -93,8 +93,9 @@ object Oidc {
      * The realm to sign in to, asking the API server when the rider has not
      * named one. Blank when there is no realm to be had.
      *
-     * A typed issuer short-circuits the network entirely — the field still
-     * wins, which is what its deprecation copy promises.
+     * A stored typed issuer short-circuits the network entirely. Settings no
+     * longer offers the field (#354), but a value saved before that keeps
+     * winning, so nobody is signed out by upgrading.
      *
      * Otherwise this probes on **every** interactive sign-in rather than
      * trusting what it stored. That is the point rather than an oversight: a
@@ -114,17 +115,22 @@ object Oidc {
         val typed = custom?.idpIssuer.orEmpty()
         if (typed.isNotBlank()) return RoutingServer.issuer(custom)
 
-        val caps = Capabilities
-            .fetch(RoutingServer.apiBase(custom), RoutingServer.userAgentHeaders())
+        val headers = RoutingServer.userAgentHeaders()
+        val caps = Capabilities.fetch(RoutingServer.apiBase(custom), headers)
         // The same document answers both questions, so the feature list is
         // recorded here rather than left to RoutingServer.probeCapabilities'
         // own round trip — a sign-in is the one moment a client is guaranteed
         // to have just asked.
         RoutingServer.rememberServerFeatures(caps?.features)
         val fetched = caps?.idpIssuer.orEmpty()
+        val stored = RoutingServer.discoveredIssuer()
+        // The extra round trip only when a new realm would replace the stored
+        // one — the case where a broken announcement costs a working sign-in.
         val discovered = Capabilities.preferredDiscovered(
             fetched = fetched,
-            stored = RoutingServer.discoveredIssuer(),
+            stored = stored,
+            fetchedAnswers = Capabilities.displaces(fetched, stored) &&
+                Capabilities.discoveryAnswers(fetched, headers),
         )
         // Writes only on a change, and clears the session when the change is a
         // change of realm — see [RoutingServer.rememberDiscoveredIssuer].

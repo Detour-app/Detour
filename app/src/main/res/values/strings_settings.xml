@@ -154,8 +154,6 @@
     <string name="settings_api_url">Sync &amp; social API (optional)</string>
     <string name="settings_routing_url">Routing server (optional)</string>
     <string name="settings_search_url">Search server (optional)</string>
-    <string name="settings_realm_url">Sign-in realm URL (deprecated)</string>
-    <string name="settings_realm_hint">Deprecated — newer servers tell the app which realm to use, so leave this empty unless your server has not been updated. Anything typed here still wins over what the server says. Changing it signs this device out: tokens from one realm mean nothing to another.</string>
     <string name="settings_public_search">Fall back to public search</string>
     <string name="settings_public_search_hint">If your search server is unreachable, retry via the public Photon instance (komoot.io) — sends the query and your approximate location off your own hardware.</string>
     <string name="settings_remove_custom">Remove custom server</string>

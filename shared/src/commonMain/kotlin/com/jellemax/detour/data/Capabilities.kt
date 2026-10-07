@@ -63,9 +63,10 @@ object ServerFeature {
  * Asking a deployment which realm to sign in against, instead of the rider
  * typing an address their server already knows.
  *
- * The split here is forced and worth stating: [parse], [acceptable] and
- * [preferredDiscovered] are pure and covered by `CapabilitiesTest`, while the
- * fetch that feeds them is not covered at all. `Http`'s client is private with
+ * The split here is forced and worth stating: [parse], [acceptable],
+ * [preferredDiscovered], [displaces] and [isDiscoveryDocument] are pure and
+ * covered by `CapabilitiesTest`, while the fetches that feed them are not
+ * covered at all. `Http`'s client is private with
  * no injection seam and this source set has no `MockEngine` — see the same note
  * on `AuthRetry.kt`. So every decision lives in a function that takes its
  * inputs as arguments, and the I/O is a thin wrapper with no judgement in it.
@@ -198,9 +199,17 @@ internal object Capabilities {
      * unacceptable fetched value loses to a good stored one, so a server that
      * starts answering with a plain-HTTP realm cannot downgrade a rider who
      * already had an HTTPS one.
+     *
+     * [fetchedAnswers] is whether the fetched realm's discovery document
+     * fetched (#354). Shape alone is all [acceptable] checks, so a deployment
+     * announcing a well-formed but wrong realm would otherwise displace a
+     * working one and sign the rider out on the way. It only matters when
+     * [displaces] says the fetched value would replace a different stored one:
+     * with nothing stored there is nothing to protect, and a broken realm
+     * fails at the browser exactly as it would have.
      */
-    fun preferredDiscovered(fetched: String, stored: String): String = when {
-        fetched.isNotBlank() && acceptable(fetched) -> fetched
+    fun preferredDiscovered(fetched: String, stored: String, fetchedAnswers: Boolean): String = when {
+        acceptable(fetched) && (fetchedAnswers || !displaces(fetched, stored)) -> fetched
         // Vetted again on the way out, not only on the way in. RoutingServer's
         // discoveredIssuer() now also vets on read, which is what actually
         // guards the Auth.refresh() path -- this re-vet is redundant with that
@@ -208,6 +217,37 @@ internal object Capabilities {
         // rather than depending on a caller applying the same check.
         stored.isNotBlank() && acceptable(stored) -> stored
         else -> ""
+    }
+
+    /**
+     * Whether adopting [fetched] would replace a different, usable [stored]
+     * issuer — the one case where [preferredDiscovered] wants proof the fetched
+     * realm answers before taking it. Shared with the caller deciding whether
+     * to make that round trip, so the two cannot disagree about when it counts.
+     */
+    fun displaces(fetched: String, stored: String): Boolean =
+        acceptable(fetched) && acceptable(stored) && fetched != stored
+
+    /**
+     * Whether [body] reads as an OpenID discovery document: a JSON object
+     * naming an issuer. An access gateway's HTML page or a proxy's `{}` is
+     * not one, and neither is proof the realm exists.
+     */
+    fun isDiscoveryDocument(body: String): Boolean =
+        runCatching { jsonObjectOf(body) }.getOrNull()?.optString("issuer").orEmpty().isNotBlank()
+
+    /**
+     * Whether [issuer]'s discovery document fetches. Untested for the reason
+     * [fetch] gives; the judgement is in [isDiscoveryDocument].
+     */
+    suspend fun discoveryAnswers(issuer: String, headers: Map<String, String>): Boolean {
+        val body = try {
+            Http.get("$issuer/.well-known/openid-configuration", headers, readTimeoutMs = 10_000)
+        } catch (e: Exception) {
+            // Broad for the reason fetch gives: Swift reaches this.
+            return false
+        }
+        return isDiscoveryDocument(body)
     }
 
     /**

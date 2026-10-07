@@ -54,7 +54,7 @@ final class SignIn: NSObject, ObservableObject {
         guard !issuer.isEmpty else {
             error = hasApiServer
                 ? "Your server did not say which realm to sign in to. Update "
-                    + "the server, or set the sign-in realm under Settings → Own server."
+                    + "the server so it announces its realm."
                 : "No server or sign-in realm is configured, so there is nobody "
                     + "to sign in to. Set your server address under Settings → Own server."
             return
@@ -97,8 +97,8 @@ final class SignIn: NSObject, ObservableObject {
             // verifier and state, so abandon() must run before returning or
             // that verifier is left spendable by nothing.
             Oidc.shared.abandon()
-            error = "The sign-in realm address is not a valid URL. Check it "
-                + "under Settings → Own server."
+            error = "The sign-in realm address is not a valid URL. Check your "
+                + "server address under Settings → Own server."
             return
         }
 
