@@ -15,6 +15,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
+import com.jellemax.detour.R
 import com.jellemax.detour.data.Logbook
 import com.jellemax.detour.data.TripTitleStore
 import java.text.SimpleDateFormat
@@ -215,9 +217,6 @@ private fun replayMarkerBitmap(density: Float): Bitmap {
     return bmp
 }
 
-private const val GPX_NOT_SAVED =
-    "Export failed: the GPX file could not be saved. Free up some storage and try again."
-
 /** Hands one exported track to whichever app the user picks. The read grant is
  *  what makes the content:// Uri usable on the other side — the provider is
  *  not exported, so without it the receiver sees nothing. */
@@ -365,7 +364,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     LaunchedEffect(trace) {
         val loaded = trace ?: return@LaunchedEffect
         highlights = withContext(Dispatchers.Default) {
-            tripHighlights(trip, loaded, TripInsights.bestStretch(loaded))
+            tripHighlights(context.resources, trip, loaded, TripInsights.bestStretch(loaded))
         }
     }
     var selectedHighlight by remember { mutableStateOf<String?>(null) }
@@ -554,24 +553,26 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
             // the map, where it has room to wrap.
             SubScreenTopBar("", onBack, scrollBehavior) {
                 IconButton(enabled = points.isNotEmpty(), onClick = { cardDialogOpen = true }) {
-                    Icon(Icons.Filled.Share, contentDescription = "Share trip card")
+                    Icon(Icons.Filled.Share, contentDescription = stringResource(R.string.trip_share_card))
                 }
                 TripOverflowMenu(enabled = points.isNotEmpty(), onExportGpx = {
                     scope.launch {
                         exportError = try {
                             val uri = withContext(Dispatchers.IO) { Gpx.writeForShare(context, trip, points) }
-                            context.startActivity(Intent.createChooser(shareGpxIntent(uri), "Export GPX"))
+                            context.startActivity(
+                                Intent.createChooser(shareGpxIntent(uri), context.getString(R.string.trip_export_gpx)),
+                            )
                             null
                         } catch (e: ActivityNotFoundException) {
-                            "No app to receive a GPX file"
+                            context.getString(R.string.trip_no_gpx_app)
                         } catch (e: IOException) {
                             // Not fileFailureText: nothing was picked — the
                             // write is to our own cache, so the likely cause
                             // is a full disk, and e.message carries the path.
-                            GPX_NOT_SAVED
+                            context.getString(R.string.trip_gpx_not_saved)
                         } catch (e: IllegalArgumentException) {
                             // FileProvider.getUriForFile refusing the path.
-                            GPX_NOT_SAVED
+                            context.getString(R.string.trip_gpx_not_saved)
                         }
                     }
                 })
@@ -585,7 +586,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                 when {
                     loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                     loaded.isEmpty() -> Text(
-                        "No route recorded",
+                        stringResource(R.string.trip_no_route),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Center),
@@ -612,7 +613,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                             replaying = true
                         }) {
                             Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                            Text("Replay", Modifier.padding(start = 8.dp))
+                            Text(stringResource(R.string.trip_replay), Modifier.padding(start = 8.dp))
                         }
                     } else {
                         Column {
@@ -620,8 +621,11 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                             else sampleReplay(trace!!, replayTimeline!!, rideElapsedMs)
                             Text(
                                 replaySample?.let {
-                                    "${formatSpeedKmh(it.speedMps)} · ${formatDuration(rideElapsedMs.toLong())} elapsed"
-                                } ?: "Start of the ride",
+                                    stringResource(
+                                        R.string.trip_replay_elapsed,
+                                        formatSpeedKmh(it.speedMps), formatDuration(rideElapsedMs.toLong()),
+                                    )
+                                } ?: stringResource(R.string.trip_replay_start),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -649,7 +653,9 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                                 }) {
                                     Icon(
                                         if (replaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                        contentDescription = if (replaying) "Pause replay" else "Play replay",
+                                        contentDescription = stringResource(
+                                            if (replaying) R.string.trip_pause_replay else R.string.trip_play_replay,
+                                        ),
                                     )
                                 }
                                 Text(
@@ -666,7 +672,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                     }
                 }
                 if (highlights.isNotEmpty()) {
-                    Text("Highlights", style = MaterialTheme.typography.titleSmall,
+                    Text(stringResource(R.string.trip_highlights), style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
                     for (h in highlights) {
                         HighlightRow(h, selected = h.id == selectedHighlight, onClick = { focusHighlight(h) })
@@ -718,10 +724,10 @@ private fun TripOverflowMenu(enabled: Boolean, onExportGpx: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(enabled = enabled, onClick = { open = true }) {
-            Icon(Icons.Filled.MoreVert, contentDescription = "More trip options")
+            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.trip_more_options))
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("Export GPX") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.trip_export_gpx)) }, onClick = {
                 open = false
                 onExportGpx()
             })
