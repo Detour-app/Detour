@@ -15,6 +15,9 @@ import com.jellemax.detour.data.Settings
  * An update through Play, or an APK sideloaded by hand, is deliberately not
  * handled: neither went through the download that records the notes, so the
  * saved version does not match and nothing is shown.
+ *
+ * Not in commonMain: the in-app APK update this serves is Android-only (iOS
+ * updates through the App Store), and it reads `BuildConfig.VERSION_NAME`.
  */
 object InstalledNotes {
 
