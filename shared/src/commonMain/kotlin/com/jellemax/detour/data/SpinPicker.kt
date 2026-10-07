@@ -17,13 +17,14 @@ import okio.IOException
  *  spinner. */
 internal const val SPIN_TIMEOUT_MS = 20_000L
 
-/** Runs [block] under the spin's one time cap, turning running out of time
- *  into a [SpinFailure] worded by [message] — so every caller, Swift
- *  included, gets a sentence instead of a raw `TimeoutCancellationException`.
- *  [message] is read only once the cap fires, so it can report what the spin
- *  learned on the way (a server error before the fallback ran out). */
+/** Runs [block] under the spin's one time cap; running out of time returns
+ *  [onTimeout]'s answer instead. [onTimeout] is called only once the cap
+ *  fires, so it can use what the spin learned on the way — a loop already in
+ *  hand, or a server error to word a [SpinFailure] with — and throws that
+ *  [SpinFailure] when there is nothing to return, so every caller, Swift
+ *  included, gets a sentence instead of a raw `TimeoutCancellationException`. */
 internal suspend fun <T> withSpinTimeout(
-    message: () -> String,
+    onTimeout: () -> T,
     timeoutMs: Long = SPIN_TIMEOUT_MS,
     block: suspend CoroutineScope.() -> T,
 ): T {
@@ -32,7 +33,7 @@ internal suspend fun <T> withSpinTimeout(
     // the same TimeoutCancellationException type, and must propagate as a
     // cancellation rather than be reworded as this spin running out of time.
     val finished = withTimeoutOrNull(timeoutMs) { Result.success(block()) }
-        ?: throw SpinFailure(message())
+        ?: return onTimeout()
     return finished.getOrThrow()
 }
 
@@ -80,7 +81,9 @@ suspend fun pickThreeCandidates(
     bearing: Double?,
     explored: ExploredArea,
 ): List<RouteCandidate> = withSpinTimeout(
-    message = { spinTimeoutMessage(serverError = null, roundTrip = false, serverUsable = config.usable) },
+    onTimeout = {
+        throw SpinFailure(spinTimeoutMessage(serverError = null, roundTrip = false, serverUsable = config.usable))
+    },
 ) {
     coroutineScope {
         val rolls = (1..3).map {

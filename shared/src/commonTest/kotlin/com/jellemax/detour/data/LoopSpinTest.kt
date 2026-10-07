@@ -195,6 +195,23 @@ class LoopSpinTest {
     }
 
     @Test
+    fun aTimedReRollThatRunsOutOfTimeKeepsTheFirstRoundsLoop() = runBlocking {
+        // #507 review: the first rolls (25 km/h, an hour for a half-hour ask)
+        // miss the time, so the spin re-rolls; the re-roll hangs past the cap.
+        // The rider gets the first round's loop, as before the cap, not a
+        // "too slow or unreachable" error with a loop already in hand.
+        val asked = mutableListOf<Double>()
+        val firstRound = router(25.0, asked)
+        val result = LoopSpin.spin(
+            request(30f), serverUsable = true,
+            roll = { meters -> if (asked.size < 3) firstRound(meters) else awaitCancellation() },
+            fallback = noFallback, timeoutMs = 200,
+        )
+        assertEquals(LoopDuration.guessMeters(30f), result.route.distanceMeters!!, 1.0)
+        assertNull(result.warning)
+    }
+
+    @Test
     fun aSpinWithNoServerThatRunsOutOfTimeSaysNoServerIsConfigured() = runBlocking {
         val e = assertFailsWith<SpinFailure> {
             LoopSpin.spin(request(null), serverUsable = false, noRoll, hangingFallback, timeoutMs = 50)

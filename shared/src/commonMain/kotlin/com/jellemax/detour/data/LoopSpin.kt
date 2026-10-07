@@ -99,12 +99,18 @@ object LoopSpin {
         val minutes = request.minutes
         val tripMeters = minutes?.let { LoopDuration.guessMeters(it) } ?: request.lengthMeters
         var serverError: String? = null
+        var inHand: RouteResult? = null
         // One cap over the rolls and the fallback together (#507): a slow
         // server used to spend its own timeout and then hand the fallback 45 s
-        // more. The message is read when the cap fires, so a server failure
-        // that came first is still what the rider is told.
+        // more. When the cap fires during a timed re-roll, the first round's
+        // loop is still a loop and is what the rider gets; otherwise the
+        // message is read then, so a server failure that came first is still
+        // what the rider is told.
         return withSpinTimeout(
-            message = { spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable) },
+            onTimeout = {
+                inHand?.let { Result(it, warning = null) }
+                    ?: throw SpinFailure(spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable))
+            },
             timeoutMs = timeoutMs,
         ) {
             if (serverUsable) {
@@ -113,7 +119,7 @@ object LoopSpin {
                 val best = when {
                     loops == null -> null
                     minutes == null -> loops.maxBy { it.second }.first
-                    else -> pickTimed(minutes, loops, roll, report)
+                    else -> pickTimed(minutes, loops, roll, report) { inHand = it }
                 }
                 if (best != null) return@withSpinTimeout Result(best, warning = null)
             }
@@ -176,19 +182,22 @@ object LoopSpin {
      * estimate, so a second round nearly always fits, and a third would put the
      * rider's wait past the spin timeout for a few minutes' difference. The
      * second round failing is not an error — the first round's loops are still
-     * loops.
+     * loops, which is why the best of them goes to [onFirstPick] before the
+     * re-roll: the spin's time cap may fire during it.
      */
     private suspend fun pickTimed(
         minutes: Float,
         firstRolls: List<Pair<RouteResult, Double>>,
         roll: suspend (Double) -> RouteResult,
         onServerError: (String) -> Unit,
+        onFirstPick: (RouteResult) -> Unit,
     ): RouteResult? {
         val first = LoopDuration.pick(firstRolls, minutes)
         if (first != null && LoopDuration.fits(first.first, minutes)) return first.first
         val retryMeters = LoopDuration.rescaledMeters(
             minutes, LoopDuration.guessMeters(minutes), firstRolls.map { it.first },
         ) ?: return first?.first
+        first?.let { onFirstPick(it.first) }
         val retry = rollLoops(retryMeters, roll, onServerError).orEmpty()
         return LoopDuration.pick(firstRolls + retry, minutes)?.first
     }
