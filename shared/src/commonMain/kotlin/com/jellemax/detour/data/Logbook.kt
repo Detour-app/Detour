@@ -5,6 +5,7 @@ import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.minus
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.JsonPrimitive
@@ -62,6 +63,29 @@ data class LogbookYear(
     val towns: Int,
     val rides: Int,
     val weekStreak: Int,
+)
+
+/** A month's "wrapped" screen (#518). Each highlight is null when no ride in
+ *  the month recorded it, so a car-only month shows no lean rather than 0°. */
+data class MonthWrapped(
+    val year: Int,
+    /** 1..12 */
+    val month: Int,
+    val meters: Double,
+    val rides: Int,
+    /** Highest recorded `twistinessScore`. */
+    val twistiest: LogbookItem.Ride?,
+    /** Earliest start by time of day, whichever day it was on. */
+    val earliestStart: LogbookItem.Ride?,
+    /** The weekday with the most rides, more distance breaking a tie, as an
+     *  ISO day number (1 = Monday, 7 = Sunday) so the app can name it in the
+     *  rider's language. Null unless it has [Logbook.FAVOURITE_WEEKDAY_MIN_RIDES]. */
+    val favouriteWeekday: Int?,
+    val favouriteWeekdayRides: Int,
+    /** Deepest lean, from rides on a vehicle that records one. */
+    val deepestLean: LogbookItem.Ride?,
+    /** Towns first stamped this month, in the order they were first ridden. */
+    val newTowns: List<String>,
 )
 
 /** The Logbook's filter chips. [ALL] includes the modes that are neither. */
@@ -311,6 +335,39 @@ object Logbook {
             week++
         }
         return streak
+    }
+
+    /** One ride on a weekday doesn't make it a favourite — every weekday of a
+     *  month with three rides would tie. */
+    const val FAVOURITE_WEEKDAY_MIN_RIDES = 2
+
+    /** [wrapped] in the device's own zone. */
+    fun wrapped(month: LogbookMonth): MonthWrapped = wrapped(month, TimeZone.currentSystemDefault())
+
+    /** The month as [Logbook.build] grouped it, so the wrapped screen agrees
+     *  with the chapter it was opened from, filter included. */
+    internal fun wrapped(month: LogbookMonth, zone: TimeZone): MonthWrapped {
+        val rides = month.rides
+        fun local(r: LogbookItem.Ride) = Instant.fromEpochMilliseconds(r.trip.startTimeMs).toLocalDateTime(zone)
+        val favourite = rides.groupBy { local(it).dayOfWeek }
+            .maxWithOrNull(compareBy({ it.value.size }, { e -> e.value.sumOf { it.trip.distanceMeters } }))
+            ?.takeIf { it.value.size >= FAVOURITE_WEEKDAY_MIN_RIDES }
+        return MonthWrapped(
+            year = month.year,
+            month = month.month,
+            meters = month.meters,
+            rides = rides.size,
+            twistiest = rides.filter { it.trip.drivingStats.twistinessScore > 0.0 }
+                .maxByOrNull { it.trip.drivingStats.twistinessScore },
+            earliestStart = rides.minByOrNull { local(it).time },
+            favouriteWeekday = favourite?.key?.isoDayNumber,
+            favouriteWeekdayRides = favourite?.value?.size ?: 0,
+            deepestLean = rides.filter { it.trip.mode.tracksLean && it.trip.maxLeanAngleDeg > 0.0 }
+                .maxByOrNull { it.trip.maxLeanAngleDeg },
+            newTowns = rides.sortedBy { it.trip.startTimeMs }
+                .flatMap { r -> r.places.filter { it.isNew }.map { it.name } }
+                .distinct(),
+        )
     }
 
     /** Whole weeks (Monday-based) between [ms] and [nowMs]: 0 this week, 1 last. */
