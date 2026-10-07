@@ -16,8 +16,8 @@ import org.maplibre.geojson.Point
 
 private const val TAG = "DetourTileCache"
 
-/** Tag in the region's metadata, so a clear or a new route only touches our corridor. */
-private val CORRIDOR_METADATA = "detour-route-corridor".encodeToByteArray()
+/** Prefix of the region's metadata, so a clear or a new route only touches our corridor. */
+private const val CORRIDOR_TAG = "detour-route-corridor"
 
 /**
  * Most a corridor may download, in bytes. A 100 km loop at ±5 km, z8–15, is
@@ -36,7 +36,10 @@ private const val MAX_CORRIDOR_BYTES = 150L * 1024 * 1024
  *
  * Holds at most one corridor: a new route deletes the previous one first, so
  * the cache never grows past [MAX_CORRIDOR_BYTES] plus MapLibre's own ambient
- * cache. Every call is from the main thread, where MapLibre delivers callbacks.
+ * cache. The same route again (car nav resuming, the phone restarting it) keeps
+ * the corridor it already has: deleting it evicts its tiles, and with no signal
+ * the replacement could not fetch them back. Every call is from the main thread,
+ * where MapLibre delivers callbacks.
  */
 object RouteTileCache {
     /** Bumped per [prefetch] and [clear]; a region created for an older call is deleted on arrival. */
@@ -47,8 +50,17 @@ object RouteTileCache {
         if (boxes.isEmpty()) return
         val gen = ++generation
         val manager = OfflineManager.getInstance(context)
-        deleteCorridors(manager) {
+        // Keyed on the area alone, not the style: light and dark draw the same
+        // OpenFreeMap tiles, so a theme switch between phone and car is the same corridor.
+        val metadata = "$CORRIDOR_TAG:${boxes.hashCode()}".encodeToByteArray()
+        deleteCorridors(manager, keep = metadata) { kept ->
             if (gen != generation) return@deleteCorridors
+            // Resume rather than recreate: tiles it already holds are not fetched again,
+            // and one cut short by a lost connection gets finished.
+            if (kept != null) {
+                download(kept)
+                return@deleteCorridors
+            }
             val definition = OfflineGeometryRegionDefinition(
                 openFreeMapStyleUrl(darkTheme),
                 MultiPolygon.fromLngLats(boxes.map { listOf(ring(it)) }),
@@ -70,7 +82,7 @@ object RouteTileCache {
                     Log.w(TAG, "could not create corridor region: $error")
                 }
             }
-            manager.createOfflineRegion(definition, CORRIDOR_METADATA, created)
+            manager.createOfflineRegion(definition, metadata, created)
         }
     }
 
@@ -78,7 +90,7 @@ object RouteTileCache {
     fun clear(context: Context, onDone: () -> Unit) {
         generation++
         val manager = OfflineManager.getInstance(context)
-        deleteCorridors(manager) {
+        deleteCorridors(manager, keep = null) {
             manager.clearAmbientCache(object : OfflineManager.FileSourceCallback {
                 override fun onSuccess() = onDone()
 
@@ -110,22 +122,25 @@ object RouteTileCache {
         region.setDownloadState(OfflineRegion.STATE_ACTIVE)
     }
 
-    /** Deletes every region this cache created, then runs [then] — also when listing fails. */
-    private fun deleteCorridors(manager: OfflineManager, then: () -> Unit) {
+    /**
+     * Deletes every region this cache created except one whose metadata is [keep],
+     * then runs [then] with that one, if any — also when listing fails.
+     */
+    private fun deleteCorridors(manager: OfflineManager, keep: ByteArray?, then: (kept: OfflineRegion?) -> Unit) {
         manager.listOfflineRegions(object : OfflineManager.ListOfflineRegionsCallback {
             override fun onList(offlineRegions: Array<OfflineRegion>?) {
-                offlineRegions.orEmpty()
-                    .filter { it.metadata.contentEquals(CORRIDOR_METADATA) }
-                    .forEach {
-                        it.setDownloadState(OfflineRegion.STATE_INACTIVE)
-                        it.delete(logDelete)
-                    }
-                then()
+                val ours = offlineRegions.orEmpty().filter { it.metadata.decodeToString().startsWith(CORRIDOR_TAG) }
+                val (kept, stale) = ours.partition { keep != null && it.metadata.contentEquals(keep) }
+                stale.forEach {
+                    it.setDownloadState(OfflineRegion.STATE_INACTIVE)
+                    it.delete(logDelete)
+                }
+                then(kept.firstOrNull())
             }
 
             override fun onError(error: String) {
                 Log.w(TAG, "could not list offline regions: $error")
-                then()
+                then(null)
             }
         })
     }
