@@ -311,11 +311,11 @@ private fun ServerSection(
     var pendingRouting by remember { mutableStateOf(RoutingServer.pendingRoutingAnnouncement()) }
     var pendingGeocoder by remember { mutableStateOf(RoutingServer.pendingGeocoderAnnouncement()) }
     // Opens already expanded when anything inside it is set, so a split
-    // deployment — or a server still on the deprecated realm field — does not
-    // look unconfigured on the way back in.
+    // deployment does not look unconfigured on the way back in. A stored
+    // realm (#354) is not among them: it has no field to show any more.
     var showAdvanced by remember {
         mutableStateOf(
-            listOf(draft.apiUrl, draft.routingUrl, draft.geocoderUrl, draft.idpIssuer)
+            listOf(draft.apiUrl, draft.routingUrl, draft.geocoderUrl)
                 .any { it.isNotBlank() },
         )
     }
@@ -419,11 +419,13 @@ private fun AnnouncedServicePrompt(
 }
 
 /**
- * The three things only a split or an out-of-date deployment needs: an address
- * per service, the deprecated sign-in realm, and the public-search fallback.
+ * What only a split deployment needs: an address per service and the
+ * public-search fallback. The sign-in realm field is gone (#354) — servers
+ * announce their realm — but [draft] still carries a stored one, so a save
+ * keeps it.
  *
- * Takes the whole draft rather than four values and four setters, which would
- * be eight parameters for one card — the gate in `boundaries.md` §8.4.
+ * Takes the whole draft rather than a value and a setter per field, which
+ * would push one card past the gate in `boundaries.md` §8.4.
  */
 @Composable
 private fun ServerAdvanced(
@@ -459,18 +461,6 @@ private fun ServerAdvanced(
             keyboardType = KeyboardType.Uri,
             placeholder = "https://search.example.com",
             modifier = Modifier.fillMaxWidth(),
-        )
-        CredentialTextField(
-            value = draft.idpIssuer, onValueChange = { onDraftChange(draft.copy(idpIssuer = it)) },
-            label = stringResource(R.string.settings_realm_url),
-            keyboardType = KeyboardType.Uri,
-            placeholder = "https://idp.example.com/realms/detour",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            stringResource(R.string.settings_realm_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row(
             Modifier.fillMaxWidth(),
