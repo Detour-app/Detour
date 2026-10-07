@@ -765,6 +765,15 @@ object Settings {
         prefs.put("notified_update_version", version)
     }
 
+    /** Whether the rider has pressed Continue on the first-launch permission
+     *  explainer (#501). Android-only today, like [notifiedUpdateVersion];
+     *  once true, launch stops re-asking for a refused permission. */
+    fun permissionExplainerShown(): Boolean = prefs.bool("permission_explainer_shown", false)
+
+    fun setPermissionExplainerShown() {
+        prefs.put("permission_explainer_shown", true)
+    }
+
     /** Whether arrive/depart notifications are raised for circle [circleId].
      *  Device-local, unlike the circle's `sharing` flag (real server state,
      *  see `Groups.setSharing`) — muting a circle on the phone says nothing
