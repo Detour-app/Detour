@@ -105,16 +105,32 @@ jobs:
       # Settings → Secrets and variables → Actions → Variables,
       # PUBLISH_TO_PLAY = true. A missing service account keeps it off even
       # when the variable says true, rather than failing the build.
+      #
+      # A push that leaves versionName alone (docs, iOS-only, docker/ — no bump
+      # is due) would re-upload a versionCode Play already has, and Play
+      # rejects it ("Version code … has already been used"), turning main red.
+      # Compared against the commit main was on before this push, not against
+      # an existing tag, so re-running a bump whose upload failed still uploads.
       - name: Decide whether to publish to Play
         id: play
         env:
           PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          BEFORE: ${{ github.event.before }}
         run: |
+          version_of() { git show "$1:app/build.gradle.kts" | grep -oP 'versionName = "\K[^"]+'; }
+          before=""
+          if [ "${{ github.event_name }}" = "push" ] && [ -n "$BEFORE" ] \
+             && git fetch -q --depth=1 origin "$BEFORE" 2>/dev/null; then
+            before=$(version_of "$BEFORE" || true)
+          fi
           if [ "${{ vars.PUBLISH_TO_PLAY }}" != "true" ]; then
             echo "Play upload skipped: repository variable PUBLISH_TO_PLAY is not 'true'."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           elif [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
             echo "::warning::PUBLISH_TO_PLAY is true but the PLAY_SERVICE_ACCOUNT_JSON secret is empty — skipping the Play upload."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          elif [ -n "$before" ] && [ "$before" = "$(version_of HEAD)" ]; then
+            echo "Play upload skipped: versionName is still $before, which Play already has."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
