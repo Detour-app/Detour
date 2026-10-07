@@ -28,6 +28,7 @@ import com.jellemax.detour.data.AddressSource
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.perf.PerfSink
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,7 +77,18 @@ fun DiagnosticsSection() {
         }
         TextButton(onClick = {
             scope.launch {
-                val uri = withContext(Dispatchers.IO) { PerfSink.writeForShare(context) }
+                // Uncaught, either throw would crash the app out of scope.launch:
+                // IOException from the copy into cache (full disk),
+                // IllegalArgumentException from FileProvider refusing the path.
+                val uri = try {
+                    withContext(Dispatchers.IO) { PerfSink.writeForShare(context) }
+                } catch (e: IOException) {
+                    status = context.getString(R.string.settings_timings_not_saved)
+                    return@launch
+                } catch (e: IllegalArgumentException) {
+                    status = context.getString(R.string.settings_timings_not_saved)
+                    return@launch
+                }
                 status = if (uri == null) context.getString(R.string.settings_nothing_recorded) else null
                 if (uri != null) context.startActivity(shareTimingsIntent(uri))
             }
