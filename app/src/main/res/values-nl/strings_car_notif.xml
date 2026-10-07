@@ -64,6 +64,8 @@
     <string name="update_row_found">Detour %1$s beschikbaar</string>
     <string name="update_row_check_failed">GitHub is niet bereikbaar</string>
     <string name="update_row_rate_limited">Net een paar keer gecontroleerd — probeer het straks opnieuw</string>
+    <string name="update_installed_title">Nieuw in %1$s</string>
+    <string name="update_installed_ok">OK</string>
 
     <!-- convoy/ConvoyLiveService.kt -->
     <string name="convoy_channel">Konvooi</string>
