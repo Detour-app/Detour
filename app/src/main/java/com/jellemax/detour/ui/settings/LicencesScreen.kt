@@ -12,6 +12,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.jellemax.detour.R
 import com.jellemax.detour.ui.SettingsSection
 
 /**
@@ -29,14 +31,12 @@ import com.jellemax.detour.ui.SettingsSection
 fun LicencesScreen() {
     LicenceSection(
         name = "OpenStreetMap",
-        text = "Speed cameras, enforcement sections and road data — " +
-            "© OpenStreetMap contributors, Open Database License (ODbL).",
+        text = stringResource(R.string.settings_licence_osm),
         url = "https://www.openstreetmap.org/copyright",
     )
     LicenceSection(
         name = "lufop.net",
-        text = "Additional speed cameras — data from lufop.net, " +
-            "Open Database License (ODbL).",
+        text = stringResource(R.string.settings_licence_lufop),
         url = "https://lufop.net/mentions-legales/",
     )
 }
@@ -52,9 +52,9 @@ private fun LicenceSection(name: String, text: String, url: String) {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 null
             } catch (e: ActivityNotFoundException) {
-                "No app to open $url"
+                context.getString(R.string.settings_no_app_to_open, url)
             }
-        }) { Text("View licence") }
+        }) { Text(stringResource(R.string.settings_view_licence)) }
         error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     }
 }

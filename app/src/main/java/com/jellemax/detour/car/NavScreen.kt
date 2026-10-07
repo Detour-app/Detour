@@ -45,6 +45,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.cameraWarnerOptions
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.tracking.DriveClock
 import com.jellemax.detour.tracking.DriveClocks
@@ -461,7 +462,7 @@ class NavScreen(
             }
         }
         val step = CameraWarner.onFix(
-            state = warnerState,
+            state = warnerState.copy(options = cameraWarnerOptions()),
             cameras = speedCameras,
             at = pos,
             headingDeg = headingDeg,
