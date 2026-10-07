@@ -109,8 +109,12 @@ jobs:
       # A push that leaves versionName alone (docs, iOS-only, docker/ — no bump
       # is due) would re-upload a versionCode Play already has, and Play
       # rejects it ("Version code … has already been used"), turning main red.
-      # Compared against the commit main was on before this push, not against
-      # an existing tag, so re-running a bump whose upload failed still uploads.
+      # Skipped only when both say "already uploaded": versionName matches the
+      # commit main was on before this push, AND that version's release tag
+      # exists. The tag alone would skip a re-run of a bump whose Play upload
+      # failed (the release step runs first). The comparison alone would skip
+      # a bump whose run was cancelled by the next push (concurrency above) —
+      # that run never got to tag or upload, so the next push must.
       - name: Decide whether to publish to Play
         id: play
         env:
@@ -129,8 +133,9 @@ jobs:
           elif [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
             echo "::warning::PUBLISH_TO_PLAY is true but the PLAY_SERVICE_ACCOUNT_JSON secret is empty — skipping the Play upload."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-          elif [ -n "$before" ] && [ "$before" = "$(version_of HEAD)" ]; then
-            echo "Play upload skipped: versionName is still $before, which Play already has."
+          elif [ -n "$before" ] && [ "$before" = "$(version_of HEAD)" ] \
+               && git ls-remote --exit-code --tags origin "refs/tags/v$before" >/dev/null; then
+            echo "Play upload skipped: versionName is still $before and v$before is already released."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
