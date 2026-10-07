@@ -1,6 +1,7 @@
 package com.jellemax.detour.data
 
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okio.IOException
@@ -49,13 +50,13 @@ class LoopSpinTest {
     @Test
     fun everythingElseIsTheRetryableMessage() {
         assertEquals(
-            "Road servers are slow right now — try again",
+            "The routing server is too slow or unreachable — try again",
             spinTimeoutMessage(serverError = null, roundTrip = true, serverUsable = true),
         )
         // Point-to-point never consults the round-trip server, so an unusable
         // config is not the interesting fact about its timeout.
         assertEquals(
-            "Road servers are slow right now — try again",
+            "The routing server is too slow or unreachable — try again",
             spinTimeoutMessage(serverError = null, roundTrip = false, serverUsable = false),
         )
     }
@@ -157,20 +158,68 @@ class LoopSpinTest {
         )
     }
 
+    // #507: one cap over the whole spin. A short timeoutMs stands in for
+    // SPIN_TIMEOUT_MS so the test does not wait 20 s of real time.
+
+    private val hang: suspend (Double) -> RouteResult = { awaitCancellation() }
+    private val hangingFallback: suspend (Double) -> List<LatLon> = { awaitCancellation() }
+    private val noRoll: suspend (Double) -> RouteResult = { error("roll not expected") }
+
     @Test
-    fun aFallbackTimeoutAfterAServerFailureNamesTheServer() = runBlocking {
-        // A SpinFailure, so the phone shows it verbatim rather than as
-        // "check your connection" (#487).
+    fun aSpinWhoseServerNeverAnswersFailsWithTheSlowServerSentence() = runBlocking {
+        // #507: the server rolls themselves used up the time, so the fallback
+        // never ran; the rider is told the server is the slow part, not shown
+        // a raw TimeoutCancellationException.
+        val e = assertFailsWith<SpinFailure> {
+            LoopSpin.spin(request(null), serverUsable = true, hang, hangingFallback, timeoutMs = 50)
+        }
+        assertEquals("The routing server is too slow or unreachable — try again", e.message)
+    }
+
+    @Test
+    fun theCapCoversTheFallbackAndKeepsTheServersEarlierFailure() = runBlocking {
+        // #507: the fallback used to get its own 45 s on top of the rolls; now
+        // it runs inside the same cap, and when the cap fires there the
+        // server's failure that sent the spin to the fallback is still named.
         val e = assertFailsWith<SpinFailure> {
             LoopSpin.spin(
                 request(null), serverUsable = true,
                 roll = { throw HttpStatusException(503, "") },
-                fallback = { withTimeout(1) { delay(1_000) }; emptyList() },
+                fallback = hangingFallback, timeoutMs = 50,
             )
         }
         assertEquals(
             "Server route failed: the server hit a problem. Try again later. The fallback timed out too.",
             e.message,
         )
+    }
+
+    @Test
+    fun aSpinWithNoServerThatRunsOutOfTimeSaysNoServerIsConfigured() = runBlocking {
+        val e = assertFailsWith<SpinFailure> {
+            LoopSpin.spin(request(null), serverUsable = false, noRoll, hangingFallback, timeoutMs = 50)
+        }
+        assertEquals("No routing server configured — public servers timed out", e.message)
+    }
+
+    @Test
+    fun aSpinThatFinishesInsideTheCapIsUntouched() = runBlocking<Unit> {
+        val result = LoopSpin.spin(
+            request(null), serverUsable = true, router(50.0, mutableListOf()), noFallback, timeoutMs = 5_000,
+        )
+        assertNull(result.warning)
+    }
+
+    @Test
+    fun theRiderCancellingIsNotReportedAsATimeout() = runBlocking<Unit> {
+        // A cancellation from outside the spin (the rider pressing Cancel, or
+        // a caller's own enclosing timeout, which arrives as the same
+        // exception type as the spin's own) must propagate, not become a
+        // SpinFailure sentence on a screen the rider has left.
+        assertFailsWith<TimeoutCancellationException> {
+            withTimeout(50) {
+                LoopSpin.spin(request(null), serverUsable = true, hang, hangingFallback, timeoutMs = 5_000)
+            }
+        }
     }
 }

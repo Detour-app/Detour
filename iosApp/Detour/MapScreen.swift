@@ -264,10 +264,17 @@ struct MapScreen: View {
                     let minutes = timedLoopMinutes
                     Task { await spin.spin(from: here, mode: modes.mode, loopMinutes: minutes) }
                 } label: {
-                    Text(spin.state == .spinning ? "Spinning…" : "Spin")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
+                    // A spinner while it runs, as on Android (#507): the label
+                    // alone was the only sign a spin was still going.
+                    HStack(spacing: 8) {
+                        if spin.state == .spinning {
+                            ProgressView()
+                        }
+                        Text(spin.state == .spinning ? "Spinning…" : "Spin")
+                            .font(.headline)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(recorder.lastFix == nil || spin.state == .spinning)

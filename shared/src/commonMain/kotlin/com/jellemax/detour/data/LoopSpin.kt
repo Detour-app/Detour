@@ -2,7 +2,6 @@ package com.jellemax.detour.data
 
 import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -61,8 +60,8 @@ object LoopSpin {
 
     /**
      * Throws [SpinFailure] with a sentence for the rider when there is no loop
-     * at all, including when the fallback times out ([spinTimeoutMessage]); a
-     * network failure on the way throws as it came.
+     * at all, including when the spin runs past [SPIN_TIMEOUT_MS]
+     * ([spinTimeoutMessage]); a network failure on the way throws as it came.
      * A [CancellationException] propagates: a cancelled spin is the rider
      * leaving, not a failure to report.
      */
@@ -95,34 +94,38 @@ object LoopSpin {
         serverUsable: Boolean,
         roll: suspend (lengthMeters: Double) -> RouteResult,
         fallback: suspend (lengthMeters: Double) -> List<LatLon>,
+        timeoutMs: Long = SPIN_TIMEOUT_MS,
     ): Result {
         val minutes = request.minutes
         val tripMeters = minutes?.let { LoopDuration.guessMeters(it) } ?: request.lengthMeters
         var serverError: String? = null
-        if (serverUsable) {
-            val report: (String) -> Unit = { serverError = it }
-            val loops = rollLoops(tripMeters, roll, report)
-            val best = when {
-                loops == null -> null
-                minutes == null -> loops.maxBy { it.second }.first
-                else -> pickTimed(minutes, loops, roll, report)
+        // One cap over the rolls and the fallback together (#507): a slow
+        // server used to spend its own timeout and then hand the fallback 45 s
+        // more. The message is read when the cap fires, so a server failure
+        // that came first is still what the rider is told.
+        return withSpinTimeout(
+            message = { spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable) },
+            timeoutMs = timeoutMs,
+        ) {
+            if (serverUsable) {
+                val report: (String) -> Unit = { serverError = it }
+                val loops = rollLoops(tripMeters, roll, report)
+                val best = when {
+                    loops == null -> null
+                    minutes == null -> loops.maxBy { it.second }.first
+                    else -> pickTimed(minutes, loops, roll, report)
+                }
+                if (best != null) return@withSpinTimeout Result(best, warning = null)
             }
-            if (best != null) return Result(best, warning = null)
-        }
 
-        val wps = try {
-            fallback(tripMeters)
-        } catch (e: TimeoutCancellationException) {
-            // Caught here, just outside the planner's own withTimeout, so it is
-            // the fallback's timeout and not the rider cancelling the spin.
-            throw SpinFailure(spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable))
+            val wps = fallback(tripMeters)
+            val approximate = RouteResult(
+                polyline = listOf(request.from) + wps + request.from,
+                waypoints = wps,
+                distanceMeters = null,
+            )
+            Result(approximate, serverError?.let { "Server route failed: $it Showing an approximate loop instead." })
         }
-        val approximate = RouteResult(
-            polyline = listOf(request.from) + wps + request.from,
-            waypoints = wps,
-            distanceMeters = null,
-        )
-        return Result(approximate, serverError?.let { "Server route failed: $it Showing an approximate loop instead." })
     }
 
     /**
@@ -192,7 +195,7 @@ object LoopSpin {
 }
 
 /**
- * What to tell the rider when the fallback timed out too.
+ * What to tell the rider when a spin ran out of time.
  *
  * Pure, and separate from the spin itself, because it is the one part of a
  * spin failure that is a *decision* rather than an I/O result: three different
@@ -207,7 +210,7 @@ fun spinTimeoutMessage(
 ): String = when {
     serverError != null -> "Server route failed: $serverError The fallback timed out too."
     roundTrip && !serverUsable -> "No routing server configured — public servers timed out"
-    else -> "Road servers are slow right now — try again"
+    else -> "The routing server is too slow or unreachable — try again"
 }
 
 /**

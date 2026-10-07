@@ -1,17 +1,40 @@
 package com.jellemax.detour.data
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import okio.IOException
 
-/** The phone's own bound, moved here so iOS gets it too — see
+/** The longest a whole spin may take, rolls and fallback together, on every
+ *  surface. In shared so iOS gets it too — see
  *  `docs/refactor/mapscreen/15-divergence-register.md` entry 9: a spin
  *  against a wedged routing server used to hang forever on iOS while Android
- *  bailed out after 30s with a specific message. */
-private const val SPIN_TIMEOUT_MS = 30_000L
+ *  bailed out after 30s with a specific message. 20 s is the owner's call on
+ *  #507: a slow backend took ~45 s to fail, longer than a rider will watch a
+ *  spinner. */
+internal const val SPIN_TIMEOUT_MS = 20_000L
+
+/** Runs [block] under the spin's one time cap, turning running out of time
+ *  into a [SpinFailure] worded by [message] — so every caller, Swift
+ *  included, gets a sentence instead of a raw `TimeoutCancellationException`.
+ *  [message] is read only once the cap fires, so it can report what the spin
+ *  learned on the way (a server error before the fallback ran out). */
+internal suspend fun <T> withSpinTimeout(
+    message: () -> String,
+    timeoutMs: Long = SPIN_TIMEOUT_MS,
+    block: suspend CoroutineScope.() -> T,
+): T {
+    // withTimeoutOrNull, not withTimeout + catch: only this cap's own timer
+    // comes back as null. A caller's enclosing timeout cancels the spin with
+    // the same TimeoutCancellationException type, and must propagate as a
+    // cancellation rather than be reworded as this spin running out of time.
+    val finished = withTimeoutOrNull(timeoutMs) { Result.success(block()) }
+        ?: throw SpinFailure(message())
+    return finished.getOrThrow()
+}
 
 /** A spin's own dead end, worded for the rider ("No roads found within
  *  radius"), as opposed to a network or parser failure on the way. An
@@ -38,6 +61,8 @@ data class RouteCandidate(
  *  failing does, and then the first real failure is what gets reported rather
  *  than a generic message. A cancellation is never a failed roll — it means
  *  the spin was called off, so it propagates instead of being counted.
+ *  Running past [SPIN_TIMEOUT_MS] throws [SpinFailure] with
+ *  [spinTimeoutMessage]'s sentence.
  *
  *  `@Throws(Exception::class)`: called directly from iosApp/Detour as
  *  `SpinPickerKt.pickThreeCandidates` — see [SyncClient.sync]'s doc for why
@@ -54,7 +79,9 @@ suspend fun pickThreeCandidates(
     poiKind: PoiKind,
     bearing: Double?,
     explored: ExploredArea,
-): List<RouteCandidate> = withTimeout(SPIN_TIMEOUT_MS) {
+): List<RouteCandidate> = withSpinTimeout(
+    message = { spinTimeoutMessage(serverError = null, roundTrip = false, serverUsable = config.usable) },
+) {
     coroutineScope {
         val rolls = (1..3).map {
             async {
