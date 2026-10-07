@@ -61,10 +61,51 @@ class CameraWarnerTest {
         headingDeg: Double? = 0.0,
         speedKmh: Double = 130.0,
         limitKmh: Double? = 120.0,
+        options: CameraWarner.Options = CameraWarner.Options(),
     ) = CameraWarner.onFix(
-        state = state, cameras = cameras, at = here,
+        state = state.copy(options = options), cameras = cameras, at = here,
         headingDeg = headingDeg, speedKmh = speedKmh, limitKmh = limitKmh,
     )
+
+    // ---- the rider's settings (#496) ---------------------------------------
+
+    private val speeding = "Speed camera ahead"
+
+    /** Off silences every kind, speeding or not, and leaves no latch behind:
+     *  switching back on mid-approach warns for the camera still ahead. */
+    @Test
+    fun switchedOffSilencesEveryKindAndClearsTheLatch() {
+        val off = CameraWarner.Options(enabled = false)
+        val redLight = ahead.copy(kind = SpeedCameras.CameraKind.RED_LIGHT)
+        val warned = CameraWarner.State(warnedAt = ahead.at)
+        val muted = step(state = warned, speedKmh = 200.0, options = off)
+        assertEquals(CameraWarner.Outcome.Silent, muted.outcome)
+        assertNull(muted.state.warnedAt)
+        assertEquals(CameraWarner.Outcome.Silent, step(cameras = listOf(redLight), options = off).outcome)
+        assertEquals(CameraWarner.Outcome.Warn(ahead.at, speeding), step(state = muted.state).outcome)
+    }
+
+    @Test
+    fun whenNotSpeedingWarnsAtOrUnderAKnownLimit() {
+        val opts = CameraWarner.Options(whenNotSpeeding = true)
+        assertEquals(CameraWarner.Outcome.Warn(ahead.at, speeding), step(speedKmh = 50.0, options = opts).outcome)
+        // Not a licence for an unknown limit: that is the other switch.
+        assertEquals(CameraWarner.Outcome.Silent, step(speedKmh = 50.0, limitKmh = null, options = opts).outcome)
+    }
+
+    @Test
+    fun whenLimitUnknownWarnsWithNoLimit() {
+        val opts = CameraWarner.Options(whenLimitUnknown = true)
+        assertEquals(CameraWarner.Outcome.Warn(ahead.at, speeding), step(limitKmh = null, options = opts).outcome)
+        // A known limit is still judged: under it stays silent.
+        assertEquals(CameraWarner.Outcome.Silent, step(speedKmh = 100.0, options = opts).outcome)
+    }
+
+    /** The defaults are the rule as it stood before the settings existed. */
+    @Test
+    fun defaultOptionsKeepTodaysBehaviour() {
+        assertEquals(CameraWarner.Options(true, whenNotSpeeding = false, whenLimitUnknown = false), CameraWarner.Options())
+    }
 
     // ---- the over-limit test ---------------------------------------------
 

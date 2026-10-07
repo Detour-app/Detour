@@ -2,6 +2,7 @@ package com.jellemax.detour.drive
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RoadRoulette
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import kotlin.math.abs
 import kotlin.math.max
@@ -12,7 +13,8 @@ import kotlin.math.min
  * is. Chime when one lies ahead, close, and we're over the posted limit - the one
  * case worth interrupting for. One chime per camera: [State.warnedAt] holds the
  * camera last sounded for and clears once nothing is in range, re-arming for the
- * next. Silent when the limit is unknown: we can't judge "too fast".
+ * next. Silent when the limit is unknown: we can't judge "too fast". The rider
+ * can widen or mute this from Settings - see [Options] (#496).
  *
  * **Decision and wording here, delivery per platform** - the `CircleEvents.kt`
  * shape. This machine knows nothing about tones, speech or toasts, which is why
@@ -66,8 +68,14 @@ object CameraWarner {
      *  range. A position, not a timestamp - see the class KDoc. [warnedReachMeters]
      *  is the reach it was warned at: braking shrinks [warnMeters] faster than
      *  the distance, and without it the camera would leave range, clear the
-     *  latch and chime again on re-entry. */
-    data class State(val warnedAt: LatLon? = null, val warnedReachMeters: Double = 0.0)
+     *  latch and chime again on re-entry. [options] are the rider's settings,
+     *  refreshed by the caller on every fix; they ride on the state to keep
+     *  [onFix] under detekt's seven-parameter limit. */
+    data class State(
+        val warnedAt: LatLon? = null,
+        val warnedReachMeters: Double = 0.0,
+        val options: Options = Options(),
+    )
 
     sealed interface Outcome {
         data object Silent : Outcome
@@ -78,12 +86,25 @@ object CameraWarner {
 
     data class Step(val state: State, val outcome: Outcome)
 
+    /** The rider's camera-warning settings (#496). Callers build them with
+     *  [cameraWarnerOptions] and set them on [State] so this machine stays free of storage. The defaults are the
+     *  behaviour before the settings existed. [enabled] mutes every kind - a
+     *  red-light camera shares the speed-camera switch. [whenNotSpeeding] warns
+     *  for a speed camera at or under a known limit; [whenLimitUnknown] warns
+     *  for one where no limit is known. */
+    data class Options(
+        val enabled: Boolean = true,
+        val whenNotSpeeding: Boolean = false,
+        val whenLimitUnknown: Boolean = false,
+    )
+
     /**
      * One GPS fix. [cameras] is whatever the caller's prefetch holds - this
      * machine never fetches. [speedKmh] and [limitKmh] are both km/h, and a null
      * [limitKmh] means the limit here is unknown, so nothing is worth
      * interrupting for. A null [headingDeg] skips the wedge and judges on
-     * distance alone: with no bearing there is no "behind".
+     * distance alone: with no bearing there is no "behind". The rider's settings
+     * come from [State.options]; the default is the rule as it stood before them.
      */
     fun onFix(
         state: State,
@@ -93,6 +114,9 @@ object CameraWarner {
         speedKmh: Double,
         limitKmh: Double?,
     ): Step {
+        // Off clears the latch too, so switching back on mid-approach warns
+        // for the camera ahead rather than treating it as already sounded.
+        if (!state.options.enabled) return Step(State(options = state.options), Outcome.Silent)
         val reachMeters = warnMeters(speedKmh)
         val ahead = cameras.filter { cam ->
             val reach = if (cam.at == state.warnedAt) max(reachMeters, state.warnedReachMeters) else reachMeters
@@ -103,24 +127,36 @@ object CameraWarner {
         }.minByOrNull { RoadRoulette.distanceMeters(at, it.at) }
             // Nothing in range clears the latch, which is what re-arms it for the
             // next camera. Being in range and *not* too fast does not.
-            ?: return Step(State(warnedAt = null), Outcome.Silent)
+            ?: return Step(State(options = state.options), Outcome.Silent)
 
         // The camera's own tagged limit is the one it enforces, so it beats the
         // caller's ambient/route limit where both exist (#319) - and is the only
         // limit at all on an otherwise-untagged road.
         val effectiveLimitKmh = ahead.maxspeedKmh ?: limitKmh
+        if (!worthWarning(ahead.kind, speedKmh, effectiveLimitKmh, state.options) || ahead.at == state.warnedAt) {
+            return Step(state, Outcome.Silent)
+        }
+        return Step(State(ahead.at, reachMeters, state.options), Outcome.Warn(ahead.at, warningTextFor(ahead.kind)))
+    }
+
+    private fun worthWarning(
+        kind: SpeedCameras.CameraKind,
+        speedKmh: Double,
+        effectiveLimitKmh: Double?,
+        options: Options,
+    ): Boolean =
         // A red-light camera doesn't measure speed - it's worth announcing on
         // approach regardless, which is exactly when a speed-only camera stays
         // silent (maxke24/Detour#317). Combined inherits the same rule: a device
         // that's also a red-light camera is worth announcing even at the limit.
-        val worthWarning = when (ahead.kind) {
-            SpeedCameras.CameraKind.SPEED ->
-                effectiveLimitKmh != null && speedKmh > effectiveLimitKmh + OVER_LIMIT_KMH
+        when (kind) {
+            SpeedCameras.CameraKind.SPEED -> if (effectiveLimitKmh == null) {
+                options.whenLimitUnknown
+            } else {
+                options.whenNotSpeeding || speedKmh > effectiveLimitKmh + OVER_LIMIT_KMH
+            }
             SpeedCameras.CameraKind.RED_LIGHT, SpeedCameras.CameraKind.COMBINED -> true
         }
-        if (!worthWarning || ahead.at == state.warnedAt) return Step(state, Outcome.Silent)
-        return Step(State(ahead.at, reachMeters), Outcome.Warn(ahead.at, warningTextFor(ahead.kind)))
-    }
 
     /** The wording, declared once for every surface. The phone's own comment said
      *  this literal was waiting for this machine to own it. */
@@ -139,3 +175,12 @@ object CameraWarner {
         return min(diff, 360.0 - diff) <= CAMERA_FACING_TOLERANCE_DEG
     }
 }
+
+/** The rider's [CameraWarner.Options] as `Settings` holds them right now - the
+ *  one mapping the phone, the car and iOS all put on the state they pass to
+ *  [CameraWarner.onFix]. */
+fun cameraWarnerOptions(): CameraWarner.Options = CameraWarner.Options(
+    enabled = Settings.cameraWarnings.value,
+    whenNotSpeeding = Settings.cameraWarnNotSpeeding.value,
+    whenLimitUnknown = Settings.cameraWarnLimitUnknown.value,
+)
