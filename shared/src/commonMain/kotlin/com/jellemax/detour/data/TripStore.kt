@@ -30,6 +30,10 @@ data class Trip(
     /** What began the recording (#472). Null for every trip saved before it
      *  was recorded, and for iOS, which doesn't record it. */
     val startedBy: TripStart? = null,
+    /** When the rider last edited this trip (its vehicle mode), epoch ms; 0
+     *  when never edited (#486). The sync server keeps whichever copy has the
+     *  newer stamp, so another device's stale copy can't revert the edit. */
+    val editedAtMs: Long = 0L,
 ) {
     val durationMs: Long get() = endTimeMs - startTimeMs
     val avgSpeedMps: Double
@@ -122,8 +126,9 @@ object TripStore {
         val overrides = modeOverrides()
         overrides[startTimeMs] = mode.name
         writeModeOverrides(overrides)
+        val editedAtMs = nowMs()
         writeAll(trips.map {
-            if (it.startTimeMs == startTimeMs) it.copy(mode = mode) else it
+            if (it.startTimeMs == startTimeMs) it.copy(mode = mode, editedAtMs = editedAtMs) else it
         })
     }
 
@@ -183,6 +188,7 @@ object TripStore {
         put("moments", encodeTripMoments(t.moments))
         put("gForceGravityFree", t.gForceGravityFree)
         put("startedBy", t.startedBy?.name)
+        put("editedAtMs", t.editedAtMs)
     }
 
     private fun encodeDrivingStats(d: DrivingStats): JsonObject = buildJsonObject {
@@ -287,6 +293,7 @@ object TripStore {
         moments = decodeTripMoments(o.optObject("moments")),
         gForceGravityFree = o.optBoolean("gForceGravityFree"),
         startedBy = TripStart.of(o.optString("startedBy")),
+        editedAtMs = o.optLong("editedAtMs"),
     )
 
     /** Raw stored JSON array, for server sync. */
