@@ -44,8 +44,7 @@ public class PoiRepositoryTests(PostgresFixture postgres) : IntegrationTestBase(
     public async Task UpsertAsync_of_the_same_source_id_replaces_even_without_a_flush_between_them()
     {
         // Same reason RoadWayRepositoryTests'/SpeedLimitWayRepositoryTests' equivalent exists
-        // (#367): PoiImport does one FlushChangesAsync at the very end of a run, not one per
-        // entry.
+        // (#367): a caller may upsert several POIs before one FlushChangesAsync.
         var repo = new PoiRepository(Factory);
 
         var first = Poi.Create("n-replace-2", "sight", "Old Fort", 50.95, 4.45).Value;
@@ -89,5 +88,48 @@ public class PoiRepositoryTests(PostgresFixture postgres) : IntegrationTestBase(
 
         Assert.Contains(found, p => p.Id == viewpoint.Id);
         Assert.DoesNotContain(found, p => p.Id == food.Id);
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_replaces_an_existing_row_and_collapses_a_duplicate_within_the_batch()
+    {
+        var repo = new PoiRepository(Factory);
+        var first = Poi.Create("n-batch-1", "food", "Old Cafe", 51.50, 5.50).Value;
+        await repo.UpsertBatchAsync([first], CancellationToken.None);
+
+        await repo.UpsertBatchAsync(
+            [
+                Poi.Create("n-batch-1", "food", "New Cafe", 51.50, 5.50).Value,
+                Poi.Create("n-batch-2", "sight", "Old Tower", 51.50, 5.50).Value,
+                Poi.Create("n-batch-2", "sight", "New Tower", 51.50, 5.50).Value,
+            ],
+            CancellationToken.None);
+
+        var found = await repo.BboxAsync(51.49, 5.49, 51.51, 5.51, null, CancellationToken.None);
+        var replaced = Assert.Single(found, p => p.SourceId == "n-batch-1");
+        Assert.Equal(first.Id, replaced.Id);
+        Assert.Equal("New Cafe", replaced.Name);
+        Assert.Equal("New Tower", Assert.Single(found, p => p.SourceId == "n-batch-2").Name);
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_imports_thousands_of_rows_across_batches()
+    {
+        // #561: the per-row path was O(n²) and a 36k-row extract never finished. Five batches of
+        // a thousand, re-upserted once, must land every row exactly once.
+        var repo = new PoiRepository(Factory);
+        Poi[] Rows(string name) => Enumerable.Range(0, 5000)
+            .Select(i => Poi.Create($"n-bulk-{i}", "viewpoint", name, 52.0 + i * 1e-5, 6.0).Value)
+            .ToArray();
+
+        foreach (var batch in Rows("First").Chunk(1000))
+            await repo.UpsertBatchAsync(batch, CancellationToken.None);
+        foreach (var batch in Rows("Second").Chunk(1000))
+            await repo.UpsertBatchAsync(batch, CancellationToken.None);
+
+        var found = await repo.BboxAsync(51.99, 5.99, 52.06, 6.01, null, CancellationToken.None);
+        var bulk = found.Where(p => p.SourceId.StartsWith("n-bulk-")).ToList();
+        Assert.Equal(5000, bulk.Count);
+        Assert.All(bulk, p => Assert.Equal("Second", p.Name));
     }
 }
