@@ -84,6 +84,10 @@
     <string name="settings_map">Map</string>
     <string name="settings_default_zoom">Default zoom</string>
     <string name="settings_default_zoom_hint">Where the map sits while following you. It zooms out up to two levels at speed and back in near a turn.</string>
+    <string name="settings_offline_tiles">Offline map along the route</string>
+    <string name="settings_offline_tiles_hint">When navigation starts, Detour downloads the map up to 5 km either side of the route (at most 150 MB), so it keeps drawing where the signal drops. Starting a new route replaces it.</string>
+    <string name="settings_offline_tiles_clear">Clear</string>
+    <string name="settings_offline_tiles_cleared">Offline map cleared</string>
 
     <!-- Fog of war -->
     <string name="settings_reveal_radius">Reveal radius</string>

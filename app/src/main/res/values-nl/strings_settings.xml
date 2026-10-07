@@ -81,6 +81,10 @@
     <string name="settings_map">Kaart</string>
     <string name="settings_default_zoom">Standaardzoom</string>
     <string name="settings_default_zoom_hint">Waar de kaart staat terwijl ze je volgt. Ze zoomt tot twee niveaus uit bij snelheid en weer in vlak bij een afslag.</string>
+    <string name="settings_offline_tiles">Offline kaart langs de route</string>
+    <string name="settings_offline_tiles_hint">Als navigatie start, downloadt Detour de kaart tot 5 km aan weerszijden van de route (maximaal 150 MB), zodat ze blijft tekenen waar het bereik wegvalt. Een nieuwe route vervangt ze.</string>
+    <string name="settings_offline_tiles_clear">Wissen</string>
+    <string name="settings_offline_tiles_cleared">Offline kaart gewist</string>
 
     <!-- Fog of war -->
     <string name="settings_reveal_radius">Onthullingsstraal</string>
