@@ -32,8 +32,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
@@ -143,13 +145,13 @@ private fun NavMenuItems(
     }
     if (inAppAvailable) {
         DropdownMenuItem(
-            text = { Text("Navigate in app") },
+            text = { Text(stringResource(R.string.nav_in_app)) },
             onClick = { pick(Settings.NavApp.IN_APP) },
         )
     }
     if (route != null && origin != null) {
         DropdownMenuItem(
-            text = { Text("Google Maps (round trip)") },
+            text = { Text(stringResource(R.string.nav_google_maps_round_trip)) },
             onClick = { pick(Settings.NavApp.GOOGLE_MAPS) },
         )
     } else {
@@ -164,7 +166,7 @@ private fun NavMenuItems(
             )
         }
         DropdownMenuItem(
-            text = { Text("Other app") },
+            text = { Text(stringResource(R.string.nav_other_app)) },
             onClick = { pick(Settings.NavApp.OTHER) },
         )
     }
@@ -213,7 +215,7 @@ internal fun NavButton(
             ) {
                 Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Go", maxLines = 1)
+                Text(stringResource(R.string.nav_go), maxLines = 1)
             }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {

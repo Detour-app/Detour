@@ -16,8 +16,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import com.jellemax.detour.R
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.map.requiredStartupPermissions
 
@@ -32,24 +34,21 @@ internal fun BackgroundLocationDisclosure(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Record rides in the background") },
+        title = { Text(stringResource(R.string.map_bg_location_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Detour collects location data to start, record and finish your " +
-                        "rides automatically, even when the app is closed or not in use.",
+                    stringResource(R.string.map_bg_location_collects),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    "Without this, a ride only records while Detour is open on screen. " +
-                        "Your routes stay on this device unless you turn on sync to your " +
-                        "own server.",
+                    stringResource(R.string.map_bg_location_without),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onAllow) { Text("Allow") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
+        confirmButton = { TextButton(onClick = onAllow) { Text(stringResource(R.string.map_allow)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.map_not_now)) } },
     )
 }
 
@@ -70,26 +69,32 @@ internal fun PermissionExplainer(
     AlertDialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
-        title = { Text("Before you ride") },
+        title = { Text(stringResource(R.string.map_permission_explainer_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Detour will ask for a few permissions next. You can refuse any of them.",
+                    stringResource(R.string.map_permission_explainer_intro),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                PermissionReason("Location", "The map, spin and recording your rides.")
+                PermissionReason(
+                    stringResource(R.string.map_permission_location),
+                    stringResource(R.string.map_permission_location_why),
+                )
                 if (showActivity) {
-                    PermissionReason("Physical activity", "Noticing on its own when you start driving.")
+                    PermissionReason(
+                        stringResource(R.string.map_permission_activity),
+                        stringResource(R.string.map_permission_activity_why),
+                    )
                 }
                 if (showNotifications) {
                     PermissionReason(
-                        "Notifications",
-                        "The notification while a ride records, and alerts from your circles.",
+                        stringResource(R.string.map_permission_notifications),
+                        stringResource(R.string.map_permission_notifications_why),
                     )
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onContinue) { Text("Continue") } },
+        confirmButton = { TextButton(onClick = onContinue) { Text(stringResource(R.string.map_continue)) } },
     )
 }
 
@@ -111,20 +116,22 @@ internal fun SavePinDialog(
     var name by remember { mutableStateOf(suggestedName) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Save this place") },
+        title = { Text(stringResource(R.string.map_save_place_title)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Name (Home, Work…)") },
+                label = { Text(stringResource(R.string.map_save_place_name)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         },
         confirmButton = {
-            TextButton(onClick = { onSave(name) }, enabled = name.isNotBlank()) { Text("Save") }
+            TextButton(onClick = { onSave(name) }, enabled = name.isNotBlank()) {
+                Text(stringResource(R.string.map_save))
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.map_cancel)) } },
     )
 }
 
@@ -164,8 +171,9 @@ internal fun MapScreenDialogs(
     }
 
     s.savePinTarget?.let { target ->
+        val droppedPin = stringResource(R.string.map_dropped_pin)
         SavePinDialog(
-            suggestedName = s.destinationName?.takeIf { it != "Dropped pin" } ?: "",
+            suggestedName = s.destinationName?.takeIf { it != droppedPin } ?: "",
             onSave = { name ->
                 SavedPlaces.add(name, target)
                 s.savePinTarget = null

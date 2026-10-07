@@ -204,21 +204,27 @@ object SyncClient {
         return SyncResult(trips.size, traces.size, badges.size)
     }
 
+    private fun tripsForUpload() = buildJsonArray {
+        for (trip in jsonArrayOf(TripStore.rawJson()).objects()) add(tripForUpload(trip))
+    }
+
     /**
-     * The stored trips, each with `topSpeedKmh` alongside the `topSpeedMps` this
-     * app records in.
+     * One stored trip as uploaded: with `topSpeedKmh` alongside the
+     * `topSpeedMps` this app records in, and always with `editedAtMs`.
      *
      * The server keeps a trip document opaque apart from a handful of fields the
      * read-only dashboard lists, and top speed is one of them — in km/h. Derived
      * here rather than written into the store so that trips recorded before this
      * build also arrive complete.
+     *
+     * `editedAtMs` is 0 for a trip stored before #486 added it. Sending it
+     * anyway matters: the server lets a copy without the field overwrite, as an
+     * older client's, which is the revert of another device's edit the stamp
+     * exists to stop.
      */
-    private fun tripsForUpload() = buildJsonArray {
-        for (trip in jsonArrayOf(TripStore.rawJson()).objects()) {
-            add(buildJsonObject {
-                trip.forEach { (key, value) -> put(key, value) }
-                put("topSpeedKmh", trip.optDouble("topSpeedMps", 0.0) * 3.6)
-            })
-        }
+    internal fun tripForUpload(trip: JsonObject) = buildJsonObject {
+        trip.forEach { (key, value) -> put(key, value) }
+        put("topSpeedKmh", trip.optDouble("topSpeedMps", 0.0) * 3.6)
+        put("editedAtMs", trip.optLong("editedAtMs"))
     }
 }

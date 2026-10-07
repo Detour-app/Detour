@@ -63,9 +63,11 @@ import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PendingUpdateOpen
 import com.jellemax.detour.notif.PlaceNotifications
 import com.jellemax.detour.notif.Push
+import com.jellemax.detour.update.InstalledNotes
 import com.jellemax.detour.update.ReopenNotification
 import com.jellemax.detour.update.UpdateChecker
 import com.jellemax.detour.ui.BadgesScreen
+import com.jellemax.detour.ui.InstalledNotesDialog
 import com.jellemax.detour.ui.CircleDetailScreen
 import com.jellemax.detour.ui.CirclesScreen
 import com.jellemax.detour.ui.CoverageMapScreen
@@ -260,6 +262,17 @@ private fun AppRoot() {
             if (handle.isBlank()) "Signed in" else "Signed in as $handle"
         )
         PendingSignIn.clearSignedIn()
+    }
+
+    // What changed in the version just installed in-app, once (#359). Marked
+    // seen on dismiss, not on show: every route back after a self-update is a
+    // cold start, so a rider who never saw it gets it next time.
+    var installedNotes by remember { mutableStateOf(InstalledNotes.unseen()) }
+    installedNotes?.let { notes ->
+        InstalledNotesDialog(notes) {
+            InstalledNotes.markSeen()
+            installedNotes = null
+        }
     }
 
     // The back stack the app owns, rooted at the map. This replaced `screen` — a

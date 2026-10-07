@@ -18,8 +18,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jellemax.detour.R
 import com.jellemax.detour.data.LoopDuration
 import com.jellemax.detour.data.RouteFill
 
@@ -43,7 +45,7 @@ internal fun RouteFillControls(
     var minutes by rememberSaveable { mutableFloatStateOf(RouteFill.DEFAULT_MINUTES) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Fill to riding time", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.route_fill_title), style = MaterialTheme.typography.labelLarge)
             Text(
                 formatDurationHistory(LoopDuration.targetMs(minutes)),
                 style = MaterialTheme.typography.labelLarge,
@@ -59,8 +61,7 @@ internal fun RouteFillControls(
                 LoopDuration.STEP_MINUTES).toInt() - 1,
         )
         Text(
-            "Your stops stay put; the rest of the time is filled with detours between them. " +
-                "One stop fills a loop from it and back.",
+            stringResource(R.string.route_fill_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -75,10 +76,12 @@ internal fun RouteFillControls(
                 modifier = Modifier.weight(1f),
             ) {
                 if (filling) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                else Text(if (onClearFill != null) "Fill again" else "Fill route")
+                else Text(stringResource(if (onClearFill != null) R.string.route_fill_again else R.string.route_fill))
             }
             if (onClearFill != null) {
-                TextButton(onClick = onClearFill, enabled = !filling) { Text("Remove fill") }
+                TextButton(onClick = onClearFill, enabled = !filling) {
+                    Text(stringResource(R.string.route_fill_remove))
+                }
             }
         }
         error?.let {

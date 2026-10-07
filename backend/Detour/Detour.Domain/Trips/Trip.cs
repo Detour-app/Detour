@@ -33,6 +33,12 @@ public sealed class Trip : Entity
 
     public string? Mode { get; private set; }
 
+    /// <summary>
+    /// When the rider last edited this trip, in Unix milliseconds; 0 for never edited. Null when
+    /// the stored copy came from a client that predates the stamp (#486).
+    /// </summary>
+    public long? EditedAtMs { get; private set; }
+
     /// <summary>The client's own trip document, verbatim.</summary>
     public string Payload { get; private set; }
 
@@ -56,6 +62,16 @@ public sealed class Trip : Entity
         trip.ApplySummary(summary);
         return trip;
     }
+
+    /// <summary>
+    /// Whether an uploaded copy stamped <paramref name="editedAtMs"/> should replace this one. A
+    /// device that never saw another device's edit still re-uploads its old copy on every sync,
+    /// so the newer edit wins rather than the last upload. A copy without a stamp on either side
+    /// comes from an older client and keeps last-write-wins; a tie replaces, so re-uploads of the
+    /// same edit still refresh the rest of the document.
+    /// </summary>
+    public bool Accepts(long? editedAtMs) =>
+        editedAtMs is not { } incoming || EditedAtMs is not { } stored || incoming >= stored;
 
     /// <summary>
     /// Replaces the stored copy in place. An edit — a corrected vehicle mode, a trimmed end —
@@ -82,6 +98,7 @@ public sealed class Trip : Entity
         Mode = string.IsNullOrWhiteSpace(summary.Mode)
             ? null
             : summary.Mode.Trim()[..Math.Min(summary.Mode.Trim().Length, 32)];
+        EditedAtMs = summary.EditedAtMs is { } edited ? Math.Max(edited, 0) : null;
     }
 
     private static Result Validate(long startTimeMs, string? payload)
@@ -97,11 +114,13 @@ public sealed class Trip : Entity
 
 /// <summary>
 /// The handful of fields lifted out of a trip payload so the dashboard can list and rank rides
-/// without every read parsing every document.
+/// without every read parsing every document, and so the merge can tell the newer edit
+/// (<see cref="Trip.Accepts"/>) without parsing the stored one.
 /// </summary>
 public readonly record struct TripSummary(
     long? EndTimeMs,
     double DistanceMeters,
     double TopSpeedKmh,
     double? MaxGForce,
-    string? Mode);
+    string? Mode,
+    long? EditedAtMs = null);

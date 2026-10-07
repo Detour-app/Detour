@@ -52,6 +52,12 @@ public record TripPayload
     public string? Mode { get; init; }
 
     /// <summary>
+    /// When the rider last edited the trip, Unix milliseconds; 0 for never. Absent from a client
+    /// that predates it (#486), whose upload then overwrites as before.
+    /// </summary>
+    public long? EditedAtMs { get; init; }
+
+    /// <summary>
     /// Everything else the device recorded, kept verbatim. The backend never looks inside: it
     /// cannot disclose what it does not parse, and that is a property worth keeping.
     /// </summary>

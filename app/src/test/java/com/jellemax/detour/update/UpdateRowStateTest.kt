@@ -20,7 +20,8 @@ class UpdateRowStateTest {
      *  argument if one was passed, so each assertion pins both. */
     private fun text(id: Int, version: String? = null) = listOfNotNull(id, version).joinToString(" ")
 
-    private fun row(manual: ManualCheck, status: UpdateStatus) = updateRowStateFrom(manual, status, ::text)
+    private fun row(manual: ManualCheck, status: UpdateStatus, installedNotes: String? = null) =
+        updateRowStateFrom(manual, status, installedNotes, ::text)
 
     @Test fun idleOffersTheCheck() {
         val row = row(ManualCheck.Idle, UpdateStatus.None)
@@ -102,5 +103,11 @@ class UpdateRowStateTest {
         // A check that just failed must not overwrite a download in flight.
         val row = row(ManualCheck.Failed, UpdateStatus.Downloading(update(), 0.1f))
         assertEquals(text(R.string.update_row_downloading, "2.14.0"), row.title)
+    }
+
+    /** With nothing on offer, the row carries the running version's own notes (#359). */
+    @Test fun idleCarriesInstalledNotes() {
+        assertEquals("* feat: x", row(ManualCheck.Idle, UpdateStatus.None, "* feat: x").notes)
+        assertNull(row(ManualCheck.Idle, UpdateStatus.Downloading(update(), 0.5f), "* feat: x").notes)
     }
 }

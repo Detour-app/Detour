@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Map, spin, navigation, route editor and the You hub (#511). Its own file,
+     like strings_settings.xml, so the #418 children don't conflict on one. -->
+<resources>
+    <!-- MapChrome.kt -->
+    <string name="map_follow_stop">Stop following my location</string>
+    <string name="map_follow">Follow my location</string>
+    <string name="map_face_north">Face north</string>
+    <string name="map_fog_hide">Hide fog of war</string>
+    <string name="map_fog_show">Show fog of war</string>
+
+    <!-- MapScreen.kt -->
+    <string name="map_no_location">Could not get location; is GPS on?</string>
+    <string name="map_waiting_location">Waiting for your location…</string>
+    <string name="map_no_turn_data">No turn data for this loop — spin again with the routing server reachable</string>
+    <string name="map_rider_not_found">Couldn\'t find %1$s on the map — they may have stopped sharing</string>
+    <string name="map_dropped_pin">Dropped pin</string>
+
+    <!-- MapDialogs.kt. The disclosure must name the app, the data, the purpose
+         and that collection continues while the app is not in use. -->
+    <string name="map_bg_location_title">Record rides in the background</string>
+    <string name="map_bg_location_collects">Detour collects location data to start, record and finish your rides automatically, even when the app is closed or not in use.</string>
+    <string name="map_bg_location_without">Without this, a ride only records while Detour is open on screen. Your routes stay on this device unless you turn on sync to your own server.</string>
+    <string name="map_allow">Allow</string>
+    <string name="map_not_now">Not now</string>
+    <string name="map_save_place_title">Save this place</string>
+    <string name="map_save_place_name">Name (Home, Work…)</string>
+    <string name="map_save">Save</string>
+    <string name="map_cancel">Cancel</string>
+
+    <!-- ConfirmDialog.kt -->
+    <string name="confirm_cancel">Cancel</string>
+
+    <!-- HomeSheet.kt -->
+    <string name="home_routes">Routes</string>
+    <string name="home_social">Social</string>
+    <string name="home_spin">Spin</string>
+    <string name="home_spin_collapsed">Spin settings, collapsed</string>
+    <string name="home_expand">Expand</string>
+
+    <!-- SpinCards.kt -->
+    <string name="spin_respin">Re-spin</string>
+    <string name="spin_expanded">Spin settings, expanded</string>
+    <string name="spin_collapse">Collapse</string>
+    <string name="spin_title">Spin the map</string>
+    <string name="spin_mode">Mode</string>
+    <string name="spin_mode_selected">Travel mode, %1$s selected</string>
+    <string name="spin_unexplored">Unexplored</string>
+    <string name="spin_distance">Distance</string>
+    <string name="spin_time">Time</string>
+    <string name="spin_size_by_distance">Size the loop by distance</string>
+    <string name="spin_size_by_time">Size the loop by time</string>
+    <string name="spin_trip_time">Trip time</string>
+    <string name="spin_trip_length">Trip length</string>
+    <string name="spin_radius">Radius</string>
+    <string name="spin_min_distance">Min distance</string>
+    <string name="spin_off">Off</string>
+    <string name="spin_direction">Direction</string>
+    <string name="spin_direction_any">Any</string>
+    <string name="spin_loop_found">Loop found</string>
+    <string name="spin_cancel">Cancel</string>
+    <string name="spin_spin">Spin</string>
+
+    <!-- CandidatesCard.kt -->
+    <string name="candidates_pick_title">Pick a destination</string>
+    <string name="candidates_vote_title">Vote on a destination</string>
+    <string name="candidates_pick_hint">All three are on the map — tap a pin or a row.</string>
+    <string name="candidates_vote_hint">Everyone sees the same three — tap a pin or a row to vote.</string>
+    <string name="candidates_no_votes">No votes yet</string>
+    <plurals name="candidates_votes">
+        <item quantity="one">%1$d vote · %2$s</item>
+        <item quantity="other">%1$d votes · %2$s</item>
+    </plurals>
+    <string name="candidates_share">Share with convoy</string>
+    <string name="candidates_go_with_lead">Go with the lead</string>
+    <string name="candidates_cancel">Cancel</string>
+    <string name="candidates_reroll">Reroll</string>
+
+    <!-- NavigationDock.kt, NavAppLaunch.kt -->
+    <string name="nav_navigate_to">Navigate to</string>
+    <string name="nav_save_pin">Save pin</string>
+    <string name="nav_clear_destination">Clear destination</string>
+    <string name="nav_destination">Destination</string>
+    <string name="nav_mode">Mode</string>
+    <string name="nav_mode_selected">Travel mode, %1$s selected</string>
+    <string name="nav_routing">Routing…</string>
+    <string name="nav_start">Start</string>
+    <string name="nav_in_app">Navigate in app</string>
+    <string name="nav_google_maps_round_trip">Google Maps (round trip)</string>
+    <string name="nav_other_app">Other app</string>
+    <string name="nav_go">Go</string>
+
+    <!-- RouteEditorScreen.kt, RouteFillControls.kt -->
+    <string name="route_editor_new">New route</string>
+    <string name="route_editor_edit">Edit route</string>
+    <string name="route_editor_empty_map">Tap the map or search to add your first stop</string>
+    <string name="route_editor_search">Search for a place</string>
+    <string name="route_editor_no_results">No results</string>
+    <string name="route_editor_search_failed">Search failed — check your connection</string>
+    <string name="route_editor_move_up">Move stop %1$d up</string>
+    <string name="route_editor_move_down">Move stop %1$d down</string>
+    <string name="route_editor_remove_stop">Remove stop %1$d</string>
+    <string name="route_editor_name">Route name</string>
+    <string name="route_editor_need_two_stops">Add at least two stops to route between them.</string>
+    <string name="route_editor_routing">Routing…</string>
+    <string name="route_editor_no_route">No route yet</string>
+    <string name="route_editor_save">Save route</string>
+    <string name="route_editor_save_failed">Could not save this route to this device. Try again.</string>
+    <string name="route_editor_stops_too_long">Your stops alone take %1$s — pick a longer time</string>
+    <string name="route_fill_title">Fill to riding time</string>
+    <string name="route_fill_hint">Your stops stay put; the rest of the time is filled with detours between them. One stop fills a loop from it and back.</string>
+    <string name="route_fill">Fill route</string>
+    <string name="route_fill_again">Fill again</string>
+    <string name="route_fill_remove">Remove fill</string>
+
+    <!-- HubScreen.kt. Sign-in failures reuse FriendsScreen's friends_signin_* keys. -->
+    <string name="hub_title">You</string>
+    <string name="hub_settings">Settings</string>
+    <string name="hub_rides_section">RIDES</string>
+    <string name="hub_logbook">Logbook</string>
+    <string name="hub_routes">Routes</string>
+    <string name="hub_saved_places">Saved places</string>
+    <string name="hub_badges_coverage">Badges &amp; coverage</string>
+    <string name="hub_social">Social</string>
+    <string name="hub_profile_account">Profile &amp; account</string>
+    <string name="hub_guest_title">Riding as guest</string>
+    <string name="hub_guest_text">Trips and badges are saved on this phone. Sign in to ride with friends and back them up.</string>
+    <string name="hub_stat_rides">rides</string>
+    <string name="hub_stat_places">places</string>
+    <string name="hub_stat_badges">badges</string>
+    <string name="map_permission_explainer_title">Before you ride</string>
+    <string name="map_permission_explainer_intro">Detour will ask for a few permissions next. You can refuse any of them.</string>
+    <string name="map_permission_location">Location</string>
+    <string name="map_permission_location_why">The map, spin and recording your rides.</string>
+    <string name="map_permission_activity">Physical activity</string>
+    <string name="map_permission_activity_why">Noticing on its own when you start driving.</string>
+    <string name="map_permission_notifications">Notifications</string>
+    <string name="map_permission_notifications_why">The notification while a ride records, and alerts from your circles.</string>
+    <string name="map_continue">Continue</string>
+</resources>
