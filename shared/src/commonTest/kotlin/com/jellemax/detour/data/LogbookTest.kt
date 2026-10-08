@@ -203,4 +203,60 @@ class LogbookTest {
         assertNull(Logbook.distanceComparison(49_000.0))
         assertEquals("Gent to Nordkapp, with 2000 km left over", Logbook.distanceComparison(5_000_000.0))
     }
+
+    @Test
+    fun aMonthWrappedPicksEachHighlightFromItsOwnRide() {
+        val sunday = trip(at(27, 14), twist = 0.4).copy(maxLeanAngleDeg = 38.0)
+        val earlySunday = trip(at(20, 6), km = 120.0, twist = 0.7).copy(maxLeanAngleDeg = 31.0)
+        // The car records a deeper "lean" (the phone sliding in its cradle)
+        // that must not win.
+        val car = trip(at(23, 8), TravelMode.CAR).copy(maxLeanAngleDeg = 50.0)
+        val places = mapOf(
+            sunday.startTimeMs to listOf(place("Gent"), place("Ronse", new = true)),
+            earlySunday.startTimeMs to listOf(place("Gent", new = true), place("Ronse")),
+        )
+        val month = Logbook.build(listOf(sunday, car, earlySunday), LogbookFilter.ALL, places, emptyMap(), emptyList(), utc).single()
+        val w = Logbook.wrapped(month, utc)
+        assertEquals(2026 to 9, w.year to w.month)
+        assertEquals(3, w.rides)
+        assertEquals(220_000.0, w.meters)
+        assertEquals(earlySunday, w.twistiest?.trip)
+        assertEquals(earlySunday, w.earliestStart?.trip)
+        assertEquals(sunday, w.deepestLean?.trip)
+        assertEquals(7, w.favouriteWeekday) // Sunday
+        assertEquals(2, w.favouriteWeekdayRides)
+        // Oldest ride first, so Gent (20th) comes before Ronse (27th).
+        assertEquals(listOf("Gent", "Ronse"), w.newTowns)
+    }
+
+    @Test
+    fun earliestStartIsByTimeOfDayNotDate() {
+        val month = Logbook.build(
+            listOf(trip(at(1, 9)), trip(at(28, 7))), LogbookFilter.ALL, emptyMap(), emptyMap(), emptyList(), utc,
+        ).single()
+        assertEquals(at(28, 7), Logbook.wrapped(month, utc).earliestStart?.trip?.startTimeMs)
+    }
+
+    @Test
+    fun aMonthWrappedLeavesOutWhatNoRideRecorded() {
+        // Three rides on three weekdays, nothing twisty, car only.
+        val trips = listOf(at(21, 8), at(22, 8), at(23, 8)).map { trip(it, TravelMode.CAR) }
+        val w = Logbook.wrapped(Logbook.build(trips, LogbookFilter.ALL, emptyMap(), emptyMap(), emptyList(), utc).single(), utc)
+        assertNull(w.twistiest)
+        assertNull(w.deepestLean)
+        assertNull(w.favouriteWeekday)
+        assertEquals(0, w.favouriteWeekdayRides)
+        assertTrue(w.newTowns.isEmpty())
+    }
+
+    @Test
+    fun aFavouriteWeekdayTieGoesToTheMoreDistance() {
+        // 2026-09-21 and 09-28 are Mondays; 09-22 and 09-29 Tuesdays.
+        val trips = listOf(
+            trip(at(21, 8), km = 10.0), trip(at(28, 8), km = 10.0),
+            trip(at(22, 8), km = 80.0), trip(at(29, 8), km = 80.0),
+        )
+        val w = Logbook.wrapped(Logbook.build(trips, LogbookFilter.ALL, emptyMap(), emptyMap(), emptyList(), utc).single(), utc)
+        assertEquals(2, w.favouriteWeekday) // Tuesday
+    }
 }

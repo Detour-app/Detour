@@ -50,6 +50,18 @@
         <item quantity="other">%1$d nieuwe plaatsen</item>
     </plurals>
 
+    <!-- MonthWrapped.kt -->
+    <string name="history_month_wrapped">Maandoverzicht</string>
+    <string name="wrapped_title">Maandoverzicht</string>
+    <string name="wrapped_share">Maandoverzicht delen</string>
+    <string name="wrapped_footer">Gereden met Detour</string>
+    <string name="wrapped_twistiest">Bochtigste rit</string>
+    <string name="wrapped_earliest_start">Vroegste vertrek</string>
+    <string name="wrapped_favourite_weekday">Favoriete weekdag</string>
+    <string name="wrapped_deepest_lean">Diepste hellingshoek</string>
+    <string name="wrapped_new_towns">Nieuwe gemeenten</string>
+    <string name="wrapped_towns_more">%1$s en nog %2$d</string>
+
     <!-- TripDetailScreen.kt -->
     <string name="trip_share_card">Ritkaart delen</string>
     <string name="trip_export_gpx">GPX exporteren</string>
