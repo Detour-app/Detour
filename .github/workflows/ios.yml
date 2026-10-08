@@ -57,7 +57,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v3
+      - uses: gradle/actions/setup-gradle@v6
 
       # Kotlin/Native downloads a ~1GB toolchain on a cold runner; without this
       # every run pays for it again.

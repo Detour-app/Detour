@@ -27,7 +27,7 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # No server URLs are built in. They would end up as plain strings in
       # BuildConfig, readable by anyone who unzips the APK — which outlives
