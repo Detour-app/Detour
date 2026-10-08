@@ -33,13 +33,13 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
-            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
             implementation("io.ktor:ktor-client-core:2.3.12")
             // ContentEncoding (transparent gzip on responses) ships separately
             // from core.
             implementation("io.ktor:ktor-client-encoding:2.3.12")
-            implementation("com.squareup.okio:okio:3.9.0")
+            implementation("com.squareup.okio:okio:3.18.2")
             // The auto-theme's local clock hour and the nav ETA's zone;
             // java.util.Calendar has no common equivalent. `implementation` is
             // enough only because no *public* declaration a consumer calls
@@ -47,7 +47,7 @@ kotlin {
             // called function whether or not the caller passes it, so one such
             // parameter would force this back to `api`. navStateFrom keeps its
             // zone-taking form `internal` for exactly that reason.
-            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.0")
+            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.8.0")
         }
         androidMain.dependencies {
             implementation("io.ktor:ktor-client-okhttp:2.3.12")
@@ -62,7 +62,7 @@ kotlin {
             // and pinned to the version commonMain already uses for okio
             // itself. This is what finally makes Platform.kt's "a fake in
             // tests" true — nothing had ever supplied one.
-            implementation("com.squareup.okio:okio-fakefilesystem:3.9.0")
+            implementation("com.squareup.okio:okio-fakefilesystem:3.18.2")
         }
     }
 }

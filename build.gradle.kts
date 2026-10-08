@@ -1,16 +1,16 @@
 plugins {
     id("com.android.application") version "8.13.2" apply false
     id("com.android.library") version "8.13.2" apply false
-    id("org.jetbrains.kotlin.android") version "2.1.20" apply false
-    id("org.jetbrains.kotlin.multiplatform") version "2.1.20" apply false
-    id("org.jetbrains.kotlin.plugin.serialization") version "2.1.20" apply false
-    id("org.jetbrains.kotlin.plugin.compose") version "2.1.20" apply false
+    id("org.jetbrains.kotlin.android") version "2.4.20" apply false
+    id("org.jetbrains.kotlin.multiplatform") version "2.4.20" apply false
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.4.20" apply false
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.20" apply false
     // Applied by :app only when a google-services.json is present (see app/build.gradle.kts).
-    id("com.google.gms.google-services") version "4.4.2" apply false
+    id("com.google.gms.google-services") version "4.5.0" apply false
     // 1.23.7 rather than the 2.0 alpha because io.nlopez.compose.rules:detekt
     // 0.4.22 is compiled against detekt-core 1.23.7 (checked in its POM), and a
     // ruleset built against a different detekt major does not load.
-    id("io.gitlab.arturbosch.detekt") version "1.23.7" apply false
+    id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
 }
 
 // Static analysis for both modules. The Compose rules (KOTLIN_GUIDE.md §14 —
@@ -36,7 +36,7 @@ listOf(":app", ":shared").forEach { path -> project(path) {
     }
 
     dependencies {
-        add("detektPlugins", "io.nlopez.compose.rules:detekt:0.4.22")
+        add("detektPlugins", "io.nlopez.compose.rules:detekt:0.6.7")
     }
 
     // The default `detekt` task runs without type resolution, which is enough
