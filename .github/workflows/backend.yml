@@ -112,7 +112,7 @@ jobs:
             type=ref,event=branch
             type=sha,format=long
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           # backend/, matching the Dockerfile's own context: the API references
           # projects across Shared/ and nothing above backend/ is needed.
