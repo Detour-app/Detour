@@ -843,12 +843,17 @@ class TripTrackingService : Service() {
         when (intent?.action) {
             ACTION_START_TRIP -> {
                 if (_stats.value == null) {
-                    destLat = intent.takeIf { it.hasExtra(EXTRA_DEST_LAT) }
-                        ?.getDoubleExtra(EXTRA_DEST_LAT, 0.0)
-                    destLon = intent.takeIf { it.hasExtra(EXTRA_DEST_LON) }
-                        ?.getDoubleExtra(EXTRA_DEST_LON, 0.0)
                     val car = intent.getBooleanExtra(EXTRA_FROM_CAR, false)
                     navStarted = beginTrip(if (car) TripStart.ANDROID_AUTO else TripStart.NAVIGATION)
+                    // Only once a trip began: a refused start (no precise, #500)
+                    // must not leave a destination for the next auto-detected
+                    // trip to save — only endTrip clears it.
+                    if (navStarted) {
+                        destLat = intent.takeIf { it.hasExtra(EXTRA_DEST_LAT) }
+                            ?.getDoubleExtra(EXTRA_DEST_LAT, 0.0)
+                        destLon = intent.takeIf { it.hasExtra(EXTRA_DEST_LON) }
+                            ?.getDoubleExtra(EXTRA_DEST_LON, 0.0)
+                    }
                 }
             }
             ACTION_END_TRIP -> endTrip()
