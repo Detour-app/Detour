@@ -19,7 +19,7 @@ data class LoopRequest(
     val lengthMeters: Double,
     val minutes: Float?,
     val headingDeg: Double?,
-    val avoidSmallRoads: Boolean,
+    val preferences: RoutePreferences,
     val highwayRegex: String,
 )
 
@@ -74,7 +74,7 @@ object LoopSpin {
             RoutingClient.roundTrip(
                 config, request.from, meters, Random.nextLong(),
                 headingDeg = request.headingDeg,
-                avoidSmallRoads = request.avoidSmallRoads,
+                preferences = request.preferences,
             )
         },
         fallback = { meters ->

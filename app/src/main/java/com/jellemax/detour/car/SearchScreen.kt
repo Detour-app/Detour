@@ -168,14 +168,13 @@ class SearchScreen(
             try {
                 val config = withContext(Dispatchers.IO) { RoutingServer.load() }
                 val route = withContext(Dispatchers.IO) {
-                    // Both flags, because `NavScreen`'s reroute passes them
-                    // (NavScreen.kt:257-258) and a trip whose first reroute
-                    // changes its own routing policy is worse than either
-                    // setting applied consistently. RoutingClient.route
-                    // defaults both to false, so omitting them silently
-                    // requested a default route.
+                    // The rider's preferences, because `NavScreen`'s reroute
+                    // passes them and a trip whose first reroute changes its
+                    // own routing policy is worse than either setting applied
+                    // consistently. RoutingClient.route defaults to none, so
+                    // omitting them silently requested a default route.
                     RoutingClient.route(config, from, result.location, TravelMode.CAR.ghProfile,
-                        Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+                        Settings.routePreferences())
                 }
                 withContext(Dispatchers.IO) { RecentSearchStore.save(result) }
                 searching = false

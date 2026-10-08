@@ -87,7 +87,7 @@ class LoopSpinTest {
 
     private fun request(minutes: Float?) = LoopRequest(
         from = home, lengthMeters = 100_000.0, minutes = minutes,
-        headingDeg = null, avoidSmallRoads = false, highwayRegex = ".*",
+        headingDeg = null, preferences = RoutePreferences(), highwayRegex = ".*",
     )
 
     /** A router whose loops ride at [kmh], recording each length asked for. */

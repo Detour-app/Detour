@@ -113,6 +113,12 @@ object Settings {
     private val _avoidSmallRoads = MutableStateFlow(false)
     val avoidSmallRoads: StateFlow<Boolean> = _avoidSmallRoads
 
+    /** The avoid options as they stand now, for a routing request. */
+    fun routePreferences() = RoutePreferences(
+        avoidHighways = _avoidHighways.value,
+        avoidSmallRoads = _avoidSmallRoads.value,
+    )
+
     /** Broadcast turn-by-turn state over BLE for an external display (e.g. a
      *  handlebar-mounted screen). Off by default: it advertises the phone over
      *  Bluetooth while on. */
