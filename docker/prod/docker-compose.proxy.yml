@@ -26,7 +26,7 @@
 # nginx/detour.conf.template).
 services:
   proxy:
-    image: nginx:1.27-alpine
+    image: nginx:1.31-alpine
     restart: unless-stopped
     # `edge` alone: the API, GraphHopper and Photon all join it precisely so one
     # reverse proxy can reach them without also reaching either database.
