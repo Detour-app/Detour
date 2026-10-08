@@ -199,9 +199,10 @@ region table above (~25 min and ~10 GB for `benelux`). Routing is down until
 `/health` comes up. The OSM extract in `osm-data` is kept, so nothing is
 downloaded again.
 
-While GraphHopper is still serving a graph without `toll`, the app reads GraphHopper's
-`/info` for the values the graph has and treats a missing one as unsupported
-rather than sending a rule that would fail. With the `proxy` layer, `/info` is
+While GraphHopper is still serving a graph without `toll`, routing works as
+before. The app can read GraphHopper's `/info` for the values the graph has, and
+the avoid toggles (#587) treat a missing one as unsupported rather than sending a
+rule that would fail. With the `proxy` layer, `/info` is
 forwarded from this release on; behind an older `detour.conf.template` it 404s
 and the app reads that as unsupported too.
 

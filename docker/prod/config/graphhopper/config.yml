@@ -34,7 +34,8 @@ graphhopper:
   # avoid rules (tolls, unpaved, ferries) read. The app asks /info whether the
   # graph has them (RoutingSupport) before sending such a rule, because a rule
   # naming a value this graph lacks is an HTTP 400 (#586).
-  # Changing this list means rebuilding the graph — see README "Upgrading".
+  # Changing this list means rebuilding the graph — see docker/prod/README.md,
+  # "Rebuilding the routing graph".
   graph.encoded_values: >-
     road_class, road_environment, road_access, surface, track_type, toll,
     max_speed, car_access, car_average_speed
