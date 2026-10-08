@@ -60,6 +60,18 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.NotFound");
     }
 
+    public static class TripTitle
+    {
+        private const string Base = "TripTitle";
+
+        public static readonly ValidationKeyDefinition EditedAtInvalid =
+            ValidationKeyDefinition.Create($"{Base}.EditedAtInvalid");
+
+        public static readonly ValidationKeyDefinition TooLong =
+            ValidationKeyDefinition.Create($"{Base}.TooLong")
+                .WithIntParameter("maximum");
+    }
+
     public static class Trace
     {
         private const string Base = "Trace";

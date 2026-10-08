@@ -8,8 +8,11 @@ import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.minus
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.math.roundToInt
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -403,13 +406,23 @@ object Logbook {
  * Its own file rather than a field on the trip: trips.json is replaced
  * wholesale by every sync response (see [TripStore.replaceRaw]), so an edit
  * stored there would need the same override bookkeeping vehicle-mode edits
- * carry. The cost is that titles stay on this device (and its backup) and
- * don't follow the rider to a second phone.
+ * carry. Instead the file syncs as its own document, the way badges.json does
+ * (#471): every entry carries the instant it was edited, the newer edit wins
+ * on both the server and here, and a cleared title is kept as a blank
+ * tombstone so the older title another device still holds cannot come back.
  */
 object TripTitleStore {
     private const val FILE_NAME = "trip_titles.json"
 
-    fun load(): Map<Long, String> {
+    /** One rider edit. A blank [title] is a cleared rename, not an absent one. */
+    data class Entry(val title: String, val editedAtMs: Long)
+
+    /** The titles to show: tombstones left out. */
+    fun load(): Map<Long, String> =
+        loadEntries().filterValues { it.title.isNotBlank() }.mapValues { it.value.title }
+
+    /** Every entry, tombstones included — what sync uploads. */
+    fun loadEntries(): Map<Long, Entry> {
         val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyMap()
         return runCatching { decode(f.readText()) }.getOrDefault(emptyMap())
@@ -417,16 +430,67 @@ object TripTitleStore {
 
     /** A blank [title] goes back to the generated one. */
     fun set(startTimeMs: Long, title: String) {
-        val all = load().toMutableMap()
-        if (title.isBlank()) all.remove(startTimeMs) else all[startTimeMs] = title.trim()
+        val all = loadEntries().toMutableMap()
+        all[startTimeMs] = Entry(title.trim(), nowMs())
         accountFile(FILE_NAME).writeText(encode(all))
     }
 
-    internal fun decode(text: String): Map<Long, String> =
-        jsonObjectOf(text).entries.associate { (k, v) -> k.toLong() to v.jsonPrimitive.content }
+    /** Folds a sync response into whatever is on disk now, so a rename made
+     *  while the request was in flight survives the write-back. */
+    fun mergeFromServer(server: Map<Long, Entry>) {
+        accountFile(FILE_NAME).writeText(encode(merge(loadEntries(), server)))
+    }
 
-    internal fun encode(titles: Map<Long, String>): String =
+    /**
+     * Newest edit wins per ride, the same rule the server applies. A tie goes
+     * to the server: an equal stamp is either the edit this device just sent
+     * echoed back, or two pre-#471 titles both read as edited at 0, and
+     * taking the server's there is what lets two devices agree on one.
+     */
+    internal fun merge(local: Map<Long, Entry>, server: Map<Long, Entry>): Map<Long, Entry> {
+        val merged = local.toMutableMap()
+        for ((start, entry) in server) {
+            val mine = merged[start]
+            if (mine == null || entry.editedAtMs >= mine.editedAtMs) merged[start] = entry
+        }
+        return merged
+    }
+
+    /** Reads both the stamped form and the bare-string V1 one; a V1 title
+     *  counts as edited at 0, so any stamped edit elsewhere beats it. */
+    internal fun decode(text: String): Map<Long, Entry> =
+        jsonObjectOf(text).entries.associate { (k, v) ->
+            k.toLong() to when (v) {
+                is JsonObject -> Entry(v.optString("title"), v.optLong("editedAtMs"))
+                else -> Entry(v.jsonPrimitive.content, 0L)
+            }
+        }
+
+    internal fun encode(titles: Map<Long, Entry>): String =
         buildJsonObject {
-            for ((k, v) in titles) put(k.toString(), JsonPrimitive(v))
+            for ((k, v) in titles) {
+                put(k.toString(), buildJsonObject {
+                    put("title", JsonPrimitive(v.title))
+                    put("editedAtMs", JsonPrimitive(v.editedAtMs))
+                })
+            }
         }.string()
+
+    /** The sync wire form: `[{startTimeMs, title, editedAtMs}]`. Tombstones
+     *  included: a cleared title has to reach the server to stop another
+     *  device's older one coming back. */
+    internal fun toUpload(titles: Map<Long, Entry>): JsonArray = buildJsonArray {
+        for ((start, entry) in titles) {
+            add(buildJsonObject {
+                put("startTimeMs", JsonPrimitive(start))
+                put("title", JsonPrimitive(entry.title))
+                put("editedAtMs", JsonPrimitive(entry.editedAtMs))
+            })
+        }
+    }
+
+    internal fun fromServer(array: JsonArray): Map<Long, Entry> =
+        array.objects()
+            .filter { it.optLong("startTimeMs") > 0 }
+            .associate { it.optLong("startTimeMs") to Entry(it.optString("title"), it.optLong("editedAtMs")) }
 }

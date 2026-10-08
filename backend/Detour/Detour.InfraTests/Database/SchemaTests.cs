@@ -1,5 +1,6 @@
 using Detour.Domain.Groups;
 using Detour.Domain.Traces;
+using Detour.Domain.Trips;
 using Detour.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -89,6 +90,8 @@ public class SchemaTests(PostgresFixture fixture)
         db.Traces.Add(trace);
         var point = TrackPoint.TryCreate(user.Id, 1_000, 51.05, 3.72, 40, 10)!;
         db.TrackPoints.Add(point);
+        var (_, title) = TripTitle.Create(user.Id, 1_000, "Coast road", 2_000);
+        db.TripTitles.Add(title);
         await db.SaveChangesAsync();
 
         db.Users.Remove(user);
@@ -97,6 +100,7 @@ public class SchemaTests(PostgresFixture fixture)
         (await db.BadgeAwards.AnyAsync(b => b.UserId == user.Id)).Should().BeFalse();
         (await db.Traces.AnyAsync(t => t.UserId == user.Id)).Should().BeFalse();
         (await db.TrackPoints.AnyAsync(p => p.UserId == user.Id)).Should().BeFalse();
+        (await db.TripTitles.AnyAsync(t => t.UserId == user.Id)).Should().BeFalse();
     }
 
     [Fact]
