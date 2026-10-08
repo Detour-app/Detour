@@ -1,8 +1,11 @@
 package com.jellemax.detour.data
 
 import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Characterises [Curviness.traceScore] — the same 25-300m circumradius
@@ -166,5 +169,73 @@ class CurvinessTest {
         val baseline = Curviness.routeScore(points, emptyList())
         val continueOn = NavInstruction(text = "continue", distanceMeters = 0.0, sign = 0, startIndex = 20, endIndex = 20)
         assertEquals(baseline, Curviness.routeScore(points, listOf(continueOn)), absoluteTolerance = 1e-9)
+    }
+
+    // --- forecastScore / bends: a spin candidate's twistiness on the recorded
+    // trip's scale (#442).
+
+    /** [east]/[north] metres from [origin], on the same flat-degree projection
+     *  [RoadRoulette.offset] uses. */
+    private fun en(east: Double, north: Double) = LatLon(
+        origin.lat + north / 111_320.0,
+        origin.lon + east / (111_320.0 * cos(origin.lat * PI / 180.0)),
+    )
+
+    /** A hairpin road: 600 m east, a 150 m-radius half circle, 600 m back
+     *  west — [step] metres between points on the bend, and on the straights
+     *  too when [denseStraights], else just their two ends. */
+    private fun hairpin(step: Double, denseStraights: Boolean): List<LatLon> {
+        val straight = 600.0
+        val radius = 150.0
+        fun leg(fromEast: Double, toEast: Double, north: Double): List<LatLon> {
+            if (!denseStraights) return listOf(en(fromEast, north), en(toEast, north))
+            val n = (straight / step).toInt()
+            return (0..n).map { i -> en(fromEast + (toEast - fromEast) * i / n, north) }
+        }
+        val arcSteps = (PI * radius / step).toInt()
+        val arc = (1 until arcSteps).map { i ->
+            val theta = -PI / 2 + PI * i / arcSteps
+            en(straight + radius * cos(theta), radius + radius * sin(theta))
+        }
+        return leg(0.0, straight, 0.0) + arc + leg(straight, 0.0, 2 * radius)
+    }
+
+    private val finish = NavInstruction(text = "arrive", distanceMeters = 0.0, sign = 4, startIndex = 0, endIndex = 0)
+
+    private fun routed(polyline: List<LatLon>) = RouteResult(
+        polyline = polyline, waypoints = emptyList(), distanceMeters = 1_671.0, instructions = listOf(finish),
+    )
+
+    @Test
+    fun aRouteAndARideOfTheSameLineScoreAlike() {
+        // The route as GraphHopper draws it: bends densely sampled, straights
+        // as their two ends. The ride as TraceStore keeps it: a point every
+        // 25 m all the way. Same road, so the forecast on the spin candidate
+        // must land where the recorded twistinessScore will.
+        val forecast = Curviness.forecastScore(routed(hairpin(step = 8.0, denseStraights = false)))!!
+        val ridden = Curviness.traceScore(hairpin(step = 25.0, denseStraights = true))
+        assertTrue(forecast > 0.2, "a hairpin forecast as straight: $forecast")
+        assertEquals(ridden, forecast, absoluteTolerance = 0.02)
+        assertEquals(Curviness.bends(ridden), Curviness.bends(forecast))
+    }
+
+    @Test
+    fun aRouteWithoutInstructionsHasNoForecast() {
+        // The backend-sampled fallback loop and a convoy offer's placeholder:
+        // straight legs between waypoints km apart, not road geometry.
+        val sampled = RouteResult(polyline = hairpin(step = 8.0, denseStraights = false),
+            waypoints = emptyList(), distanceMeters = null)
+        assertNull(Curviness.forecastScore(sampled))
+    }
+
+    @Test
+    fun bendsSplitTheScoreIntoFiveEqualBuckets() {
+        assertEquals(1, Curviness.bends(0.0))
+        assertEquals(1, Curviness.bends(0.19))
+        assertEquals(2, Curviness.bends(0.2))
+        assertEquals(3, Curviness.bends(0.5))
+        assertEquals(4, Curviness.bends(0.79))
+        assertEquals(5, Curviness.bends(0.8))
+        assertEquals(5, Curviness.bends(1.0))
     }
 }

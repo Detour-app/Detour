@@ -57,6 +57,7 @@
     <string name="spin_off">Off</string>
     <string name="spin_direction">Direction</string>
     <string name="spin_direction_any">Any</string>
+    <string name="spin_bends">Twistiness %1$d of %2$d</string>
     <string name="spin_loop_found">Loop found</string>
     <string name="spin_cancel">Cancel</string>
     <string name="spin_spin">Spin</string>
