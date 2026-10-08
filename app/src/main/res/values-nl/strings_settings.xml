@@ -151,8 +151,6 @@
     <string name="settings_api_url">Sync- &amp; sociale API (optioneel)</string>
     <string name="settings_routing_url">Routeserver (optioneel)</string>
     <string name="settings_search_url">Zoekserver (optioneel)</string>
-    <string name="settings_realm_url">URL van de aanmeldrealm (verouderd)</string>
-    <string name="settings_realm_hint">Verouderd — nieuwere servers vertellen de app welke realm ze moet gebruiken, dus laat dit leeg tenzij je server niet bijgewerkt is. Wat je hier invult, wint nog altijd van wat de server zegt. Wijzigen meldt dit toestel af: tokens van de ene realm betekenen niets voor een andere.</string>
     <string name="settings_public_search">Terugvallen op openbaar zoeken</string>
     <string name="settings_public_search_hint">Als je zoekserver onbereikbaar is, opnieuw proberen via de openbare Photon-instantie (komoot.io) — dat stuurt de zoekopdracht en je geschatte locatie buiten je eigen hardware.</string>
     <string name="settings_remove_custom">Eigen server verwijderen</string>
@@ -174,6 +172,7 @@
     <string name="settings_record_timings">Functietijden registreren</string>
     <string name="settings_record_timings_hint">Meet de trage delen van de app tegenover hoeveel data ze verwerkten, zodat je kunt zien of ze trager worden naarmate je geschiedenis groeit. Blijft op dit toestel — nooit gesynchroniseerd, nooit geback-upt.</string>
     <string name="settings_nothing_recorded">Nog niets geregistreerd</string>
+    <string name="settings_timings_not_saved">Exporteren mislukt: het tijdenbestand kon niet worden opgeslagen. Maak opslagruimte vrij en probeer het opnieuw.</string>
     <string name="settings_export_timings">Tijden exporteren</string>
     <string name="settings_suppressed_events">Onderdrukte kringgebeurtenissen</string>
     <string name="settings_none">Geen</string>

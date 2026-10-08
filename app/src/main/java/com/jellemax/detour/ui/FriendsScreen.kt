@@ -79,6 +79,7 @@ import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.presentation.FriendRequestRow
 import com.jellemax.detour.presentation.FriendsPresenter
 import com.jellemax.detour.presentation.LeaderboardRow
+import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.friendsBoardStateFrom
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -636,7 +637,7 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
                                 context.getString(R.string.friends_request_sent, target)
                             }
                         } catch (e: Exception) {
-                            error = e.message ?: context.getString(R.string.friends_failed)
+                            error = failureText("Friend request", e)
                         }
                         busy = false
                     }

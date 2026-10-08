@@ -66,8 +66,8 @@ key, so it can't be updated by a GitHub APK either.
 Everything above works with no account and no server. Sign-in only buys you
 sync, friends, convoys, circles and a shared fog of war — and it needs a server
 you run, since the published APKs deliberately ship with none baked in. Point
-Settings → Servers & sync at your own, including the sign-in realm — nothing
-here needs a custom build. See
+Settings → Servers & sync at your own — your server tells the app which
+sign-in realm to use, and nothing here needs a custom build. See
 [Pointing the app at your server](#pointing-the-app-at-your-server).
 
 ## The map screen
@@ -499,11 +499,13 @@ Photon search server answers `/api/`, so those two cannot share a host.
 
 ## Pointing the app at your server
 
-Every address — the API, its per-service overrides, and the sign-in realm alike
-— can be typed into Settings → Servers & sync at runtime, on Android and iOS
-both. Nothing has to be baked into a build for sign-in to work; changing the
-realm signs the device out immediately, because tokens issued by one realm mean
-nothing to another.
+Every address — the API and its per-service overrides — can be typed into
+Settings → Servers & sync at runtime, on Android and iOS both. The sign-in realm
+is not typed: the API server announces it, and the app only switches to a newly
+announced realm once that realm answers, so a misconfigured server cannot sign
+you out of a working one. Nothing has to be baked into a build for sign-in to
+work; changing the realm signs the device out immediately, because tokens
+issued by one realm mean nothing to another.
 
 Settings → **Servers & sync** takes **one** server address covering routing,
 search, sync and live. **Show advanced** splits it per service for a deployment

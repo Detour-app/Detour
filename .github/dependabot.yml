@@ -1,0 +1,51 @@
+# Version and security updates for every dependency ecosystem in the repo
+# (#413). Weekly, with minor and patch bumps grouped into one PR per
+# ecosystem so the queue stays reviewable; majors still arrive one PR each,
+# since those are the ones that need reading. Security updates are not
+# affected by the schedule or the grouping — Dependabot opens them as soon as
+# an advisory matches.
+#
+# None of these paths are under app/src/main or shared/src/*Main, so the
+# `version` check does not ask these PRs for a versionName bump.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directories: [/, /tools/mocklocation]
+    schedule:
+      interval: weekly
+    labels: [chore]
+    groups:
+      gradle-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: nuget
+    directory: /backend
+    schedule:
+      interval: weekly
+    labels: [chore]
+    groups:
+      nuget-minor-patch:
+        update-types: [minor, patch]
+
+  # Also bumps the commit SHAs that build.yml pins third-party actions to,
+  # keeping the `# vX.Y.Z` comment beside each in step.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [chore]
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories: [/backend, /.devcontainer]
+    schedule:
+      interval: weekly
+    labels: [chore]
+
+  - package-ecosystem: docker-compose
+    directory: /docker/prod
+    schedule:
+      interval: weekly
+    labels: [chore]

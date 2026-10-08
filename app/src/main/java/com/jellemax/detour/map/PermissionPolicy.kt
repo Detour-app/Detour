@@ -34,6 +34,38 @@ fun requiredStartupPermissions(sdkInt: Int): List<String> = buildList {
     if (sdkInt >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
 }
 
+/** What launch does about the [requiredStartupPermissions] (#501). */
+enum class StartupAsk {
+    /** Everything is granted, or location is and the rest was refused once. */
+    READY,
+
+    /** First ask: the explainer, then the system dialogs on its Continue. */
+    EXPLAIN,
+
+    /** Location was refused after the explainer: the denied snackbar, not the dialog again. */
+    LOCATION_DENIED,
+}
+
+/**
+ * What launch does when [missing] says some startup permission is not granted.
+ *
+ * The explainer goes before the first system dialog, once; [explainerShown] is
+ * whether the rider has pressed its Continue. After that a refusal is not
+ * re-asked at launch: a refused activity or notification permission leaves
+ * the map to start without it (Settings' dormancy row and Circles ask again
+ * where they are needed), and a refused location gets the snackbar whose
+ * Allow / Open settings action is the way back (#499).
+ *
+ * Android-only like the rest of this file: iOS asks per permission at the
+ * point of use, with its own usage strings.
+ */
+fun startupAsk(missing: Boolean, explainerShown: Boolean, locationGranted: Boolean): StartupAsk = when {
+    !missing -> StartupAsk.READY
+    !explainerShown -> StartupAsk.EXPLAIN
+    locationGranted -> StartupAsk.READY
+    else -> StartupAsk.LOCATION_DENIED
+}
+
 /**
  * Whether to raise the app's own background-location disclosure.
  *
