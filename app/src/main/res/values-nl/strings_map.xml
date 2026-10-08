@@ -125,4 +125,13 @@
     <string name="hub_stat_rides">ritten</string>
     <string name="hub_stat_places">plekken</string>
     <string name="hub_stat_badges">badges</string>
+    <string name="map_permission_explainer_title">Voor je rijdt</string>
+    <string name="map_permission_explainer_intro">Detour vraagt straks om een paar machtigingen. Je kunt ze allemaal weigeren.</string>
+    <string name="map_permission_location">Locatie</string>
+    <string name="map_permission_location_why">De kaart, spin en het opnemen van je ritten.</string>
+    <string name="map_permission_activity">Fysieke activiteit</string>
+    <string name="map_permission_activity_why">Zelf merken wanneer je begint te rijden.</string>
+    <string name="map_permission_notifications">Meldingen</string>
+    <string name="map_permission_notifications_why">De melding terwijl een rit wordt opgenomen, en meldingen van je kringen.</string>
+    <string name="map_continue">Doorgaan</string>
 </resources>

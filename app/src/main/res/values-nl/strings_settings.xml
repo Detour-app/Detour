@@ -151,8 +151,6 @@
     <string name="settings_api_url">Sync- &amp; sociale API (optioneel)</string>
     <string name="settings_routing_url">Routeserver (optioneel)</string>
     <string name="settings_search_url">Zoekserver (optioneel)</string>
-    <string name="settings_realm_url">URL van de aanmeldrealm (verouderd)</string>
-    <string name="settings_realm_hint">Verouderd — nieuwere servers vertellen de app welke realm ze moet gebruiken, dus laat dit leeg tenzij je server niet bijgewerkt is. Wat je hier invult, wint nog altijd van wat de server zegt. Wijzigen meldt dit toestel af: tokens van de ene realm betekenen niets voor een andere.</string>
     <string name="settings_public_search">Terugvallen op openbaar zoeken</string>
     <string name="settings_public_search_hint">Als je zoekserver onbereikbaar is, opnieuw proberen via de openbare Photon-instantie (komoot.io) — dat stuurt de zoekopdracht en je geschatte locatie buiten je eigen hardware.</string>
     <string name="settings_remove_custom">Eigen server verwijderen</string>

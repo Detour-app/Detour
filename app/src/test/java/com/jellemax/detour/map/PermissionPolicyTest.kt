@@ -92,4 +92,21 @@ class PermissionPolicyTest {
         // so only app settings can grant it (#499).
         assertEquals(LocationRecovery.OPEN_SETTINGS, locationRecovery(canAskAgain = false))
     }
+
+    @Test
+    fun theExplainerGoesBeforeTheFirstAskAndARefusalIsNotReAskedAtLaunch() {
+        // #501: nothing missing, nothing to explain or ask.
+        assertEquals(StartupAsk.READY, startupAsk(missing = false, explainerShown = false, locationGranted = true))
+        // A fresh install: the explainer, not a system dialog straight away.
+        assertEquals(StartupAsk.EXPLAIN, startupAsk(missing = true, explainerShown = false, locationGranted = false))
+        // Location granted, activity or notifications refused once: start the
+        // map without them rather than raise their dialogs every launch.
+        assertEquals(StartupAsk.READY, startupAsk(missing = true, explainerShown = true, locationGranted = true))
+        // Location refused: the denied snackbar's Allow / Open settings, not
+        // the explainer again.
+        assertEquals(
+            StartupAsk.LOCATION_DENIED,
+            startupAsk(missing = true, explainerShown = true, locationGranted = false),
+        )
+    }
 }

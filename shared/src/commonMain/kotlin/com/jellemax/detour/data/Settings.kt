@@ -765,6 +765,15 @@ object Settings {
         prefs.put("notified_update_version", version)
     }
 
+    /** Whether the rider has pressed Continue on the first-launch permission
+     *  explainer (#501). Android-only today, like [notifiedUpdateVersion];
+     *  once true, launch stops re-asking for a refused permission. */
+    fun permissionExplainerShown(): Boolean = prefs.bool("permission_explainer_shown", false)
+
+    fun setPermissionExplainerShown() {
+        prefs.put("permission_explainer_shown", true)
+    }
+
     /** The version whose notes [pendingNotes] holds, written when its download
      *  starts so the notes outlive the process death the install causes (#359). */
     fun pendingNotesVersion(): String = prefs.string("pending_notes_version", "")
