@@ -122,7 +122,7 @@ struct NavScreen: View {
 /// The camera a warning was spoken for and the distance still left to it,
 /// under the turn banner while it is ahead (#550). `CameraWarner` in `:shared`
 /// decides when it shows: from the warning until the camera is passed or out
-/// of reach — the same countdown the Android phone banner reads.
+/// of reach, reading `CameraWarner.Step.countdown` (#548).
 private struct CameraBanner: View {
     let countdown: CameraCountdown
 
