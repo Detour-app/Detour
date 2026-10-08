@@ -254,7 +254,7 @@ dependencies {
     implementation("androidx.navigation3:navigation3-ui:1.1.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
-    implementation("org.maplibre.gl:android-sdk:11.8.0")
+    implementation("org.maplibre.gl:android-sdk:13.6.1")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     // Android Auto: projects a car-screen "Spin" flow onto the head unit.
     implementation("androidx.car.app:app:1.7.0")
