@@ -266,6 +266,31 @@ class PersistedFormatTest {
         assertEquals(jsonObjectOf(routeV1), route.toJson())
     }
 
+    // V2 (#588): a saved spin carries "origin":"SPIN". A planned route omits
+    // the key, so it still writes V1's bytes above, and V1 reads as PLANNED.
+    private val spinRoute = route.copy(sharedBy = "", origin = RouteOrigin.SPIN)
+    private val routeV2 = """
+        {"id":7,"name":"Ardennes loop","createdMs":1726000000000,"mode":"MOTO",
+         "stops":[{"lat":50.85,"lon":4.35,"name":"Start"},{"lat":50.25,"lon":5.7}],
+         "polyline":[50.85,4.35,50.5,5.0,50.25,5.7],
+         "distanceMeters":152300.0,"timeMs":7200000,"origin":"SPIN"}
+    """
+
+    @Test
+    fun routeV2Reads() {
+        assertEquals(spinRoute, routeFromJson(jsonObjectOf(routeV2)))
+    }
+
+    @Test
+    fun routeWriterMatchesV2() {
+        assertEquals(jsonObjectOf(routeV2), spinRoute.toJson())
+    }
+
+    @Test
+    fun routeOriginNamesArePinned() {
+        assertEquals(listOf("PLANNED", "SPIN"), RouteOrigin.entries.map { it.name })
+    }
+
     // --- deleted_trips.json / edited_modes.json -------------------------------
     // Both ride along with sync: tombstones that stop reading resurrect every
     // deleted trip on the next merge, and a lost override reverts a mode edit.
