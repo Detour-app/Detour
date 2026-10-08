@@ -61,6 +61,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.location.Priority
+import com.jellemax.detour.R
 import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.data.Features
@@ -482,7 +483,7 @@ fun MapScreen(
                             LatLng(loc.lat, loc.lon), Settings.defaultZoom.value.toDouble()))
                     }
                 } else {
-                    s.error = "Could not get location; is GPS on?"
+                    s.error = context.getString(R.string.map_no_location)
                 }
             } catch (e: SecurityException) {
                 s.error = LOCATION_DENIED_ERROR
@@ -688,7 +689,7 @@ fun MapScreen(
             s.searchOpen = false
             if (navigatingRef.value) return@OnMapLongClickListener false
             s.destination = LatLon(ll.latitude, ll.longitude)
-            s.destinationName = "Dropped pin"
+            s.destinationName = context.getString(R.string.map_dropped_pin)
             s.route = null
             true
         }
@@ -809,7 +810,7 @@ fun MapScreen(
 
     fun startNavigation() {
         val loc = s.myLocation ?: run {
-            s.error = "Waiting for your location…"
+            s.error = context.getString(R.string.map_waiting_location)
             return
         }
         s.camAuthority = CameraAuthority.reduce(s.camAuthority, CameraAuthority.Action.NavigationStarted)
@@ -832,7 +833,7 @@ fun MapScreen(
         // Which of the three cases this is lives in map/NavStart, with tests.
         when (val start = navStart(s.destination, s.route)) {
             NavStart.UseExistingRoute -> beginGuidance(null)
-            NavStart.NoTurnData -> s.error = "No turn data for this loop — spin again with the routing server reachable"
+            NavStart.NoTurnData -> s.error = context.getString(R.string.map_no_turn_data)
             is NavStart.FetchTo -> {
                 s.rerouting = true
                 scope.launch {
@@ -957,7 +958,7 @@ fun MapScreen(
     fun spin() {
         val loc = s.myLocation ?: run {
             if (permissions.offerLocationIfDenied()) return // #499: "waiting" would wait forever
-            s.error = "Waiting for your location…"
+            s.error = context.getString(R.string.map_waiting_location)
             fetchLocation()
             return
         }
@@ -1117,7 +1118,7 @@ fun MapScreen(
         if (s.pendingRiderFrame == pending) {
             s.pendingRiderFrame = null
             RiderFocusHolder.clear(pending)
-            s.error = "Couldn't find ${pending.displayName} on the map — they may have stopped sharing"
+            s.error = context.getString(R.string.map_rider_not_found, pending.displayName)
         }
     }
 
@@ -1412,6 +1413,6 @@ fun MapScreen(
 
     // The two dialogs and the state they read live together in MapDialogs.kt;
     // this screen just says when they are up.
-    MapScreenDialogs(s = s, bgLocationLauncher = permissions.bgLocationLauncher)
+    MapScreenDialogs(s = s, permissions = permissions)
 
 }

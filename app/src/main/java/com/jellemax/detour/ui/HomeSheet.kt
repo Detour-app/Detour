@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -55,6 +56,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaceKind
@@ -204,13 +206,13 @@ internal fun ColumnScope.HomeSheet(
                 ) {
                     DestinationCard(
                         icon = Icons.Outlined.Route,
-                        label = "Routes",
+                        label = stringResource(R.string.home_routes),
                         onClick = onOpenRoutes,
                         modifier = Modifier.weight(1f),
                     )
                     DestinationCard(
                         icon = Icons.Outlined.Diversity3,
-                        label = "Social",
+                        label = stringResource(R.string.home_social),
                         onClick = onOpenSocial,
                         modifier = Modifier.weight(1f),
                     )
@@ -237,6 +239,9 @@ internal fun DragHandle(onExpand: (() -> Unit)? = null) {
     // reference), and keying on it would restart - and drop - the gesture
     // detector mid-drag any time the sheet recomposes.
     val currentOnExpand by rememberUpdatedState(onExpand)
+    // Read here: the semantics block below is not a composable scope.
+    val collapsedDescription = stringResource(R.string.home_spin_collapsed)
+    val expandLabel = stringResource(R.string.home_expand)
     Box(
         Modifier
             .fillMaxWidth()
@@ -268,9 +273,9 @@ internal fun DragHandle(onExpand: (() -> Unit)? = null) {
                             }
                         }
                         .semantics {
-                            contentDescription = "Spin settings, collapsed"
+                            contentDescription = collapsedDescription
                             customActions = listOf(
-                                CustomAccessibilityAction("Expand") { currentOnExpand?.invoke(); true },
+                                CustomAccessibilityAction(expandLabel) { currentOnExpand?.invoke(); true },
                             )
                         }
                 } else {
@@ -344,7 +349,7 @@ private fun ShortcutChipRow(
         // only way to reach it — and, with it, the only way to roll a spin.
         AssistChip(
             onClick = onSpinSettings,
-            label = { Text("Spin", fontWeight = FontWeight.SemiBold, maxLines = 1) },
+            label = { Text(stringResource(R.string.home_spin), fontWeight = FontWeight.SemiBold, maxLines = 1) },
             leadingIcon = {
                 Icon(mode.icon, contentDescription = mode.label, Modifier.size(18.dp))
             },
@@ -358,8 +363,8 @@ private fun ShortcutChipRow(
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
             ),
         )
-        onOpenRoutes?.let { GlyphChip(Icons.Outlined.Route, "Routes", it) }
-        onOpenSocial?.let { GlyphChip(Icons.Outlined.Diversity3, "Social", it) }
+        onOpenRoutes?.let { GlyphChip(Icons.Outlined.Route, stringResource(R.string.home_routes), it) }
+        onOpenSocial?.let { GlyphChip(Icons.Outlined.Diversity3, stringResource(R.string.home_social), it) }
     }
 }
 

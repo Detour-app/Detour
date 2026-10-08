@@ -134,7 +134,8 @@ Third-party, contacted by the **app** rather than by your server:
 **Everything the app sends goes over HTTPS**, and the app addresses each service
 directly — the API, the router and the geocoder are three independent addresses
 in Settings, with one `url` covering them all only when a single host path-routes
-to all three. The sign-in realm is a fourth address and deliberately never falls
+to all three. The sign-in realm is announced by the API server rather than typed
+(an address saved by an older version still wins), and deliberately never falls
 back to the others.
 
 Sign-in is standard OIDC authorization-code with PKCE, run in a **system

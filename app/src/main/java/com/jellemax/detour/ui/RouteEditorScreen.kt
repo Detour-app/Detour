@@ -46,12 +46,14 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
@@ -138,7 +140,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
         try {
             val hits = withContext(Dispatchers.IO) { Geocoder.search(searchQuery, stops.lastOrNull()?.at) }
             searchResults = hits
-            searchStatus = if (hits.isEmpty()) "No results" else null
+            searchStatus = if (hits.isEmpty()) context.getString(R.string.route_editor_no_results) else null
         } catch (e: CancellationException) {
             // The next keystroke cancelled us. Rethrowing rather than falling
             // into the catch below is what keeps a superseded search from
@@ -149,7 +151,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             // not exist, and the rider was being told the second thing.
             ensureActive()
             searchResults = emptyList()
-            searchStatus = "Search failed — check your connection"
+            searchStatus = context.getString(R.string.route_editor_search_failed)
         }
         searching = false
     }
@@ -332,7 +334,9 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                 }
                 if (stops == from && mode == fromMode) stops = filled.stops
             } catch (e: StopsTooLong) {
-                fillError = "Your stops alone take ${formatDurationHistory(e.stopsMs)} — pick a longer time"
+                fillError = context.getString(
+                    R.string.route_editor_stops_too_long, formatDurationHistory(e.stopsMs),
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -366,7 +370,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             )
         }
         if (saved.isFailure) {
-            saveError = "Could not save this route to this device. Try again."
+            saveError = context.getString(R.string.route_editor_save_failed)
             return
         }
         onSaved()
@@ -376,7 +380,11 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            SubScreenTopBar(if (editing == null) "New route" else "Edit route", onBack, scrollBehavior)
+            SubScreenTopBar(
+                stringResource(if (editing == null) R.string.route_editor_new else R.string.route_editor_edit),
+                onBack,
+                scrollBehavior,
+            )
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -384,7 +392,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                 AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
                 if (stops.isEmpty()) {
                     Text(
-                        "Tap the map or search to add your first stop",
+                        stringResource(R.string.route_editor_empty_map),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Center).padding(24.dp),
@@ -395,7 +403,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Search for a place") },
+                    label = { Text(stringResource(R.string.route_editor_search)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -458,13 +466,22 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                             modifier = Modifier.weight(1f),
                         )
                         IconButton(enabled = index > 0, onClick = { moveStop(index, -1) }) {
-                            Icon(Icons.Filled.ArrowUpward, contentDescription = "Move stop ${index + 1} up")
+                            Icon(
+                                Icons.Filled.ArrowUpward,
+                                contentDescription = stringResource(R.string.route_editor_move_up, index + 1),
+                            )
                         }
                         IconButton(enabled = index < stops.lastIndex, onClick = { moveStop(index, 1) }) {
-                            Icon(Icons.Filled.ArrowDownward, contentDescription = "Move stop ${index + 1} down")
+                            Icon(
+                                Icons.Filled.ArrowDownward,
+                                contentDescription = stringResource(R.string.route_editor_move_down, index + 1),
+                            )
                         }
                         IconButton(onClick = { removeStop(index) }) {
-                            Icon(Icons.Filled.Close, contentDescription = "Remove stop ${index + 1}")
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.route_editor_remove_stop, index + 1),
+                            )
                         }
                     }
                 }
@@ -472,7 +489,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Route name") },
+                        label = { Text(stringResource(R.string.route_editor_name)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -496,7 +513,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         when {
                             stops.size < 2 -> Text(
-                                "Add at least two stops to route between them.",
+                                stringResource(R.string.route_editor_need_two_stops),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -505,7 +522,10 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Text("Routing…", style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    stringResource(R.string.route_editor_routing),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                             }
                             routingError != null -> Text(
                                 routingError.orEmpty(),
@@ -516,7 +536,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                                 listOfNotNull(
                                     distanceMeters?.let { formatDistanceKm(it) },
                                     timeMs?.let { formatDurationHistory(it) },
-                                ).joinToString(" · ").ifEmpty { "No route yet" },
+                                ).joinToString(" · ").ifEmpty { stringResource(R.string.route_editor_no_route) },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -545,7 +565,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                         onClick = { save() },
                         enabled = stops.size >= 2 && name.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Save route") }
+                    ) { Text(stringResource(R.string.route_editor_save)) }
                 }
                 if (saveError.isNotEmpty()) {
                     item {

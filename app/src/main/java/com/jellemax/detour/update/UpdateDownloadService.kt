@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.R
 import com.jellemax.detour.data.UpdateClient
 import com.jellemax.detour.notif.PendingUpdateOpen
@@ -153,6 +154,8 @@ class UpdateDownloadService : Service() {
         // lie; the transfer it described has been superseded by this one.
         notifications.cancel(TERMINAL_ID)
         throttle.reset()
+        // Kept for after the install, which kills this process (#359).
+        Settings.setPendingNotes(update.version, update.notes.orEmpty())
         UpdateState.set(UpdateStatus.Downloading(update, INDETERMINATE))
         job = scope.launch { transfer(update) }
     }
