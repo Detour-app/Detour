@@ -62,7 +62,7 @@ jobs:
       # Kotlin/Native downloads a ~1GB toolchain on a cold runner; without this
       # every run pays for it again.
       - name: Cache Kotlin/Native toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle.properties') }}
