@@ -155,7 +155,7 @@
     <string name="settings_routing_url">Routing server (optional)</string>
     <string name="settings_search_url">Search server (optional)</string>
     <string name="settings_public_search">Fall back to public search</string>
-    <string name="settings_public_search_hint">If your search server is unreachable, retry via the public Photon instance (komoot.io) — sends the query and your approximate location off your own hardware.</string>
+    <string name="settings_public_search_hint">If your search server is unreachable, retry via the public Photon instance (komoot.io) — sends the query, your approximate location and the coordinates of places being named off your own hardware.</string>
     <string name="settings_remove_custom">Remove custom server</string>
     <string name="settings_remove_custom_title">Remove the custom server?</string>
     <string name="settings_remove_custom_text_builtin">All five addresses are cleared and the app falls back to the built-in server.</string>

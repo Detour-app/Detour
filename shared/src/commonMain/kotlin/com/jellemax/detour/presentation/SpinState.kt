@@ -62,21 +62,22 @@ internal fun radiusText(maxKm: Float, radiusKm: Float, sep: Char = '.'): String 
 
 /**
  * `CandidatesCard`'s per-row `Column` and duration `Surface`, ported as one
- * row: `c.name ?: "Option ${index + 1}"` for the label, the route distance
+ * row: the candidate's name for the label, or its coordinates when the name
+ * lookup came back empty (offline, say — #503), the route distance
  * falling back to the straight-line draw with the same "~ straight-line " /
  * "via road " prefix, and `"%.0f min".format(timeMs / 60_000.0)` - present
  * only when the candidate has a routed `timeMs` at all, same as the chip
  * `c.route?.timeMs?.let { ... }` guards today.
  */
 internal fun candidateRow(
-    index: Int,
     candidate: RouteCandidate,
     sep: Char = '.',
 ): SpinCandidateRow {
     val distanceMeters = candidate.route?.distanceMeters ?: candidate.straightLineMeters
     val prefix = if (candidate.route?.distanceMeters == null) "~ straight-line " else "via road "
     return SpinCandidateRow(
-        name = candidate.name ?: "Option ${index + 1}",
+        name = candidate.name
+            ?: formatCoordinatePair(candidate.destination.lat, candidate.destination.lon),
         distanceText = prefix + formatDistanceKm(distanceMeters, sep),
         durationText = candidate.route?.timeMs?.let { "${formatFixed(it / 60_000.0, 0)} min" },
     )
@@ -99,5 +100,5 @@ fun spinStateFrom(
     sep: Char = '.',
 ): SpinState = SpinState(
     radiusText = radiusText(mode.maxKm, radiusKm, sep),
-    candidates = candidates.mapIndexed { i, c -> candidateRow(i, c, sep) },
+    candidates = candidates.map { c -> candidateRow(c, sep) },
 )

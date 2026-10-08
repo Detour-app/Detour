@@ -152,7 +152,7 @@
     <string name="settings_routing_url">Routeserver (optioneel)</string>
     <string name="settings_search_url">Zoekserver (optioneel)</string>
     <string name="settings_public_search">Terugvallen op openbaar zoeken</string>
-    <string name="settings_public_search_hint">Als je zoekserver onbereikbaar is, opnieuw proberen via de openbare Photon-instantie (komoot.io) — dat stuurt de zoekopdracht en je geschatte locatie buiten je eigen hardware.</string>
+    <string name="settings_public_search_hint">Als je zoekserver onbereikbaar is, opnieuw proberen via de openbare Photon-instantie (komoot.io) — dat stuurt de zoekopdracht, je geschatte locatie en de coördinaten van te benoemen plaatsen buiten je eigen hardware.</string>
     <string name="settings_remove_custom">Eigen server verwijderen</string>
     <string name="settings_remove_custom_title">De eigen server verwijderen?</string>
     <string name="settings_remove_custom_text_builtin">Alle vijf adressen worden gewist en de app valt terug op de ingebouwde server.</string>
