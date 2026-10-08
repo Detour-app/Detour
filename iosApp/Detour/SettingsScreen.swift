@@ -199,7 +199,7 @@ struct SettingsScreen: View {
         } header: {
             Text("Privacy")
         } footer: {
-            Text("The fallback sends your query and approximate location to komoot's public Photon when your own geocoder is unreachable.")
+            Text("The fallback sends your query, your approximate location and the coordinates of spin destinations being named to komoot's public Photon when your own geocoder is unreachable.")
         }
     }
 
