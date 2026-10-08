@@ -35,10 +35,10 @@ kotlin {
         commonMain.dependencies {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
-            implementation("io.ktor:ktor-client-core:2.3.12")
+            implementation("io.ktor:ktor-client-core:3.6.0")
             // ContentEncoding (transparent gzip on responses) ships separately
             // from core.
-            implementation("io.ktor:ktor-client-encoding:2.3.12")
+            implementation("io.ktor:ktor-client-encoding:3.6.0")
             implementation("com.squareup.okio:okio:3.9.0")
             // The auto-theme's local clock hour and the nav ETA's zone;
             // java.util.Calendar has no common equivalent. `implementation` is
@@ -50,10 +50,10 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.0")
         }
         androidMain.dependencies {
-            implementation("io.ktor:ktor-client-okhttp:2.3.12")
+            implementation("io.ktor:ktor-client-okhttp:3.6.0")
         }
         iosMain.dependencies {
-            implementation("io.ktor:ktor-client-darwin:2.3.12")
+            implementation("io.ktor:ktor-client-darwin:3.6.0")
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
