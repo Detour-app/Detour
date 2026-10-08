@@ -857,8 +857,8 @@ fun MapScreen(
 
     // Push camera markers to the map. Separate from the main overlay render
     // because cameras change on the prefetch cadence, not per drawable-state flip.
-    LaunchedEffect(mapOverlays, retained.speedCameras) {
-        mapOverlays?.setCameras(retained.speedCameras)
+    LaunchedEffect(mapOverlays, retained.speedCameras, retained.speedSections) {
+        mapOverlays?.setCameras(retained.speedCameras, retained.speedSections)
     }
 
     // Convoy friend markers, extrapolated between `positions` frames — #161.

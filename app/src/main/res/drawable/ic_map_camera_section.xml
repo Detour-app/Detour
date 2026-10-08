@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Average-speed section camera marker (#404), drawn at a section's entry and
+     exit devices: a blue disc - the colour of the Belgian trajectcontrole
+     sign - in a white ring, a smaller camera silhouette, and one mark under it,
+     a two-headed arrow for "measured over a distance". Same 48-unit grid at
+     36dp as ic_map_camera. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="36dp"
+    android:height="36dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- drop shadow -->
+    <path
+        android:fillColor="#33000000"
+        android:pathData="M24,26m-20,0a20,20 0 1,1 40,0a20,20 0 1,1 -40,0" />
+    <!-- white ring -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M24,24m-20,0a20,20 0 1,1 40,0a20,20 0 1,1 -40,0" />
+    <!-- blue disc -->
+    <path
+        android:fillColor="#FF2B57D8"
+        android:pathData="M24,24m-17.5,0a17.5,17.5 0 1,1 35,0a17.5,17.5 0 1,1 -35,0" />
+    <!-- camera silhouette: viewfinder hump and body -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M21.5,10.5h5a1,1 0 0,1 1,1v2h-7v-2a1,1 0 0,1 1,-1z M17,13.5h14a2,2 0 0,1 2,2v8a2,2 0 0,1 -2,2h-14a2,2 0 0,1 -2,-2v-8a2,2 0 0,1 2,-2z" />
+    <!-- lens -->
+    <path
+        android:fillColor="#FF2B57D8"
+        android:pathData="M24,19.5m-3.6,0a3.6,3.6 0 1,1 7.2,0a3.6,3.6 0 1,1 -7.2,0" />
+    <!-- two-headed arrow: the distance the average is taken over -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M11.5,32l5,-4.5v3.2h15v-3.2l5,4.5l-5,4.5v-3.2h-15v3.2z" />
+</vector>

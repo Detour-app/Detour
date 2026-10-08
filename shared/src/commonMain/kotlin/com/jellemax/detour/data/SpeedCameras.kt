@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.SectionAverageTracker
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import okio.IOException
@@ -78,6 +79,28 @@ object SpeedCameras {
     )
 
     data class Result(val cameras: List<Camera>, val sections: List<Section>)
+
+    /**
+     * Which of the three map markers a camera draws as (issue #404). A section's
+     * devices are ordinary [CameraKind.SPEED] nodes — [Section] keeps only their
+     * coordinates — so "section camera" is recovered here by position: a speed
+     * camera within [SectionAverageTracker.SECTION_GATE_METERS] of either end of a
+     * section is that end's device, the same radius that counts as passing it.
+     * [CameraKind.RED_LIGHT] and [CameraKind.COMBINED] stay [MarkerIcon.RED_LIGHT]
+     * even at a section end: the red-light check is the one a rider can't see coming
+     * from the road.
+     */
+    enum class MarkerIcon { SPOT, SECTION, RED_LIGHT }
+
+    fun markerIcon(camera: Camera, sections: List<Section>): MarkerIcon = when {
+        camera.kind != CameraKind.SPEED -> MarkerIcon.RED_LIGHT
+        sections.any { s ->
+            (s.endA + s.endB).any {
+                RoadRoulette.distanceMeters(camera.at, it) <= SectionAverageTracker.SECTION_GATE_METERS
+            }
+        } -> MarkerIcon.SECTION
+        else -> MarkerIcon.SPOT
+    }
 
     /** Radius fetched around you. Wide enough that one fetch covers a few
      *  minutes of driving before the edge-of-area refetch kicks in. */
