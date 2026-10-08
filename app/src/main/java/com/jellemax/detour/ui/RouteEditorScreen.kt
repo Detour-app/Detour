@@ -338,9 +338,9 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                     RouteFill.fillRouted(
                         serverConfig, from, minutes, mode.ghProfile,
                         RoutePreferences(
-                        avoidHighways = avoidHighways,
-                        avoidSmallRoads = avoidSmallRoads,
-                    ),
+                            avoidHighways = avoidHighways,
+                            avoidSmallRoads = avoidSmallRoads,
+                        ),
                     )
                 }
                 if (stops == from && mode == fromMode) stops = filled.stops
