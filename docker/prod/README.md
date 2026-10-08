@@ -177,6 +177,34 @@ docker compose exec -T keycloak-db psql -U keycloak keycloak < kc.sql
 Or accept a fresh realm database and recreate the realm — see "The realm is not
 created for you" above.
 
+### Rebuilding the routing graph
+
+This release adds `toll` to `graph.encoded_values` in
+`config/graphhopper/config.yml` (#586), so the app's avoid-tolls, -unpaved and
+-ferries rules have something to read. GraphHopper fixes its encoded values when
+it builds the graph, so an existing `graphhopper-data` volume does not gain one
+by restarting (and GraphHopper may refuse to load a graph whose values differ
+from the config) — drop the volume and let the next `up` build it again:
+
+```bash
+# rm, not stop: a stopped container still holds the volume and `volume rm` refuses.
+docker compose rm --stop --force graphhopper
+# <project>_graphhopper-data — confirm the exact name with `docker volume ls`.
+docker volume rm detour_graphhopper-data
+docker compose up -d graphhopper
+```
+
+That is the first-boot build again: the time and `GRAPHHOPPER_HEAP` in the
+region table above (~25 min and ~10 GB for `benelux`). Routing is down until
+`/health` comes up. The OSM extract in `osm-data` is kept, so nothing is
+downloaded again.
+
+While GraphHopper is still serving a graph without `toll`, the app reads GraphHopper's
+`/info` for the values the graph has and treats a missing one as unsupported
+rather than sending a rule that would fail. With the `proxy` layer, `/info` is
+forwarded from this release on; behind an older `detour.conf.template` it 404s
+and the app reads that as unsupported too.
+
 ## Backups
 
 Two volumes matter and losing either is unrecoverable:

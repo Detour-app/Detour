@@ -29,8 +29,14 @@ graphhopper:
   # road_environment / road_access / max_speed, which cost little and are what
   # path details and any future model would want. In 9.x and later a vehicle IS
   # an encoded value — there is no `vehicle:` profile key any more.
+  #
+  # toll, surface and road_environment are also what the app's request-time
+  # avoid rules (tolls, unpaved, ferries) read. The app asks /info whether the
+  # graph has them (RoutingSupport) before sending such a rule, because a rule
+  # naming a value this graph lacks is an HTTP 400 (#586).
+  # Changing this list means rebuilding the graph — see README "Upgrading".
   graph.encoded_values: >-
-    road_class, road_environment, road_access, surface, track_type,
+    road_class, road_environment, road_access, surface, track_type, toll,
     max_speed, car_access, car_average_speed
 
   profiles:
