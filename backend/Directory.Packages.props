@@ -21,7 +21,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.9" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
     <!-- Pinned above the 2.0.0 pulled transitively by Microsoft.AspNetCore.OpenApi to patch GHSA-v5pm-xwqc-g5wc (NU1903) -->
-    <PackageVersion Include="Microsoft.OpenApi" Version="2.9.0" />
+    <PackageVersion Include="Microsoft.OpenApi" Version="3.10.2" />
   </ItemGroup>
 
   <!-- Persistence -->
