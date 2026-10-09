@@ -80,7 +80,9 @@ data class RoutePreferences(
         // reachable by ferry, and a toll bridge may be the only crossing.
         if (avoidTolls) {
             addJsonObject {
-                put("if", "toll != NO")
+                // ALL only: MISSING is every untagged way, and HGV is the
+                // lorry-only motorway toll in DE/DK/EE/LT/LV, free for a car or bike.
+                put("if", "toll == ALL")
                 put("multiply_by", 0.05)
             }
         }

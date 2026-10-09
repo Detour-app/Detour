@@ -53,7 +53,7 @@ class RoutePreferencesTest {
     @Test
     fun theGraphDependentOptionsAddOneRuleEach() {
         assertEquals(
-            """[{"if":"toll != NO","multiply_by":0.05},""" +
+            """[{"if":"toll == ALL","multiply_by":0.05},""" +
                 """{"if":"road_environment == FERRY","multiply_by":0.05},""" +
                 """{"if":"surface == UNPAVED || surface == GRAVEL || surface == DIRT || surface == SAND",""" +
                 """"multiply_by":0.05}]""",
