@@ -47,6 +47,44 @@ class PermissionPolicyTest {
     }
 
     @Test
+    fun approximateLocationIsNotAskedToUpgradeAtStartup() {
+        // #500: asking for fine while coarse is held is the "change to
+        // precise" dialog — on every cold start, for a rider who chose
+        // Approximate. Only what is still missing besides location is asked.
+        val toAsk = startupPermissionsToAsk(
+            sdkInt = Build.VERSION_CODES.TIRAMISU,
+            granted = setOf(
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACTIVITY_RECOGNITION,
+            ),
+        )
+        assertEquals("#500: approximate re-asked for precise at startup",
+            listOf(Manifest.permission.POST_NOTIFICATIONS), toAsk)
+    }
+
+    @Test
+    fun noLocationAtAllAsksForBothLevels() {
+        // Both, so the system dialog offers Precise and Approximate.
+        val toAsk = startupPermissionsToAsk(Build.VERSION_CODES.O, granted = emptySet())
+        assertEquals(
+            listOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+            toAsk,
+        )
+    }
+
+    @Test
+    fun everythingGrantedAsksForNothing() {
+        val sdk = Build.VERSION_CODES.TIRAMISU
+        assertEquals(
+            emptyList<String>(),
+            startupPermissionsToAsk(sdk, requiredStartupPermissions(sdk).toSet()),
+        )
+    }
+
+    @Test
     fun notificationsArriveAtTiramisuAndNotBefore() {
         // Without it the foreground service runs with no visible notification.
         assertFalse(

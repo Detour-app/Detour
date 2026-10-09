@@ -1,7 +1,5 @@
 package com.jellemax.detour.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +47,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -69,6 +66,7 @@ import com.jellemax.detour.data.StopsTooLong
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.formatCoordinatePair
+import com.jellemax.detour.tracking.hasLocationPermission
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -290,9 +288,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             cameraForPoints(map, stops.map { it.at }, fitPaddingPx)
             return@LaunchedEffect
         }
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
-        ) return@LaunchedEffect
+        if (!hasLocationPermission(context)) return@LaunchedEffect
         try {
             val client = LocationServices.getFusedLocationProviderClient(context)
             val loc = client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()

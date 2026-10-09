@@ -129,6 +129,7 @@ import com.jellemax.detour.tracking.LocationSources
 import com.jellemax.detour.tracking.MapSurface
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
+import com.jellemax.detour.tracking.hasLocationPermission
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -460,9 +461,7 @@ fun MapScreen(
     }
 
     fun fetchLocation() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
-        ) return
+        if (!hasLocationPermission(context)) return
         scope.launch {
             try {
                 // Through the location port (#306), not the platform directly.
@@ -787,6 +786,7 @@ fun MapScreen(
         // moving. Every caller signals it with navigationEnded() (#271, #272).
         s.navigating = false
         s.navProgress = null
+        permissions.dropPendingTrip() // #500: a late precise grant must not start a trip nothing ends
         // Drop the route line: arrival or the Exit button ends the navigation,
         // and the geometry it drew has nothing left to follow. The render effect
         // keyed on `s.route` clears the layers; the destination pin stays (it is
@@ -821,7 +821,7 @@ fun MapScreen(
         s.tappedRider = null
         s.pendingRiderFrame = null
         fun beginGuidance(to: LatLon?) { // #422: no trip until there is a route to guide
-            if (stats == null) TripTrackingService.start(context, to?.lat, to?.lon)
+            if (stats == null) permissions.recordTrip(to) // #500: asks for precise first
             s.navigating = true
         }
         s.error = null
@@ -1374,7 +1374,7 @@ fun MapScreen(
                 // #432: no second, parallel fetch from a repeat tap — the drive sheet's Go too.
                 onNavigateInApp = { if (!s.rerouting) startNavigation() },
                 onNavigate = {
-                    if (stats == null) TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
+                    if (stats == null) permissions.recordHandedOffTrip(s.destination) // #500: never asks
                 },
                 // The navigation dock's ✕: drop the destination and everything
                 // derived from it. `settingsCollapsed` is left untouched, so
