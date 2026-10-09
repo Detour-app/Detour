@@ -86,6 +86,8 @@ import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.data.RoutingEncodedValue
+import com.jellemax.detour.data.RoutingSupport
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.presentation.formatFixed
 import com.jellemax.detour.ui.settings.LicencesScreen
@@ -428,6 +430,17 @@ private fun navAppLabel(app: Settings.NavApp): String = when (app) {
 internal fun NavigationSection() {
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
     val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
+    val avoidTolls by Settings.avoidTolls.collectAsStateWithLifecycle()
+    val avoidFerries by Settings.avoidFerries.collectAsStateWithLifecycle()
+    val avoidUnpaved by Settings.avoidUnpaved.collectAsStateWithLifecycle()
+    // The last answer straight away, then the server's current one: opening
+    // this spoke is when a rider looks for these options, so it asks again
+    // rather than trusting an answer from before a graph rebuild.
+    var routingSupport by remember { mutableStateOf(RoutingSupport.known()) }
+    LaunchedEffect(Unit) {
+        runCatching { RoutingSupport.refresh() }
+        routingSupport = RoutingSupport.known()
+    }
     val preferredNavApp = goNavApp()
     val voiceGuidance by Settings.voiceGuidance.collectAsStateWithLifecycle()
     SettingsSection(stringResource(R.string.settings_spoke_navigation)) {
@@ -468,42 +481,73 @@ internal fun NavigationSection() {
                 }
             }
         }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.settings_avoid_highways), style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    stringResource(R.string.settings_avoid_highways_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = avoidHighways,
-                onCheckedChange = { Settings.setAvoidHighways(it) },
+        AvoidRow(
+            title = stringResource(R.string.settings_avoid_highways),
+            hint = stringResource(R.string.settings_avoid_highways_hint),
+            checked = avoidHighways,
+            onCheckedChange = { Settings.setAvoidHighways(it) },
+        )
+        AvoidRow(
+            title = stringResource(R.string.settings_avoid_small_roads),
+            hint = stringResource(R.string.settings_avoid_small_roads_hint),
+            checked = avoidSmallRoads,
+            onCheckedChange = { Settings.setAvoidSmallRoads(it) },
+        )
+        AvoidRow(
+            title = stringResource(R.string.settings_avoid_tolls),
+            hint = stringResource(R.string.settings_avoid_tolls_hint),
+            checked = avoidTolls,
+            onCheckedChange = { Settings.setAvoidTolls(it) },
+            supported = RoutingEncodedValue.TOLL in routingSupport.orEmpty(),
+        )
+        AvoidRow(
+            title = stringResource(R.string.settings_avoid_ferries),
+            hint = stringResource(R.string.settings_avoid_ferries_hint),
+            checked = avoidFerries,
+            onCheckedChange = { Settings.setAvoidFerries(it) },
+            supported = RoutingEncodedValue.ROAD_ENVIRONMENT in routingSupport.orEmpty(),
+        )
+        AvoidRow(
+            title = stringResource(R.string.settings_avoid_unpaved),
+            hint = stringResource(R.string.settings_avoid_unpaved_hint),
+            checked = avoidUnpaved,
+            onCheckedChange = { Settings.setAvoidUnpaved(it) },
+            supported = RoutingEncodedValue.SURFACE in routingSupport.orEmpty(),
+        )
+    }
+}
+
+/**
+ * One avoid switch. An option the routing server's graph can't express
+ * ([supported] false) shows off and disabled, with the reason in place of its
+ * hint, rather than being sent and failing every route (#587).
+ */
+@Composable
+private fun AvoidRow(
+    title: String,
+    hint: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    supported: Boolean = true,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                if (supported) hint else stringResource(R.string.settings_avoid_unsupported),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.settings_avoid_small_roads), style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    stringResource(R.string.settings_avoid_small_roads_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = avoidSmallRoads,
-                onCheckedChange = { Settings.setAvoidSmallRoads(it) },
-            )
-        }
+        Switch(
+            checked = checked && supported,
+            onCheckedChange = onCheckedChange,
+            enabled = supported,
+        )
     }
 }
 

@@ -1,5 +1,6 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.RoutePreferences
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -8,12 +9,12 @@ class SettingsHubStateTest {
     private fun state(
         themeName: String = "DARK",
         autoDetectDrives: Boolean = false,
-        avoidHighways: Boolean = false,
+        avoid: RoutePreferences = RoutePreferences(),
         fogRadiusMeters: Double = 250.0,
         externalDisplayEnabled: Boolean = false,
         authUsername: String = "",
     ) = settingsHubStateFrom(
-        themeName, autoDetectDrives, avoidHighways,
+        themeName, autoDetectDrives, avoid,
         fogRadiusMeters, externalDisplayEnabled, authUsername,
     )
 
@@ -27,8 +28,25 @@ class SettingsHubStateTest {
     fun `boolean settings read as on or off`() {
         assertEquals("Auto-detect drives: on", state(autoDetectDrives = true).trackingSubtitle)
         assertEquals("Auto-detect drives: off", state(autoDetectDrives = false).trackingSubtitle)
-        assertEquals("Avoid highways: on", state(avoidHighways = true).navigationSubtitle)
         assertEquals("External display: off", state(externalDisplayEnabled = false).displaysSubtitle)
+    }
+
+    @Test
+    fun `navigation subtitle lists every avoid option that is on`() {
+        assertEquals("Avoid: nothing", state().navigationSubtitle)
+        assertEquals(
+            "Avoid: highways",
+            state(avoid = RoutePreferences(avoidHighways = true)).navigationSubtitle,
+        )
+        assertEquals(
+            "Avoid: highways, small roads, tolls, ferries, unpaved",
+            state(
+                avoid = RoutePreferences(
+                    avoidHighways = true, avoidSmallRoads = true,
+                    avoidTolls = true, avoidFerries = true, avoidUnpaved = true,
+                ),
+            ).navigationSubtitle,
+        )
     }
 
     @Test

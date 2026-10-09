@@ -106,7 +106,8 @@ class ArchitectureTest {
             // +3: #456 stale-destination guard; +1: #485 MapSurface import; -1: #432 route-fetch guard
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
             "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1418,
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1233,
+            // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1277,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1211,
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1006,
         )
@@ -123,7 +124,8 @@ class ArchitectureTest {
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#sync" to 157,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 152,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 105,
+            // +3: #587 the three graph-dependent avoid options
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 108,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#attempt" to 105,
         )
         val sizes = files.filter { it.rel.startsWith("shared/") }

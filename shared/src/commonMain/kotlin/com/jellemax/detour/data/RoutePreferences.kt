@@ -15,11 +15,34 @@ import kotlinx.serialization.json.put
  * [avoidHighways] downgrades motorways/trunks (only matters for the car
  * profile; moto never uses them anyway); [avoidSmallRoads] pushes the route
  * onto roads worth driving instead of the nearest lane through a field.
+ *
+ * [avoidTolls], [avoidFerries] and [avoidUnpaved] read encoded values the
+ * server's graph may not have been built with (#586), so they only reach a
+ * request through [supportedBy]. [avoidUnpaved] overlaps [avoidSmallRoads]'s
+ * track/path rule on purpose: that one reads `road_class` and works on every
+ * graph, this one reads `surface` and also catches a gravel road that is
+ * classed as a real road.
  */
 data class RoutePreferences(
     val avoidHighways: Boolean = false,
     val avoidSmallRoads: Boolean = false,
+    val avoidTolls: Boolean = false,
+    val avoidFerries: Boolean = false,
+    val avoidUnpaved: Boolean = false,
 ) {
+    /**
+     * These preferences with every option the server can't honour switched
+     * off. [encodedValues] is what [RoutingSupport] last heard the graph has;
+     * null — never asked, or a different server since — drops all three, since
+     * a rule on a missing encoded value is an HTTP 400, not a worse route.
+     */
+    internal fun supportedBy(encodedValues: Set<String>?): RoutePreferences = copy(
+        avoidTolls = avoidTolls && RoutingSupport.has(encodedValues, RoutingEncodedValue.TOLL),
+        avoidFerries = avoidFerries &&
+            RoutingSupport.has(encodedValues, RoutingEncodedValue.ROAD_ENVIRONMENT),
+        avoidUnpaved = avoidUnpaved && RoutingSupport.has(encodedValues, RoutingEncodedValue.SURFACE),
+    )
+
     /**
      * GraphHopper custom-model priority rules for these preferences, or an
      * empty array when none is on. Multipliers, never zero: a house sits on a
@@ -51,6 +74,28 @@ data class RoutePreferences(
             addJsonObject {
                 put("if", "road_class == TRACK || road_class == PATH")
                 put("multiply_by", 0.02)
+            }
+        }
+        // Same "expensive, never forbidden" rule as above: an island is only
+        // reachable by ferry, and a toll bridge may be the only crossing.
+        if (avoidTolls) {
+            addJsonObject {
+                put("if", "toll != NO")
+                put("multiply_by", 0.05)
+            }
+        }
+        if (avoidFerries) {
+            addJsonObject {
+                put("if", "road_environment == FERRY")
+                put("multiply_by", 0.05)
+            }
+        }
+        if (avoidUnpaved) {
+            // The values moto.json already penalises, plus UNPAVED for a way
+            // tagged only as "not paved".
+            addJsonObject {
+                put("if", "surface == UNPAVED || surface == GRAVEL || surface == DIRT || surface == SAND")
+                put("multiply_by", 0.05)
             }
         }
     }

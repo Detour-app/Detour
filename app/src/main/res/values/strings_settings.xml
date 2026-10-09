@@ -68,6 +68,13 @@
     <string name="settings_avoid_highways_hint">In-app navigation skips motorways (car mode; moto never uses them)</string>
     <string name="settings_avoid_small_roads">Avoid small roads</string>
     <string name="settings_avoid_small_roads_hint">Prefer real roads over narrow rural lanes, service roads and unpaved tracks</string>
+    <string name="settings_avoid_tolls">Avoid tolls</string>
+    <string name="settings_avoid_tolls_hint">Take a toll road, bridge or tunnel only when there is no reasonable way around</string>
+    <string name="settings_avoid_ferries">Avoid ferries</string>
+    <string name="settings_avoid_ferries_hint">Cross water by road where a bridge or tunnel will do</string>
+    <string name="settings_avoid_unpaved">Avoid unpaved roads</string>
+    <string name="settings_avoid_unpaved_hint">Keep off gravel, dirt and sand, even on roads that are otherwise real roads</string>
+    <string name="settings_avoid_unsupported">Your routing server can\'t do this yet</string>
 
     <!-- Map -->
     <string name="settings_marker">Your marker</string>

@@ -34,4 +34,24 @@ class RoutingSupportTest {
     @Test fun anHtmlErrorPageCannotTell() {
         assertNull(RoutingSupport.encodedValues("<html><body>404 Not Found</body></html>"))
     }
+
+    @Test fun aStoredAnswerReadsBackForTheSameServer() {
+        val stored = RoutingSupport.encode("https://gh.example", setOf("toll", "surface"))
+        assertEquals(setOf("toll", "surface"), RoutingSupport.decode(stored, "https://gh.example"))
+    }
+
+    @Test fun aStoredEmptyAnswerIsAnAnswer() {
+        val stored = RoutingSupport.encode("https://gh.example", emptySet())
+        assertEquals(emptySet(), RoutingSupport.decode(stored, "https://gh.example"))
+    }
+
+    @Test fun anotherServersAnswerCannotTell() {
+        val stored = RoutingSupport.encode("https://old.example", setOf("toll"))
+        assertNull(RoutingSupport.decode(stored, "https://new.example"))
+    }
+
+    @Test fun nothingStoredOrNoServerCannotTell() {
+        assertNull(RoutingSupport.decode("", "https://gh.example"))
+        assertNull(RoutingSupport.decode(RoutingSupport.encode("", setOf("toll")), ""))
+    }
 }
