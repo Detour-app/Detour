@@ -16,7 +16,7 @@ public class RoadWayConfiguration : IEntityTypeConfiguration<RoadWay>
         builder.Property(w => w.Highway).HasMaxLength(32).IsRequired();
         builder.Property(w => w.PolylineJson).HasColumnType("jsonb");
 
-        // One row per OSM way: UpsertAsync looks this up on every import entry.
+        // One row per OSM way: UpsertAsync/UpsertBatchAsync look rows up by it.
         builder.HasIndex(w => w.SourceId).IsUnique();
 
         // The one query this table exists to answer: does this way's bbox overlap the rider's

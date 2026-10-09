@@ -8,7 +8,7 @@ namespace Detour.Api;
 /// <summary>
 /// `dotnet Detour.Api.dll import-pois <path.json>` — loads an importer JSON file
 /// (`tools/poi-importer/osm_import.py`'s output shape) and upserts it via
-/// <see cref="IPoiRepository.UpsertAsync"/>. A CLI arg rather than an HTTP endpoint, same
+/// <see cref="IPoiRepository.UpsertBatchAsync"/>. A CLI arg rather than an HTTP endpoint, same
 /// reasoning as <see cref="RoadImport"/>: a one-shot admin action run by hand on the box that
 /// hosts the database.
 ///
@@ -17,6 +17,10 @@ namespace Detour.Api;
 /// </summary>
 public static class PoiImport
 {
+    /// <summary>Rows per <see cref="IPoiRepository.UpsertBatchAsync"/> call: one lookup
+    /// query and one flush each, and the change tracker never holds more than this many rows.</summary>
+    private const int BatchSize = 1000;
+
     public const string Command = "import-pois";
 
     public static async Task RunAsync(string jsonPath, IServiceProvider services)
@@ -25,7 +29,7 @@ public static class PoiImport
         var repo = scope.ServiceProvider.GetRequiredService<IPoiRepository>();
 
         var doc = JsonDocument.Parse(await File.ReadAllTextAsync(jsonPath));
-        var imported = 0;
+        var valid = new List<Poi>();
         var skipped = 0;
         var index = 0;
 
@@ -35,7 +39,7 @@ public static class PoiImport
 
             // Same split as RoadImport: only parsing + entity construction is caught here, so
             // one malformed entry is counted and skipped rather than aborting a run of
-            // thousands. UpsertAsync stays outside the try for the same reason — a database
+            // thousands. The upsert stays outside the try for the same reason — a database
             // failure must propagate, not read as "the JSON was bad".
             Result<Poi> result;
             try
@@ -60,12 +64,14 @@ public static class PoiImport
 
             if (result.IsFailure) { skipped++; continue; }
 
-            await repo.UpsertAsync(result.Value, CancellationToken.None);
-            imported++;
+            valid.Add(result.Value);
         }
 
-        await repo.FlushChangesAsync(CancellationToken.None);
+        // Each batch commits on its own, so a failure part-way leaves the earlier batches
+        // written; rerunning the same file is safe because every write is an upsert.
+        foreach (var batch in valid.Chunk(BatchSize))
+            await repo.UpsertBatchAsync(batch, CancellationToken.None);
 
-        Console.WriteLine($"{Path.GetFileName(jsonPath)}: upserted {imported}, skipped {skipped} invalid");
+        Console.WriteLine($"{Path.GetFileName(jsonPath)}: upserted {valid.Count}, skipped {skipped} invalid");
     }
 }

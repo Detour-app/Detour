@@ -41,4 +41,31 @@ public class PoiRepository(ICustomDbContextFactory<DetourDbContext> factory)
         existing.ReplaceWith(incoming);
         return existing;
     }
+
+    public async Task UpsertBatchAsync(IReadOnlyCollection<Poi> batch, CancellationToken cancellationToken)
+    {
+        // One query for the whole batch instead of UpsertAsync's per-row lookup plus Set.Local
+        // scan: Set.Local runs DetectChanges over every tracked entity, so a run of n rows on one
+        // context cost O(n²) and a country-sized extract never finished (#561).
+        var sourceIds = batch.Select(p => p.SourceId).Distinct().ToList();
+        var bySourceId = await Set
+            .TagWith(Tag(nameof(UpsertBatchAsync)))
+            .Where(p => sourceIds.Contains(p.SourceId))
+            .ToDictionaryAsync(p => p.SourceId, cancellationToken);
+
+        foreach (var incoming in batch)
+        {
+            if (bySourceId.TryGetValue(incoming.SourceId, out var existing))
+            {
+                existing.ReplaceWith(incoming);
+                continue;
+            }
+
+            Set.Add(incoming);
+            bySourceId[incoming.SourceId] = incoming;
+        }
+
+        await Context.SaveChangesAsync(cancellationToken);
+        Context.ChangeTracker.Clear();
+    }
 }
