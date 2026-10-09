@@ -19,4 +19,12 @@ public interface ISpeedLimitWayRepository : IBaseRepository<SpeedLimitWay>
     /// combined multi-region run) the way <see cref="Detour.Domain.Cameras.Camera.MarkSourceMissing"/>'s
     /// per-source hysteresis already solves it for cameras.</summary>
     Task<SpeedLimitWay> UpsertAsync(SpeedLimitWay incoming, CancellationToken cancellationToken);
+
+    /// <summary>Same upsert as <see cref="UpsertAsync"/> for a whole batch, then flushes it and
+    /// clears the change tracker, so a bulk import stays linear in its row count (#561). A later
+    /// entry in <paramref name="batch"/> with an earlier one's source id replaces it in place.
+    ///
+    /// Import-only: clearing the tracker detaches every entity this repository's context
+    /// holds, not just the batch's.</summary>
+    Task UpsertBatchAsync(IReadOnlyCollection<SpeedLimitWay> batch, CancellationToken cancellationToken);
 }

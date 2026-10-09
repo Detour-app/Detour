@@ -11,11 +11,9 @@ import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.pickThreeCandidates
-import com.jellemax.detour.data.spinTimeoutMessage
 import com.jellemax.detour.presentation.spinFailureText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 
 /** What a spin produced. */
@@ -62,6 +60,8 @@ data class SpinParams(
  * are all things a *screen* does with a result rather than parts of producing
  * one.
  *
+ * Running out of time arrives as a [com.jellemax.detour.data.SpinFailure]
+ * already worded (the cap lives in shared, #507), so it maps like any other.
  * [CancellationException] is rethrown rather than mapped to [SpinOutcome.Failed]
  * — a cancelled spin is the rider leaving or pressing cancel, not a failure to
  * report, and swallowing it here would break the caller's `finally`.
@@ -76,7 +76,7 @@ suspend fun runSpin(
         val explored = withContext(Dispatchers.IO) { ExploredArea.load() }
         if (params.mode.roundTrip) {
             // The loop itself - rolls, curviest/timed pick, backend fallback,
-            // its own timeout sentence - is shared LoopSpin, the same code iOS
+            // the spin's time cap and its sentence - is shared LoopSpin, the same code iOS
             // spins; commonMain has no dispatcher, so IO is chosen here.
             val loop = withContext(Dispatchers.IO) {
                 LoopSpin.spin(
@@ -86,7 +86,7 @@ suspend fun runSpin(
                         lengthMeters = params.radiusKm * 1000.0,
                         minutes = params.loopMinutes,
                         headingDeg = params.directionDeg?.toDouble(),
-                        avoidSmallRoads = Settings.avoidSmallRoads.value,
+                        preferences = Settings.routePreferences(),
                         highwayRegex = params.mode.highwayRegex,
                     ),
                 )
@@ -105,15 +105,6 @@ suspend fun runSpin(
             }
             SpinOutcome.Candidates(results)
         }
-    } catch (e: TimeoutCancellationException) {
-        // Before the generic CancellationException branch: a timeout is a
-        // TimeoutCancellationException, and catching cancellation first would
-        // rethrow it and lose the message.
-        // Only the candidates branch gets here: LoopSpin turns its own
-        // fallback timeout into a sentence before returning.
-        SpinOutcome.Failed(
-            spinTimeoutMessage(serverError = null, params.mode.roundTrip, serverConfig.usable)
-        )
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {

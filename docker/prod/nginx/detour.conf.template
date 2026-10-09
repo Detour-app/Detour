@@ -112,14 +112,27 @@ server {
         proxy_read_timeout 1h;
     }
 
-    # GraphHopper. RoutingClient only ever calls /route (GET and POST) — no
-    # /isochrone, /nearest or /health from the app, so nothing else is routed.
+    # GraphHopper. RoutingClient calls /route (GET and POST) and RoutingSupport
+    # reads /info for the graph's encoded values (#586) — no /isochrone,
+    # /nearest or /health from the app, so nothing else is routed.
     location /route {
         limit_req zone=route_per_ip burst=20 nodelay;
         proxy_pass http://graphhopper:8989/route;
         # Off-box GraphHopper: comment the line above, uncomment the next, and
         # set GRAPHHOPPER_UPSTREAM in docker/prod/.env (e.g. http://192.168.x.x:8989).
         # proxy_pass ${GRAPHHOPPER_UPSTREAM}/route;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    }
+
+    # Which encoded values the loaded graph has, so the app never sends an
+    # avoid rule this graph would 400 on. Exact match: /info is all it reads.
+    location = /info {
+        limit_req zone=route_per_ip burst=20 nodelay;
+        proxy_pass http://graphhopper:8989/info;
+        # Off-box GraphHopper: same swap as /route above.
+        # proxy_pass ${GRAPHHOPPER_UPSTREAM}/info;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;

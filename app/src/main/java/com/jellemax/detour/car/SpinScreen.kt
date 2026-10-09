@@ -1,6 +1,5 @@
 package com.jellemax.detour.car
 
-import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
@@ -16,7 +15,6 @@ import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.model.MapWithContentTemplate
 import androidx.car.app.versioning.CarAppApiLevels
-import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
@@ -39,6 +37,7 @@ import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.presentation.spinFailureText
 import com.jellemax.detour.tracking.MapSurface
 import com.jellemax.detour.tracking.TripTrackingService
+import com.jellemax.detour.tracking.hasLocationPermission
 import com.jellemax.detour.ui.formatDistanceKm
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -145,9 +144,7 @@ class SpinScreen(
     }
 
     override fun onGetTemplate(): Template {
-        if (ContextCompat.checkSelfPermission(carContext, Manifest.permission.ACCESS_FINE_LOCATION)
-            != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
+        if (!hasLocationPermission(carContext)) {
             return MessageTemplate.Builder(
                 carContext.getString(R.string.car_spin_location_needed_text)
             ).setTitle(carContext.getString(R.string.car_spin_location_needed_title))
@@ -284,9 +281,7 @@ class SpinScreen(
 
     private fun fetchLocation() {
         if (myLocation != null) return
-        if (ContextCompat.checkSelfPermission(carContext, Manifest.permission.ACCESS_FINE_LOCATION)
-            != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) return
+        if (!hasLocationPermission(carContext)) return
         LocationServices.getFusedLocationProviderClient(carContext).lastLocation
             .addOnSuccessListener { loc ->
                 if (loc != null) {
