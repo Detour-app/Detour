@@ -11,6 +11,7 @@ import okio.IOException
  *
  * Plain vals rather than `const`, for the reason [ServerFeature] gives.
  */
+@Suppress("MayBeConst") // plain vals on purpose: see above
 object RoutingEncodedValue {
     val TOLL = "toll"
     val SURFACE = "surface"
