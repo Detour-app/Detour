@@ -122,6 +122,30 @@ object Curviness {
         return curvy / total
     }
 
+    /**
+     * A planned route's twistiness on the same 0..1 scale as a recorded trip's
+     * `DrivingStats.twistinessScore` (#442): both go through [traceScore], so
+     * the forecast on a spin candidate and the score after riding it compare
+     * directly. Not [routeScore], which skips junction corners a trace can't
+     * see — that one still decides which loop a moto spin keeps.
+     *
+     * Null when [route] isn't road geometry. No instructions means it never
+     * came from GraphHopper: the backend-sampled fallback loop's straight legs,
+     * or a convoy offer's placeholder with no polyline. Scoring straight lines
+     * between far-apart waypoints would call any road dead straight.
+     */
+    fun forecastScore(route: RouteResult): Double? =
+        if (route.instructions.isEmpty()) null else traceScore(route.polyline)
+
+    /**
+     * 1..[MAX_BENDS] bend icons for a 0..1 twistiness score: equal-width
+     * buckets, the owner's call on #442 over hand-picked label cut-offs, so
+     * retuning means changing [MAX_BENDS] and nothing else.
+     */
+    fun bends(score: Double): Int = (score * MAX_BENDS).toInt().coerceIn(0, MAX_BENDS - 1) + 1
+
+    const val MAX_BENDS = 5
+
     /** Flags every vertex within [JUNCTION_SKIP_METERS] of [index], walking out
      *  in both directions — a maneuver's corner is spread over the vertices
      *  around it, not just the one the instruction points at. */

@@ -28,6 +28,7 @@ public class SyncService(
     ITrackPointRepository trackPoints,
     ISavedPlaceRepository savedPlaces,
     IBadgeAwardRepository badges,
+    ITripTitleRepository tripTitles,
     ILogger<SyncService> logger) : ISyncService
 {
     private static readonly JsonSerializerOptions PayloadOptions = new(JsonSerializerDefaults.Web);
@@ -48,6 +49,7 @@ public class SyncService(
         await MergeTracesAsync(user.Id, request.Traces, cancellationToken);
         await MergeSavedPlacesAsync(user.Id, request.SavedPlaces, cancellationToken);
         await MergeBadgesAsync(user.Id, request.Badges, cancellationToken);
+        await MergeTripTitlesAsync(user.Id, request.TripTitles, cancellationToken);
 
         // Absent means "no update", not "clear".
         if (request.Stats is { } stats)
@@ -66,6 +68,12 @@ public class SyncService(
         foreach (var trip in request.Trips ?? [])
         {
             if (trip.StartTimeMs <= 0)
+                messages.Add(ValidationMessage.Create(ValidationKeys.Trip.StartTimeRequired));
+        }
+
+        foreach (var title in request.TripTitles ?? [])
+        {
+            if (title.StartTimeMs <= 0)
                 messages.Add(ValidationMessage.Create(ValidationKeys.Trip.StartTimeRequired));
         }
 
@@ -277,6 +285,34 @@ public class SyncService(
         }
     }
 
+    private async Task MergeTripTitlesAsync(
+        Guid userId,
+        IReadOnlyList<TripTitlePayload>? incoming,
+        CancellationToken cancellationToken)
+    {
+        if (incoming is not { Count: > 0 })
+            return;
+
+        var existing = (await tripTitles.GetForUserAsync(userId, cancellationToken))
+            .ToDictionary(t => t.TripStartTimeMs);
+
+        foreach (var payload in incoming)
+        {
+            if (existing.TryGetValue(payload.StartTimeMs, out var stored))
+            {
+                stored.KeepNewest(payload.Title, payload.EditedAtMs);
+                continue;
+            }
+
+            var (result, created) = TripTitle.Create(userId, payload.StartTimeMs, payload.Title, payload.EditedAtMs);
+            if (result.IsFailure)
+                continue; // an over-long title is dropped, not a failed sync
+
+            await tripTitles.SaveAsync(created, cancellationToken);
+            existing[payload.StartTimeMs] = created;
+        }
+    }
+
     private async Task<SyncResponse> BuildResponseAsync(User user, CancellationToken cancellationToken)
     {
         // Flush first: the union below has to include what this request just wrote, and the
@@ -287,12 +323,14 @@ public class SyncService(
         var storedTraces = await traces.GetForUserAsync(user.Id, cancellationToken);
         var storedPlaces = await savedPlaces.GetForUserAsync(user.Id, cancellationToken);
         var storedBadges = await badges.GetForUserAsync(user.Id, cancellationToken);
+        var storedTitles = await tripTitles.GetForUserAsync(user.Id, cancellationToken);
 
         return new SyncResponse(
             [.. storedTrips.Select(t => JsonSerializer.Deserialize<JsonElement>(t.Payload))],
             [.. storedTraces.Select(t => t.Line)],
             [.. storedPlaces.Select(p => JsonSerializer.Deserialize<JsonElement>(p.Payload))],
             storedBadges.ToDictionary(b => b.BadgeId, b => b.EarnedAtMs),
+            [.. storedTitles.Select(t => new TripTitlePayload(t.TripStartTimeMs, t.Title, t.EditedAtMs))],
             user.ShareFog);
     }
 
