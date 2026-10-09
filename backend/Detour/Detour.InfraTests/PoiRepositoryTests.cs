@@ -118,9 +118,11 @@ public class PoiRepositoryTests(PostgresFixture postgres) : IntegrationTestBase(
         // #561: the per-row path was O(n²) and a 36k-row extract never finished. Five batches of
         // a thousand, re-upserted once, must land every row exactly once.
         var repo = new PoiRepository(Factory);
-        Poi[] Rows(string name) => Enumerable.Range(0, 5000)
-            .Select(i => Poi.Create($"n-bulk-{i}", "viewpoint", name, 52.0 + i * 1e-5, 6.0).Value)
-            .ToArray();
+        Poi[] Rows(string name) =>
+        [
+            .. Enumerable.Range(0, 5000)
+                .Select(i => Poi.Create($"n-bulk-{i}", "viewpoint", name, 52.0 + i * 1e-5, 6.0).Value),
+        ];
 
         foreach (var batch in Rows("First").Chunk(1000))
             await repo.UpsertBatchAsync(batch, CancellationToken.None);
