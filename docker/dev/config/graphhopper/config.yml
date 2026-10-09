@@ -32,8 +32,15 @@ graphhopper:
   # path details and any future model would want. From 9.x on a vehicle IS an
   # encoded value — `car_access` and `car_average_speed` did not exist in 8.x, and
   # there is no `vehicle:` profile key any more.
+  #
+  # toll, surface and road_environment are also what the app's request-time
+  # avoid rules (tolls, unpaved, ferries) read. The app asks /info whether the
+  # graph has them (RoutingSupport) before sending such a rule, because a rule
+  # naming a value this graph lacks is an HTTP 400 (#586).
+  # Changing this list means rebuilding the graph — see docker/prod/README.md,
+  # "Rebuilding the routing graph".
   graph.encoded_values: >-
-    road_class, road_environment, road_access, surface, track_type,
+    road_class, road_environment, road_access, surface, track_type, toll,
     max_speed, car_access, car_average_speed
 
   profiles:

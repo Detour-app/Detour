@@ -2,10 +2,11 @@ package com.jellemax.detour.data
 
 import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * What a loop spin is asked for. [minutes] non-null sizes the loop by riding
@@ -61,8 +62,8 @@ object LoopSpin {
 
     /**
      * Throws [SpinFailure] with a sentence for the rider when there is no loop
-     * at all, including when the fallback times out ([spinTimeoutMessage]); a
-     * network failure on the way throws as it came.
+     * at all, including when the spin runs past [SPIN_TIMEOUT_MS]
+     * ([spinTimeoutMessage]); a network failure on the way throws as it came.
      * A [CancellationException] propagates: a cancelled spin is the rider
      * leaving, not a failure to report.
      */
@@ -95,44 +96,73 @@ object LoopSpin {
         serverUsable: Boolean,
         roll: suspend (lengthMeters: Double) -> RouteResult,
         fallback: suspend (lengthMeters: Double) -> List<LatLon>,
+        timeoutMs: Long = SPIN_TIMEOUT_MS,
     ): Result {
         val minutes = request.minutes
         val tripMeters = minutes?.let { LoopDuration.guessMeters(it) } ?: request.lengthMeters
         var serverError: String? = null
-        if (serverUsable) {
-            val report: (String) -> Unit = { serverError = it }
-            val loops = rollLoops(tripMeters, roll, report)
-            val best = when {
-                loops == null -> null
-                minutes == null -> loops.maxBy { it.second }.first
-                else -> pickTimed(minutes, loops, roll, report)
+        // Every loop that came back, recorded as each roll finishes rather than
+        // when all of them have: the rolls run in parallel (on Dispatchers.IO
+        // on Android, hence the lock), and one stalled roll must not cost the
+        // rider the two that already landed (#507 review).
+        val rolled = mutableListOf<Pair<RouteResult, Double>>()
+        val rolledLock = Mutex()
+        val keep: suspend (Pair<RouteResult, Double>) -> Unit = { rolledLock.withLock { rolled += it } }
+        // One cap over the rolls and the fallback together (#507): a slow
+        // server used to spend its own timeout and then hand the fallback 45 s
+        // more. When the cap fires with a loop already rolled — one roll of
+        // the first round stalled, or the timed re-roll did — the best of what
+        // came back is what the rider gets, by the same rule as a finished
+        // spin. Otherwise the message is read then, so a server failure that
+        // came first is still what the rider is told. `rolled` is read only
+        // after the cap has cancelled and joined every roll.
+        return withSpinTimeout(
+            onTimeout = {
+                bestOf(rolled, minutes)?.let { Result(it, warning = null) }
+                    ?: throw SpinFailure(spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable))
+            },
+            timeoutMs = timeoutMs,
+        ) {
+            if (serverUsable) {
+                val report: (String) -> Unit = { serverError = it }
+                val loops = rollLoops(tripMeters, roll, keep, report)
+                val best = when {
+                    loops == null -> null
+                    minutes == null -> bestOf(loops, minutes = null)
+                    else -> pickTimed(minutes, loops, roll, keep, report)
+                }
+                if (best != null) return@withSpinTimeout Result(best, warning = null)
             }
-            if (best != null) return Result(best, warning = null)
-        }
 
-        val wps = try {
-            fallback(tripMeters)
-        } catch (e: TimeoutCancellationException) {
-            // Caught here, just outside the planner's own withTimeout, so it is
-            // the fallback's timeout and not the rider cancelling the spin.
-            throw SpinFailure(spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable))
+            val wps = fallback(tripMeters)
+            val approximate = RouteResult(
+                polyline = listOf(request.from) + wps + request.from,
+                waypoints = wps,
+                distanceMeters = null,
+            )
+            Result(approximate, serverError?.let { "Server route failed: $it Showing an approximate loop instead." })
         }
-        val approximate = RouteResult(
-            polyline = listOf(request.from) + wps + request.from,
-            waypoints = wps,
-            distanceMeters = null,
-        )
-        return Result(approximate, serverError?.let { "Server route failed: $it Showing an approximate loop instead." })
     }
 
     /**
+     * Which of [scored] loops to ride: the curviest for a distance spin
+     * ([minutes] null), [LoopDuration.pick]'s choice for a timed one. Null only
+     * for an empty list.
+     */
+    private fun bestOf(scored: List<Pair<RouteResult, Double>>, minutes: Float?): RouteResult? =
+        if (minutes == null) scored.maxByOrNull { it.second }?.first
+        else LoopDuration.pick(scored, minutes)?.first
+
+    /**
      * Rolls [ROLLS] independent round trips, each paired with its curviness
-     * score; which one to ride is the caller's choice. Null when none came
-     * back, having told [onServerError] why.
+     * score; which one to ride is the caller's choice. Each loop goes to
+     * [onLoop] the moment its roll lands, so a spin cut off by its time cap
+     * still has it. Null when none came back, having told [onServerError] why.
      */
     private suspend fun rollLoops(
         tripMeters: Double,
         roll: suspend (Double) -> RouteResult,
+        onLoop: suspend (Pair<RouteResult, Double>) -> Unit,
         onServerError: (String) -> Unit,
     ): List<Pair<RouteResult, Double>>? {
         val rolls = try {
@@ -142,7 +172,7 @@ object LoopSpin {
                         runCatching {
                             val loop = roll(tripMeters)
                             loop to Curviness.routeScore(loop.polyline, loop.instructions)
-                        }
+                        }.onSuccess { onLoop(it) }
                     }
                 }.awaitAll()
             }
@@ -173,12 +203,14 @@ object LoopSpin {
      * estimate, so a second round nearly always fits, and a third would put the
      * rider's wait past the spin timeout for a few minutes' difference. The
      * second round failing is not an error — the first round's loops are still
-     * loops.
+     * loops. They already went to [onLoop] as they landed, so if the spin's
+     * time cap fires during the re-roll the spin rides the best of them.
      */
     private suspend fun pickTimed(
         minutes: Float,
         firstRolls: List<Pair<RouteResult, Double>>,
         roll: suspend (Double) -> RouteResult,
+        onLoop: suspend (Pair<RouteResult, Double>) -> Unit,
         onServerError: (String) -> Unit,
     ): RouteResult? {
         val first = LoopDuration.pick(firstRolls, minutes)
@@ -186,13 +218,13 @@ object LoopSpin {
         val retryMeters = LoopDuration.rescaledMeters(
             minutes, LoopDuration.guessMeters(minutes), firstRolls.map { it.first },
         ) ?: return first?.first
-        val retry = rollLoops(retryMeters, roll, onServerError).orEmpty()
+        val retry = rollLoops(retryMeters, roll, onLoop, onServerError).orEmpty()
         return LoopDuration.pick(firstRolls + retry, minutes)?.first
     }
 }
 
 /**
- * What to tell the rider when the fallback timed out too.
+ * What to tell the rider when a spin ran out of time.
  *
  * Pure, and separate from the spin itself, because it is the one part of a
  * spin failure that is a *decision* rather than an I/O result: three different
@@ -207,7 +239,7 @@ fun spinTimeoutMessage(
 ): String = when {
     serverError != null -> "Server route failed: $serverError The fallback timed out too."
     roundTrip && !serverUsable -> "No routing server configured — public servers timed out"
-    else -> "Road servers are slow right now — try again"
+    else -> "The routing server is too slow or unreachable — try again"
 }
 
 /**
