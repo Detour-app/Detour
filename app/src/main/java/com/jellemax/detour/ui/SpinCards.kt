@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Gesture
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.R
+import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.LoopDuration
 import com.jellemax.detour.data.PoiKind
@@ -73,13 +75,14 @@ private val DESTINATION_ORANGE = Color(0xFFFF9800)
  *  in one highlighted row. Was inline in [SpinSheet]; moved out so the drive
  *  sheet (`RideSheet.kt`) shows the place a rider just searched for in the
  *  same row. [onRespin] draws the trailing "Re-spin" action; null leaves it
- *  out. */
+ *  out. [bends] adds a [BendsIndicator] under the subtitle. */
 @Composable
 internal fun ResultCallout(
     title: String,
     subtitle: String?,
     onRespin: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    bends: Int? = null,
 ) {
     Row(
         modifier
@@ -101,6 +104,7 @@ internal fun ResultCallout(
                 Text(it, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            bends?.let { BendsIndicator(it, Modifier.padding(top = 2.dp)) }
         }
         onRespin?.let {
             Text(
@@ -109,6 +113,29 @@ internal fun ResultCallout(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.clickable(onClick = it),
+            )
+        }
+    }
+}
+
+/** A route's forecast twistiness as [Curviness.MAX_BENDS] bend icons, [bends]
+ *  of them lit (#442) — a count reads at a glance where a percentage doesn't.
+ *  One content description for the row, so TalkBack says "3 of 5" once
+ *  instead of five unlabeled icons. */
+@Composable
+internal fun BendsIndicator(bends: Int, modifier: Modifier = Modifier) {
+    val description = stringResource(R.string.spin_bends, bends, Curviness.MAX_BENDS)
+    Row(
+        modifier.semantics(mergeDescendants = true) { contentDescription = description },
+        horizontalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        repeat(Curviness.MAX_BENDS) { i ->
+            Icon(
+                Icons.Rounded.Gesture,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = if (i < bends) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
             )
         }
     }
@@ -435,11 +462,17 @@ internal fun SpinSheet(
                     if (t != null) "$km · ${formatDurationHistory(t)}" else km
                 }
             }
+            // Same scale as the loop candidates' bends (#442); keyed on the
+            // route so a long polyline is scored once, not per recomposition.
+            val bends = remember(route) {
+                route?.let { Curviness.forecastScore(it) }?.let { Curviness.bends(it) }
+            }
             if (!spinning && (destinationName != null || resultDistance != null)) {
                 ResultCallout(
                     title = destinationName ?: stringResource(R.string.spin_loop_found),
                     subtitle = resultDistance,
                     onRespin = onSpin,
+                    bends = bends,
                 )
             }
 
