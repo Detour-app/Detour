@@ -37,6 +37,7 @@ trace, and then the committed file survives while the provenance link rots.
 | `public-trajectcontrole.txt` | **Synthetic.** OSRM route over OSM road geometry, from a point on the E40 **eastbound** carriageway 4.72 km west of the west `device` node **through** that node and on **to** the east `device` node of OSM relation **15682532** ("Trajectcontrole E40", `description=Zaventem - Bertem`), densified to one point per second. | [relation 15682532](https://www.openstreetmap.org/relation/15682532) · [node 6763749685](https://www.openstreetmap.org/node/6763749685) (west) · [node 10784337380](https://www.openstreetmap.org/node/10784337380) (east) · [OSRM demo server](https://router.project-osrm.org/) | n/a | No personal data of anyone. Still ODbL — see below. Request and lead-in rationale below the table. |
 | `public-stop-start.txt` | **Real public OSM GPS trace 1741287** (2014-04-16, Leuven), resampled to 1 Hz. | [trace 1741287](https://www.openstreetmap.org/trace/1741287) · raw GPX at `https://www.openstreetmap.org/trace/1741287/data` | `-ad-` | Converted with `--stop-span 0 --interval-ms 1000`; the default `--max-kmh 200` dropped 2 samples, worst 341.2 km/h. |
 | `public-trajectcontrole-reverse.txt` | **Real public OSM GPS trace 8820623** (2023, 10 Hz openpilot device log), resampled to 1 Hz. | [trace 8820623](https://www.openstreetmap.org/trace/8820623) · raw GPX at `https://www.openstreetmap.org/trace/8820623/data` | `sunnypilot` | Converted with `--stop-span 0 --interval-ms 1000`; 1253 repeated-timestamp samples and 118 outliers dropped. |
+| `public-trajectcontrole-two-sections.txt` | **Synthetic**, retrieved **2026-10-09**. The `public-trajectcontrole.txt` request with two more waypoints: on through relation **15685856** ("Bertem-Leuven") to its east end, densified the same way and cut 1.66 km past that end. | [relation 15682532](https://www.openstreetmap.org/relation/15682532) · [relation 15685856](https://www.openstreetmap.org/relation/15685856) · [OSRM demo server](https://router.project-osrm.org/) | n/a | No personal data of anyone. Still ODbL. Request below. |
 
 Re-fetching a source is one command and needs no credentials — but note **which**
 endpoint: `https://www.openstreetmap.org/trace/<id>/data` serves a public trace
@@ -74,6 +75,19 @@ iteration to find:
 - **The west node is now a pass-through, not an endpoint.** Its gate clearance is
   therefore *measured* (10.6 m at line 170), where in the first revision it was 0 m by
   construction. Only the east gate is still an endpoint (2.9 m at line 457).
+
+### The OSRM request behind `public-trajectcontrole-two-sections.txt`
+
+```sh
+curl -s "https://router.project-osrm.org/route/v1/driving/4.428603,50.858668;4.60503,50.86183;4.65818,50.85320;4.6760,50.8490?overview=full&geometries=geojson"
+#  -> Ok, 24501.1 m, OSRM duration 952.4 s
+```
+
+Densified exactly as above (27.7778 m per line), then **only the first 656 lines kept**:
+the last waypoint snaps beyond where it was aimed, so OSRM carries on east to about
+line 750, turns, and drives back west towards `15685856`'s east end (line 596). A
+lead-out that doubles back through a gantry would arm sections nobody asked about. The first 458 lines match `public-trajectcontrole.txt` to within 1e-6° —
+the extra waypoints nudge OSRM's shape points, not the road.
 
 **Never commit a raw GPX.** Keep it in the scratchpad. That rule already exists here for
 the maintainer's own exports and applies just as much to somebody else's: the raw file
