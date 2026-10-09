@@ -24,6 +24,7 @@ import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.tracking.TripTrackingService
+import com.jellemax.detour.tracking.hasLocationPermission
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -44,10 +45,8 @@ class ConvoyLiveService : Service() {
         private const val CHANNEL_ID = "convoy_live"
         private const val NOTIFICATION_ID = 4
 
-        private fun canStart(context: Context): Boolean =
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.ACCESS_FINE_LOCATION,
-            ) == PackageManager.PERMISSION_GRANTED
+        // Approximate is enough to share where you are with the convoy (#500).
+        private fun canStart(context: Context): Boolean = hasLocationPermission(context)
 
         private fun hasMicPermission(context: Context): Boolean =
             ContextCompat.checkSelfPermission(

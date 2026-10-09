@@ -17,13 +17,16 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.data.Features
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.map.LocationRecovery
 import com.jellemax.detour.map.StartupAsk
@@ -31,6 +34,10 @@ import com.jellemax.detour.map.locationRecovery
 import com.jellemax.detour.map.requiredStartupPermissions
 import com.jellemax.detour.map.shouldRequestMic
 import com.jellemax.detour.map.startupAsk
+import com.jellemax.detour.map.startupPermissionsToAsk
+import com.jellemax.detour.tracking.TripTrackingService
+import com.jellemax.detour.tracking.hasLocationPermission
+import com.jellemax.detour.tracking.hasPreciseLocation
 import kotlinx.coroutines.launch
 
 /**
@@ -47,11 +54,12 @@ import kotlinx.coroutines.launch
  * rule of its own.
  *
  * Returns the background-location launcher and the permission explainer's
- * Continue, because the dialogs that fire them live in `MapDialogs.kt`, and the
- * way back from a denied location, because Spin offers it too.
+ * Continue, because the dialogs that fire them live in `MapDialogs.kt`, the
+ * way back from a denied location, because Spin offers it too, and the start
+ * of a recorded trip, because only that needs precise location (#500).
  *
- * Also shows `s.error` in the snackbar: the one error that carries an action
- * is the denied location this file raises (#499).
+ * Also shows `s.error` in the snackbar: the two errors that carry an action
+ * are the denied and the not-precise location this file raises (#499, #500).
  */
 @Composable
 internal fun rememberMapPermissions(
@@ -103,8 +111,10 @@ internal fun rememberMapPermissions(
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+    ) { _ ->
+        // Approximate is enough for the map, spin and search (#500); a trip
+        // asks for precise when it starts recording.
+        if (hasLocationPermission(context)) {
             ready()
         } else {
             s.error = LOCATION_DENIED_ERROR
@@ -115,10 +125,13 @@ internal fun rememberMapPermissions(
     // recreation while the explainer is up raises it again, which is right —
     // its Continue has not been pressed yet.
     LaunchedEffect(Unit) {
-        val missing = requiredStartupPermissions(Build.VERSION.SDK_INT).any {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        when (startupAsk(missing, Settings.permissionExplainerShown(), fineLocationGranted(context))) {
+        val missing = startupPermissionsToAsk(
+            sdkInt = Build.VERSION.SDK_INT,
+            granted = requiredStartupPermissions(Build.VERSION.SDK_INT).filterTo(mutableSetOf()) {
+                ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+            },
+        ).isNotEmpty()
+        when (startupAsk(missing, Settings.permissionExplainerShown(), hasLocationPermission(context))) {
             StartupAsk.READY -> ready()
             StartupAsk.EXPLAIN -> s.showPermissionExplainer = true
             StartupAsk.LOCATION_DENIED -> s.error = LOCATION_DENIED_ERROR
@@ -132,8 +145,16 @@ internal fun rememberMapPermissions(
     }
 
     val offerLocationIfDenied = rememberLocationRecovery(s, snackbarHostState, permissionLauncher, ready)
+    val recording = rememberPreciseForRecording(snackbarHostState)
 
-    return MapPermissions(bgLocationLauncher, offerLocationIfDenied, ::continueFromExplainer)
+    return MapPermissions(
+        bgLocationLauncher = bgLocationLauncher,
+        offerLocationIfDenied = offerLocationIfDenied,
+        continueFromExplainer = ::continueFromExplainer,
+        recordTrip = recording::recordTrip,
+        recordHandedOffTrip = recording::recordHandedOffTrip,
+        dropPendingTrip = recording::dropPendingTrip,
+    )
 }
 
 /**
@@ -160,7 +181,7 @@ private fun rememberLocationRecovery(
     val settingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        if (fineLocationGranted(context)) {
+        if (hasLocationPermission(context)) {
             // The Allow path clears it before asking; this one must clear it
             // after, or the sheet keeps saying location is required.
             if (s.error == LOCATION_DENIED_ERROR) s.error = null
@@ -169,17 +190,15 @@ private fun rememberLocationRecovery(
     }
 
     suspend fun offerLocationRecovery() {
-        when (showLocationDenied(snackbarHostState, locationRecovery(canAskForLocationAgain(activity)))) {
+        val recovery = locationRecovery(canAskForLocationAgain(activity))
+        when (showLocationSnackbar(snackbarHostState, LOCATION_DENIED_ERROR, recovery)) {
             LocationRecovery.ASK_AGAIN -> {
                 // Cleared so a second denial changes the key again and gets
                 // its snackbar — now offering settings.
                 s.error = null
                 permissionLauncher.launch(requiredStartupPermissions(Build.VERSION.SDK_INT).toTypedArray())
             }
-            LocationRecovery.OPEN_SETTINGS -> settingsLauncher.launch(
-                Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                    .setData(Uri.fromParts("package", context.packageName, null)),
-            )
+            LocationRecovery.OPEN_SETTINGS -> settingsLauncher.launch(appSettingsIntent(context))
             null -> Unit
         }
     }
@@ -197,7 +216,7 @@ private fun rememberLocationRecovery(
     }
 
     fun offerLocationIfDenied(): Boolean {
-        if (fineLocationGranted(context)) return false
+        if (hasLocationPermission(context)) return false
         // Through s.error when it changes; directly when it already holds this
         // string, because an equal key raises no second snackbar.
         if (s.error == LOCATION_DENIED_ERROR) {
@@ -211,9 +230,108 @@ private fun rememberLocationRecovery(
     return ::offerLocationIfDenied
 }
 
-private fun fineLocationGranted(context: Context): Boolean =
-    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-        PackageManager.PERMISSION_GRANTED
+/**
+ * Recording a trip with only approximate location granted (#500): ask for
+ * precise, start the trip if the rider grants it, and record nothing if they
+ * refuse — saying why, with Allow or Open settings as for a denied location.
+ *
+ * Not through `s.error` like the denied location: this snackbar belongs to one
+ * trip start, not to the screen, and has no sheet text to keep.
+ */
+@Composable
+private fun rememberPreciseForRecording(snackbarHostState: SnackbarHostState): PreciseForRecording {
+    val context = LocalContext.current
+    val activity = LocalActivity.current
+    val scope = rememberCoroutineScope()
+    val gate = remember { PreciseForRecording(context) }
+
+    // Fine and coarse together: with coarse already held, Android 12+ shows
+    // this as the "change to precise" dialog.
+    val preciseLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> if (!gate.startPendingIfPrecise() && gate.isPending) gate.onRefused() }
+
+    // Sent there for precise: the map already had location, so a grant only
+    // starts the waiting trip.
+    val settingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { gate.startPendingIfPrecise() }
+
+    SideEffect {
+        gate.askForPrecise = { preciseLauncher.launch(PRECISE_LOCATION_PERMISSIONS) }
+        gate.onRefused = {
+            scope.launch {
+                val recovery = locationRecovery(canAskForLocationAgain(activity))
+                when (showLocationSnackbar(snackbarHostState, PRECISE_LOCATION_NEEDED_ERROR, recovery)) {
+                    LocationRecovery.ASK_AGAIN -> preciseLauncher.launch(PRECISE_LOCATION_PERMISSIONS)
+                    LocationRecovery.OPEN_SETTINGS -> settingsLauncher.launch(appSettingsIntent(context))
+                    // Dismissed or timed out: the rider chose not to record this one.
+                    null -> gate.dropPendingTrip()
+                }
+            }
+        }
+    }
+    return gate
+}
+
+/**
+ * The trip waiting on a precise-location answer, and where it was headed. Held
+ * across the system dialog and a settings round trip; dropped when the rider
+ * dismisses the snackbar or navigation ends first — a late grant must not
+ * start a navigation trip no navigation will ever end.
+ */
+private class PreciseForRecording(private val context: Context) {
+    private var pendingTo: LatLon? = null
+    var isPending = false
+        private set
+    /** Set after every composition, so they always reach the current launchers. */
+    var askForPrecise: () -> Unit = {}
+    var onRefused: () -> Unit = {}
+
+    fun recordTrip(to: LatLon?) {
+        if (hasPreciseLocation(context)) {
+            TripTrackingService.start(context, to?.lat, to?.lon)
+            return
+        }
+        pendingTo = to
+        isPending = true
+        askForPrecise()
+    }
+
+    /**
+     * Records a trip whose navigation another app runs. Never asks or waits:
+     * that app opens in the same frame, so the dialog would sit unseen behind
+     * it, and a late grant would start a trip nothing ends — no handoff calls
+     * [dropPendingTrip]. Without precise it records nothing and says so; the
+     * snackbar's action only asks for next time.
+     */
+    fun recordHandedOffTrip(to: LatLon?) {
+        if (hasPreciseLocation(context)) TripTrackingService.start(context, to?.lat, to?.lon)
+        else onRefused()
+    }
+
+    fun dropPendingTrip() {
+        isPending = false
+        pendingTo = null
+    }
+
+    /** Starts the waiting trip if precise is now granted; false if it is not. */
+    fun startPendingIfPrecise(): Boolean {
+        if (!hasPreciseLocation(context)) return false
+        if (isPending) TripTrackingService.start(context, pendingTo?.lat, pendingTo?.lon)
+        dropPendingTrip()
+        return true
+    }
+}
+
+private val PRECISE_LOCATION_PERMISSIONS = arrayOf(
+    Manifest.permission.ACCESS_FINE_LOCATION,
+    Manifest.permission.ACCESS_COARSE_LOCATION,
+)
+
+private fun appSettingsIntent(context: Context): Intent =
+    Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS)
+        .setData(Uri.fromParts("package", context.packageName, null))
 
 /** Whether the system will still show its location dialog — no Activity, no dialog. */
 private fun canAskForLocationAgain(activity: Activity?): Boolean =
@@ -222,19 +340,20 @@ private fun canAskForLocationAgain(activity: Activity?): Boolean =
     )
 
 /**
- * Shows the denied-location snackbar with [recovery]'s action, and returns it
- * if the rider tapped it. Decided when the snackbar shows, not when location
- * was denied: whether the system will still show its dialog can change in
- * between.
+ * Shows a location snackbar — denied, or not precise — with [recovery]'s
+ * action, and returns it if the rider tapped it. Decided when the snackbar
+ * shows, not when location was refused: whether the system will still show
+ * its dialog can change in between.
  */
-private suspend fun showLocationDenied(
+private suspend fun showLocationSnackbar(
     snackbarHostState: SnackbarHostState,
+    message: String,
     recovery: LocationRecovery,
 ): LocationRecovery? {
     // A second Spin tap while it is up would queue a copy behind it.
-    if (snackbarHostState.currentSnackbarData?.visuals?.message == LOCATION_DENIED_ERROR) return null
+    if (snackbarHostState.currentSnackbarData?.visuals?.message == message) return null
     val result = snackbarHostState.showSnackbar(
-        message = LOCATION_DENIED_ERROR,
+        message = message,
         actionLabel = when (recovery) {
             LocationRecovery.ASK_AGAIN -> "Allow"
             LocationRecovery.OPEN_SETTINGS -> "Open settings"
@@ -250,6 +369,10 @@ private suspend fun showLocationDenied(
  *  MapScreen can tell this error apart and give it its action. */
 internal const val LOCATION_DENIED_ERROR = "Location permission is required"
 
+/** The snackbar for a trip refused precise location (#500): approximate runs
+ *  the map, but recording a drive needs fixes accurate to metres. */
+private const val PRECISE_LOCATION_NEEDED_ERROR = "Recording a trip needs precise location"
+
 internal class MapPermissions(
     val bgLocationLauncher: ManagedActivityResultLauncher<String, Boolean>,
     /** If location is not granted, shows the denied snackbar with Allow or
@@ -257,4 +380,13 @@ internal class MapPermissions(
     val offerLocationIfDenied: () -> Boolean,
     /** The permission explainer's Continue (#501): fires the system dialogs. */
     val continueFromExplainer: () -> Unit,
+    /** Starts recording a trip toward the destination — first asking for
+     *  precise location if only approximate is granted, and recording
+     *  nothing if the rider refuses (#500). */
+    val recordTrip: (LatLon?) -> Unit,
+    /** As [recordTrip] for a handoff to another navigation app, which opens on
+     *  top at once: records without asking, or not at all without precise. */
+    val recordHandedOffTrip: (LatLon?) -> Unit,
+    /** Forgets a trip still waiting on that answer; navigation ended first. */
+    val dropPendingTrip: () -> Unit,
 )
