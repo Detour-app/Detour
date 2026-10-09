@@ -100,6 +100,16 @@ class SpinStateTest {
         assertEquals("via road 850 m", row.distanceText)
     }
 
+    @Test fun aScoredCandidateShowsItsBends() {
+        assertEquals(3, candidateRow(candidate().copy(twistiness = 0.45)).bends)
+    }
+
+    @Test fun anUnscoredCandidateShowsNoBends() {
+        // Straight-line draw, convoy offer: nothing to score, so no indicator
+        // rather than one bend that would read as "dead straight".
+        assertNull(candidateRow(candidate(distanceMeters = null)).bends)
+    }
+
     // --- spinStateFrom: the whole mapper --------------------------------------
 
     @Test fun theRadiusReadoutComesThroughForACarSpin() {

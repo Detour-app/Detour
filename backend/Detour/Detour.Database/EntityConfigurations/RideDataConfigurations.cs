@@ -1,3 +1,4 @@
+using Detour.Domain;
 using Detour.Domain.Places;
 using Detour.Domain.Traces;
 using Detour.Domain.Trips;
@@ -106,5 +107,28 @@ public class SavedPlaceConfiguration : IEntityTypeConfiguration<SavedPlace>
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(p => new { p.UserId, p.ClientPlaceId }).IsUnique();
+    }
+}
+
+public class TripTitleConfiguration : IEntityTypeConfiguration<TripTitle>
+{
+    public void Configure(EntityTypeBuilder<TripTitle> builder)
+    {
+        builder.ToTable("trip_titles");
+
+        builder.HasKey(t => t.Id);
+        builder.Property(t => t.Id).ValueGeneratedNever();
+
+        builder.Property(t => t.TripStartTimeMs);
+        builder.Property(t => t.Title).HasMaxLength(DetourLimits.DisplayNameMaxLength);
+        builder.Property(t => t.EditedAtMs);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // One title per ride per rider — what lets "newest edit wins" compare against one row.
+        builder.HasIndex(t => new { t.UserId, t.TripStartTimeMs }).IsUnique();
     }
 }

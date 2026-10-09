@@ -120,7 +120,7 @@ class ArchitectureTest {
     @Test
     fun `shared functions stay under 100 lines - section 8`() {
         val pinned = mapOf(
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#sync" to 159,
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#sync" to 157,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 152,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 105,

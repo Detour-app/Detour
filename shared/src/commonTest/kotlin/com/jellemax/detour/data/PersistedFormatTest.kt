@@ -6,8 +6,8 @@ import kotlin.test.assertTrue
 
 /**
  * Pins the bytes of the per-account files that can't be rebuilt — trips,
- * traces, saved places, routes, tombstones, mode edits, badges — plus the
- * enum names and badge ids those files store as strings.
+ * traces, saved places, routes, tombstones, mode edits, badges, ride titles —
+ * plus the enum names and badge ids those files store as strings.
  *
  * A round-trip test can't catch a renamed key: encode and decode change
  * together and still agree, while every file already on a phone (and on the
@@ -266,6 +266,31 @@ class PersistedFormatTest {
         assertEquals(jsonObjectOf(routeV1), route.toJson())
     }
 
+    // V2 (#588): a saved spin carries "origin":"SPIN". A planned route omits
+    // the key, so it still writes V1's bytes above, and V1 reads as PLANNED.
+    private val spinRoute = route.copy(sharedBy = "", origin = RouteOrigin.SPIN)
+    private val routeV2 = """
+        {"id":7,"name":"Ardennes loop","createdMs":1726000000000,"mode":"MOTO",
+         "stops":[{"lat":50.85,"lon":4.35,"name":"Start"},{"lat":50.25,"lon":5.7}],
+         "polyline":[50.85,4.35,50.5,5.0,50.25,5.7],
+         "distanceMeters":152300.0,"timeMs":7200000,"origin":"SPIN"}
+    """
+
+    @Test
+    fun routeV2Reads() {
+        assertEquals(spinRoute, routeFromJson(jsonObjectOf(routeV2)))
+    }
+
+    @Test
+    fun routeWriterMatchesV2() {
+        assertEquals(jsonObjectOf(routeV2), spinRoute.toJson())
+    }
+
+    @Test
+    fun routeOriginNamesArePinned() {
+        assertEquals(listOf("PLANNED", "SPIN"), RouteOrigin.entries.map { it.name })
+    }
+
     // --- deleted_trips.json / edited_modes.json -------------------------------
     // Both ride along with sync: tombstones that stop reading resurrect every
     // deleted trip on the next merge, and a lost override reverts a mode edit.
@@ -296,6 +321,34 @@ class PersistedFormatTest {
         val earned = mapOf("dist_100000" to 1_726_000_000_000L, "speed_130" to 1_726_100_000_000L)
         assertEquals(earned, BadgeStore.decodeEarned(earnedV1))
         assertEquals(jsonObjectOf(earnedV1), jsonObjectOf(BadgeStore.encodeEarned(earned)))
+    }
+
+    // --- trip_titles.json ----------------------------------------------------
+    // Syncs since #471. V1 titles read as edited at 0 so any stamped edit wins.
+
+    private val tripTitlesV1 = """{"1726000000000":"Coast road","1726100000000":"Say \"hi\""}"""
+    private val tripTitlesV2 =
+        """{"1726000000000":{"title":"Coast road","editedAtMs":1726200000000},"1726100000000":{"title":"","editedAtMs":1726300000000}}"""
+
+    @Test
+    fun tripTitlesV1Reads() {
+        assertEquals(
+            mapOf(
+                1_726_000_000_000L to TripTitleStore.Entry("Coast road", 0L),
+                1_726_100_000_000L to TripTitleStore.Entry("Say \"hi\"", 0L),
+            ),
+            TripTitleStore.decode(tripTitlesV1),
+        )
+    }
+
+    @Test
+    fun tripTitlesWriterMatchesV2() {
+        val titles = mapOf(
+            1_726_000_000_000L to TripTitleStore.Entry("Coast road", 1_726_200_000_000L),
+            1_726_100_000_000L to TripTitleStore.Entry("", 1_726_300_000_000L),
+        )
+        assertEquals(titles, TripTitleStore.decode(tripTitlesV2))
+        assertEquals(jsonObjectOf(tripTitlesV2), jsonObjectOf(TripTitleStore.encode(titles)))
     }
 
     // --- names stored as strings ---------------------------------------------
