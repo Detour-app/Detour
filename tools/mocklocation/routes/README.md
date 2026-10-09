@@ -75,6 +75,7 @@ research note that proposed them.
 | `public-trajectcontrole.txt` | 458 s (7m38s), 12.69 km, mean 100.0 km/h, per-step 99.7–100.3 km/h | none — synthetic | **Full transit of relation `15682532`, west → east, behind a 4.72 km lead-in.** West device node (50.86929, 4.49257) **10.6 m** away at line 170; east node (50.86183, 4.60503) **2.9 m** away at line 457. Both inside `SECTION_GATE_METERS` (60 m), in the measured order. Transit **7.97 km in 287 s, mean 100.0 km/h** — that is the value a correct section average must settle at, and it is an *input*, not a measurement (see below). **170 s of replay precede the west gate**, which is what lets the prefetch land before the gate (see below). |
 | `public-stop-start.txt` | 3005 s (50m05s), 18.45 km, mean 22.1 km/h, max 193 km/h | **20 runs of ≥ 8 s below 0.6 m/s, totalling 1288 s** — longest 439 s, then 134, 112, 103, 97, 90, 60, 46, 30, 30 s. Of those, **548 fixes report speed exactly 0** and 127 runs are byte-identical consecutive lines (longest 8 s). | Real standstills survive resampling: 15 runs of ≥ 8 s sit below the app's own 2.0 m/s moving gate. Camera park and resume, HUD easing to zero, bearing hold below 2 m/s. Clears auto-start with 353 s / 10.4 km above 7.0 m/s. Also intended to cover posted-limit variety — 8 distinct `maxspeed` values in its footprint (5/10/15/20/30/50/70/120), **carried from the research note and not re-verified here**, because Overpass 504'd. |
 | `public-trajectcontrole-reverse.txt` | 600 s (10m00s), 19.40 km, mean 116.4 km/h, max 135 km/h | none | **Transits relation `15682532`'s two device nodes east → west, against the measured direction.** East node **19 m** at line 326, west node **23 m** at line 567; transit 8.00 km in 241 s = **119.5 km/h**. Read the caveat below — this fixture documents behaviour, it does not assert a refusal. |
+| `public-trajectcontrole-two-sections.txt` | 656 s (10m56s), 18.19 km, mean 100.0 km/h, per-step 99.7–100.3 km/h | none — synthetic | **`public-trajectcontrole.txt` carried on through relation `15685856` (Bertem → Leuven), so one replay transits two sections back to back across the shared Bertem gantry.** West node 10.7 m at line 170, Bertem node 2.9 m at line 457, `15685856`'s far end 8.3 m at line 596, then 1.66 km lead-out. Second transit 3.86 km. Results below. |
 
 ### What `public-trajectcontrole.txt` does and does not prove
 
@@ -164,6 +165,48 @@ that a reverse transit currently starts a measurement, and the fixture that woul
 prove a future direction test works. Do not describe it as a passing negative
 case.
 
+### The section sweep, 2026-10-09 (maxke24/Detour#325)
+
+Debug build of `8849940` (3.34.0) on an SM-S928B (Android 16, hardware GL, map on
+screen), through the location port (`start-port-replay.sh … 1000 3`) — every run
+delivered every line (`pushed` = `delivered`). Overpass: `overpass.kumi.systems`
+answering JSON, `overpass-api.de` serving an HTML 200. Each row is one
+`DetourSection` line from `adb logcat -s DetourSection:I`.
+
+| Route | Section armed | `candidates` | Cleared | `acc` / span | `nearestGate` | avg (input) |
+|---|---|---|---|---|---|---|
+| `public-trajectcontrole.txt` | `15682532` | 1 | `REACHED_END` | 8000.0 / 7949.9 m | 58.5 m | 99.6 (100.0) |
+| ″ (Bertem gantry, 0.3 s later) | `15685856` | 1 | `OVERSHOT` — the file ends 1 s after it arms; see below | — | — | — |
+| `public-trajectcontrole-reverse.txt` | `15682532`, east → west | 1 | `REACHED_END` | 8003.5 / 7949.9 m | 51.5 m | 119.1 (119.5) |
+| `public-trajectcontrole-two-sections.txt` | `15682532` | 1 | `REACHED_END` | 8000.0 / 7949.9 m | 58.5 m | 99.7 (100.0) |
+| ″ (Bertem gantry, 0.3 s later) | `15685856` | 1 | `REACHED_END` | 3833.3 / 3873.0 m | 57.2 m | 99.4 (100.0) |
+
+Every `AVG-ON` is paired with an `AVG-CLEARED`, and every `REACHED_END` fired
+inside `SECTION_GATE_METERS` of the section's own far end. The one `OVERSHOT` is
+the forward file running out 1 s after `15685856` arms (line 456 of 0–457): once
+the port disarmed, the next fix, 4.3 s later, was the phone's real position 120
+km away, so `acc` jumped past the overshoot bound. That is the clause doing its
+job on a teleport, not a mid-section loss — and why the two-section file exists.
+
+**`candidates` was never above 1, and at Bertem it cannot be.** `arm` counts a
+section only when the fix is at one end *and* the other end lies inside the
+heading wedge (`sectionExitGate`). Eastbound at Bertem, `15682532`'s other end
+is 7.9 km behind; westbound, `15685856`'s is 3.9 km behind. So the shared gantry
+never offers both sections in the same direction, and the nearest-end choice
+between them that #22 worried about does not arise there. `candidates > 1`
+needs two sections whose far ends are both ahead — one nested inside another,
+or two parallel relations for one carriageway. None of the committed routes
+transits such a pair.
+
+**What this does not cover.** Two of the three files are synthetic, smooth 1 Hz
+geometry at a constant speed; the reverse file is a real openpilot trace
+resampled to 1 Hz (mean 116.4, max 135 km/h). The port bypasses fused, and the
+forward route takes the eastbound carriageway only. The mid-section clear from
+2026-09-08 (v2.18.1, degraded mirror) did not reproduce. On this build the
+section state is held in `retained.sectionState` (`ui/MapHazardAlerts.kt`), and
+`advance` never reads the section list, so a refetch that changes or empties
+`speedSections` cannot clear a measurement already running.
+
 ## The synthetic instruments
 
 ### `turn-circle.txt`
@@ -221,6 +264,7 @@ The four scenarios from
 | 3. Posted-limit variety | `urban-limits.txt` | `public-stop-start.txt` (8 distinct `maxspeed` values in its footprint) | **Probably covered, unconfirmed.** One trace covers scenarios 2 and 3 together, as one drive should — but the 8 `maxspeed` values come from the research note and could not be re-measured (Overpass 504). Keep `urban-limits.txt` until that query runs. |
 | 4. Deviation, for reroute | does not exist | does not exist | **Blocked on infrastructure, not on data** — see below. No dataset fixes it. |
 | Bonus: wrong-direction transit | none | `public-trajectcontrole-reverse.txt` | New coverage, but as a documented limitation rather than an assertion. |
+| Bonus: two sections back to back | none | `public-trajectcontrole-two-sections.txt` | New coverage: re-arm across a shared gantry. Not `candidates > 1`; see the section sweep above. |
 
 **Two ways `public-stop-start.txt` is not a drop-in replacement for
 `stop-start.txt`**, both measured from the committed file:

@@ -86,7 +86,7 @@ suspend fun runSpin(
                         lengthMeters = params.radiusKm * 1000.0,
                         minutes = params.loopMinutes,
                         headingDeg = params.directionDeg?.toDouble(),
-                        avoidSmallRoads = Settings.avoidSmallRoads.value,
+                        preferences = Settings.routePreferences(),
                         highwayRegex = params.mode.highwayRegex,
                     ),
                 )

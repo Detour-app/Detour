@@ -331,8 +331,7 @@ class NavScreen(
                     try {
                         val fresh = withContext(Dispatchers.IO) {
                             RoutingClient.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
-                                Settings.avoidHighways.value, Settings.avoidSmallRoads.value,
-                                heading)
+                                Settings.routePreferences(), heading)
                         }
                         route = fresh
                         // The line on the map is only pushed when it changes, so a

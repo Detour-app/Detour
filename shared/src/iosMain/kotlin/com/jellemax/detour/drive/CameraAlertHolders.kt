@@ -17,11 +17,17 @@ import com.jellemax.detour.data.SpeedCameras
  * Returned rather than published through a flow: unlike [SectionAverageHolder]'s
  * reading, a warning is not something a view binds to and redraws for — it is
  * a one-shot instruction for whoever called [onFix] to speak, consumed once
- * and then forgotten.
+ * and then forgotten. The [countdown] is the part a view does draw (#550); it
+ * is read back after each [onFix], so the caller still owns when it publishes.
  */
 class CameraWarnerHolder {
 
     private var state = CameraWarner.State()
+
+    /** [CameraWarner.Step.countdown] from the last [onFix], flattened: null
+     *  until a camera is warned for and again once it is passed or out of reach. */
+    var countdown: CameraCountdown? = null
+        private set
 
     /** One GPS fix; see [CameraWarner.onFix] for the parameters' meaning. */
     fun onFix(
@@ -35,6 +41,7 @@ class CameraWarnerHolder {
             state.copy(options = cameraWarnerOptions()), cameras, at, headingDeg, speedKmh, limitKmh,
         )
         state = step.state
+        countdown = step.countdown?.let { CameraCountdown(it.at, it.text, it.distanceMeters) }
         val outcome = step.outcome
         return if (outcome is CameraWarner.Outcome.Warn) CameraWarning(outcome.at, outcome.text) else null
     }
@@ -43,6 +50,10 @@ class CameraWarnerHolder {
 /** [CameraWarner.Outcome.Warn], flattened to a plain data class Swift can read
  *  without a sealed-interface cast. */
 data class CameraWarning(val at: LatLon, val text: String)
+
+/** [CameraWarner.Countdown], flattened for Swift alongside [CameraWarning]:
+ *  the warned camera, its wording, and the straight-line distance left to it. */
+data class CameraCountdown(val at: LatLon, val text: String, val distanceMeters: Double)
 
 /**
  * The per-surface holder [CameraPrefetch]'s own KDoc asks each consumer to

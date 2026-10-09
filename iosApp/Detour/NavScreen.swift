@@ -7,7 +7,7 @@ import DetourShared
 /// All the route-following maths — where you are along the polyline, which
 /// maneuver is next, how far is left, what the posted limit is here — is
 /// `NavEngine` in `:shared`, the same pure functions the Android car screen
-/// calls. This file is the banner, the camera and the voice.
+/// calls. This file is the banners, the camera and the voice.
 struct NavScreen: View {
 
     let route: RouteResult
@@ -32,7 +32,12 @@ struct NavScreen: View {
             )
             .ignoresSafeArea()
 
-            banner
+            VStack(spacing: 10) {
+                banner
+                if let countdown = model.cameraCountdown {
+                    CameraBanner(countdown: countdown)
+                }
+            }
 
             VStack {
                 Spacer()
@@ -114,6 +119,36 @@ struct NavScreen: View {
     }
 }
 
+/// The camera a warning was spoken for and the distance still left to it,
+/// under the turn banner while it is ahead (#550). `CameraWarner` in `:shared`
+/// decides when it shows: from the warning until the camera is passed or out
+/// of reach, reading `CameraWarner.Step.countdown` (#548).
+private struct CameraBanner: View {
+    let countdown: CameraCountdown
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "camera.fill")
+                .font(.title3)
+                .foregroundStyle(.red)
+                // The text beside it already says it is a camera.
+                .accessibilityHidden(true)
+            Text(displayDistance(countdown.distanceMeters))
+                .font(.title3.monospacedDigit().weight(.bold))
+            Text(countdown.text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(.horizontal)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// The European round white-on-red plate, which is what the posted limits from
 /// OSM mean here.
 private struct SpeedLimitSign: View {
@@ -138,6 +173,8 @@ final class NavModel: ObservableObject {
     /// screen can outlive the map screen's own polling being paused, or start
     /// from a cold `fullScreenCover` with nothing prefetched yet.
     @Published private(set) var cameras: [SpeedCameras.Camera] = []
+    /// The warned camera still ahead, for `CameraBanner`; nil when none is.
+    @Published private(set) var cameraCountdown: CameraCountdown?
 
     private var route: RouteResult?
     private let voice = NavVoice()
@@ -183,6 +220,7 @@ final class NavModel: ObservableObject {
     func stop() {
         voice.stop()
         route = nil
+        cameraCountdown = nil
     }
 
     func update(with fix: CLLocation) {
@@ -194,9 +232,10 @@ final class NavModel: ObservableObject {
         warnOfCameras(at: here, fix: fix, limitKmh: p.speedLimitKmh)
     }
 
-    /// The enforcement-camera chime. `CameraWarner` in `:shared` decides
-    /// whether one is worth interrupting for and words it; this only speaks
-    /// that wording, through the same `NavVoice` a turn instruction uses.
+    /// The enforcement-camera warning. `CameraWarner` in `:shared` decides
+    /// whether one is worth interrupting for and words it; this speaks that
+    /// wording once, through the same `NavVoice` a turn instruction uses, and
+    /// publishes the countdown `CameraBanner` draws on every fix after it.
     ///
     /// The posted limit judged is the route's own (`p.speedLimitKmh`) rather
     /// than an ambient sign — this surface has no ambient sign to fall back
@@ -205,7 +244,7 @@ final class NavModel: ObservableObject {
     private func warnOfCameras(at here: LatLon, fix: CLLocation, limitKmh: KotlinDouble?) {
         cameraAlerts.update(with: fix)
         cameras = cameraAlerts.cameras
-        guard let warning = cameraWarner.onFix(
+        let warning = cameraWarner.onFix(
             cameras: cameras,
             at: here,
             // CoreLocation reports a negative course when it has no usable
@@ -213,8 +252,9 @@ final class NavModel: ObservableObject {
             headingDeg: fix.course >= 0 ? KotlinDouble(value: fix.course) : nil,
             speedKmh: max(0, fix.speed) * 3.6,
             limitKmh: limitKmh
-        ) else { return }
-        say(warning.text)
+        )
+        cameraCountdown = cameraWarner.countdown
+        if let warning { say(warning.text) }
     }
 
     /// Says whatever `NavAnnouncer` says is due for this fix. The decision and
