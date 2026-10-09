@@ -145,6 +145,59 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_newest_ride_title_wins()
+    {
+        // The #471 revert: a second device still holding the old title re-uploads it.
+        var client = NewRider();
+        await Sync(client, new { tripTitles = new[] { Title(1_000, "Coast road", 5_000) } });
+
+        var stale = await Sync(client, new { tripTitles = new[] { Title(1_000, "Sunday ride", 4_000) } });
+        stale.TripTitles.Should().ContainSingle().Which.Title.Should().Be("Coast road");
+
+        var newer = await Sync(client, new { tripTitles = new[] { Title(1_000, "Coast road, again", 6_000) } });
+        newer.TripTitles.Should().ContainSingle().Which.Title.Should().Be("Coast road, again");
+    }
+
+    [Fact]
+    public async Task A_cleared_ride_title_stays_cleared()
+    {
+        var client = NewRider();
+        await Sync(client, new { tripTitles = new[] { Title(1_000, "Coast road", 5_000) } });
+        await Sync(client, new { tripTitles = new[] { Title(1_000, "", 6_000) } });
+
+        var merged = await Sync(client, new { tripTitles = new[] { Title(1_000, "Coast road", 5_000) } });
+
+        var title = merged.TripTitles.Should().ContainSingle().Subject;
+        title.Title.Should().BeEmpty("the tombstone is what stops the older title resurrecting");
+        title.EditedAtMs.Should().Be(6_000);
+    }
+
+    [Fact]
+    public async Task Absent_ride_titles_leave_the_stored_ones_alone()
+    {
+        var client = NewRider();
+        await Sync(client, new { tripTitles = new[] { Title(1_000, "Coast road", 5_000) } });
+
+        var merged = await Sync(client, new { trips = new[] { Trip(1_000) } });
+
+        merged.TripTitles.Should().ContainSingle().Which.Title.Should().Be("Coast road");
+    }
+
+    [Fact]
+    public async Task An_over_long_ride_title_is_dropped_rather_than_failing_the_sync()
+    {
+        var client = NewRider();
+        var response = await client.PostAsJsonAsync("/api/sync", new
+        {
+            tripTitles = new[] { Title(1_000, new string('a', 201), 5_000), Title(2_000, "Coast road", 5_000) },
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var merged = (await response.Content.ReadFromJsonAsync<SyncPayload>())!;
+        merged.TripTitles.Should().ContainSingle().Which.StartTimeMs.Should().Be(2_000);
+    }
+
+    [Fact]
     public async Task Absent_stats_leave_the_stored_numbers_alone()
     {
         // A client that syncs only trips must not blank the numbers its friends read.
@@ -336,6 +389,9 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
             ? (object)new { startTimeMs, endTimeMs = startTimeMs + 60_000, mode, distanceMeters, topSpeedKmh = 80.0, editedAtMs = edited }
             : new { startTimeMs, endTimeMs = startTimeMs + 60_000, mode, distanceMeters, topSpeedKmh = 80.0 };
 
+    private static object Title(long startTimeMs, string title, long editedAtMs) =>
+        new { startTimeMs, title, editedAtMs };
+
     private static string Line(long startMs) =>
         $"[[51.05,3.72,{startMs},50.0,12.5],[51.06,3.73,{startMs + 1000},55.0,18.0]]";
 
@@ -351,5 +407,8 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
         IReadOnlyList<string> Traces,
         IReadOnlyList<JsonElement> SavedPlaces,
         IReadOnlyDictionary<string, long> Badges,
+        IReadOnlyList<SyncedTitle> TripTitles,
         bool ShareFog);
+
+    private sealed record SyncedTitle(long StartTimeMs, string Title, long EditedAtMs);
 }

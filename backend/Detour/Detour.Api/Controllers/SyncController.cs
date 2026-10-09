@@ -15,12 +15,13 @@ namespace Detour.Api.Controllers;
 public class SyncController(ICurrentUser currentUser, ISyncService sync) : ControllerBase
 {
     [HttpPost]
-    [EndpointSummary("Merge a device's rides, traces, shortcuts and badges.")]
+    [EndpointSummary("Merge a device's rides, traces, shortcuts, badges and ride titles.")]
     [EndpointDescription(
         "Bidirectional and idempotent. Every field is optional and absent never means 'clear'. "
         + "Trips key on their start instant, so a re-upload replaces an edited ride rather than "
         + "being ignored; deletions are applied after the upserts so they propagate to every "
         + "other device. Traces deduplicate on content. Badges keep the earliest instant seen. "
+        + "Ride titles keep the newest edit, and an empty title is a kept tombstone. "
         + "Returns the merged union, which is what restores a device after a reinstall.")]
     [ProducesResponseType<SyncResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest, Description = "A trip, place or trace line could not be read.")]

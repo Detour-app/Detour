@@ -127,6 +127,7 @@ internal fun CandidatesCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        row.bends?.let { BendsIndicator(it, Modifier.padding(top = 2.dp)) }
                         if (convoyVotes != null) {
                             val voters = convoyVotes.filterValues { it == index }.keys
                                 .map { members.handleFor(it) }.sorted()
