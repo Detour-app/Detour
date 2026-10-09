@@ -212,6 +212,41 @@ class LoopSpinTest {
     }
 
     @Test
+    fun oneStalledRollDoesNotCostTheTwoThatLanded() = runBlocking {
+        // #507 review: the rolls run in parallel and used to be awaited all
+        // together, so one roll stalling past the cap threw away two loops
+        // that came back at once and told the rider the server was too slow.
+        var calls = 0
+        val result = LoopSpin.spin(
+            request(null), serverUsable = true,
+            roll = { meters ->
+                val n = ++calls
+                if (n == 2) awaitCancellation()
+                router(50.0, mutableListOf())(meters).copy(distanceMeters = n.toDouble())
+            },
+            fallback = noFallback, timeoutMs = 200,
+        )
+        assertTrue(result.route.distanceMeters in setOf(1.0, 3.0), "got ${result.route.distanceMeters}")
+        assertNull(result.warning)
+    }
+
+    @Test
+    fun aTimedSpinWithOneStalledFirstRollRidesTheBestThatLanded() = runBlocking {
+        // Same #507 defect on the timed path: the first round never finishes,
+        // so there is no re-roll, but the two loops that landed are ridden.
+        val asked = mutableListOf<Double>()
+        val fast = router(50.0, asked)
+        val result = LoopSpin.spin(
+            request(30f), serverUsable = true,
+            roll = { meters -> if (asked.size == 1) { asked.add(meters); awaitCancellation() } else fast(meters) },
+            fallback = noFallback, timeoutMs = 200,
+        )
+        assertTrue(LoopDuration.fits(result.route, 30f), "got ${result.route.timeMs}")
+        assertEquals(3, asked.size)
+        assertNull(result.warning)
+    }
+
+    @Test
     fun aSpinWithNoServerThatRunsOutOfTimeSaysNoServerIsConfigured() = runBlocking {
         val e = assertFailsWith<SpinFailure> {
             LoopSpin.spin(request(null), serverUsable = false, noRoll, hangingFallback, timeoutMs = 50)

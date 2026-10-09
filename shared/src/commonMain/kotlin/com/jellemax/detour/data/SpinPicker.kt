@@ -5,16 +5,24 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import okio.IOException
 
-/** The longest a whole spin may take, rolls and fallback together, on every
- *  surface. In shared so iOS gets it too — see
- *  `docs/refactor/mapscreen/15-divergence-register.md` entry 9: a spin
- *  against a wedged routing server used to hang forever on iOS while Android
- *  bailed out after 30s with a specific message. 20 s is the owner's call on
- *  #507: a slow backend took ~45 s to fail, longer than a rider will watch a
- *  spinner. */
+/** The longest a whole spin may take, on every surface: a round trip's
+ *  rolls, timed re-roll and fallback together ([LoopSpin]), or the three
+ *  candidate rolls ([pickThreeCandidates]). In shared so iOS gets it too —
+ *  see `docs/refactor/mapscreen/15-divergence-register.md` entry 9, where a
+ *  candidate spin used to hang forever on iOS while Android bailed out after
+ *  30 s. 20 s is the owner's call on #507: a slow backend took ~45 s to fail,
+ *  longer than a rider will watch a spinner.
+ *
+ *  It is no shorter than a single roll's own HTTP read timeout, so the cap,
+ *  not the request, is often what ends a stalled roll. Both spins therefore
+ *  keep every roll that has already landed and return those when the cap
+ *  fires; only a spin with nothing in hand fails with
+ *  [spinTimeoutMessage]'s sentence. */
 internal const val SPIN_TIMEOUT_MS = 20_000L
 
 /** Runs [block] under the spin's one time cap; running out of time returns
@@ -62,8 +70,10 @@ data class RouteCandidate(
  *  failing does, and then the first real failure is what gets reported rather
  *  than a generic message. A cancellation is never a failed roll — it means
  *  the spin was called off, so it propagates instead of being counted.
- *  Running past [SPIN_TIMEOUT_MS] throws [SpinFailure] with
- *  [spinTimeoutMessage]'s sentence.
+ *  Running past [SPIN_TIMEOUT_MS] returns the candidates that had already
+ *  landed — one stalled roll must not cost the rider the two that came back
+ *  — and throws [SpinFailure] with [spinTimeoutMessage]'s sentence only when
+ *  none had.
  *
  *  `@Throws(Exception::class)`: called directly from iosApp/Detour as
  *  `SpinPickerKt.pickThreeCandidates` — see [SyncClient.sync]'s doc for why
@@ -80,21 +90,38 @@ suspend fun pickThreeCandidates(
     poiKind: PoiKind,
     bearing: Double?,
     explored: ExploredArea,
-): List<RouteCandidate> = withSpinTimeout(
-    onTimeout = {
-        throw SpinFailure(spinTimeoutMessage(serverError = null, roundTrip = false, serverUsable = config.usable))
-    },
-) {
-    coroutineScope {
-        val rolls = (1..3).map {
-            async {
-                runCatching {
-                    pickCandidate(
-                        config, loc, radiusMeters, minRadiusMeters, mode, poiKind, bearing, explored)
-                }
+): List<RouteCandidate> = pickThreeCandidates(serverUsable = config.usable) {
+    pickCandidate(config, loc, radiusMeters, minRadiusMeters, mode, poiKind, bearing, explored)
+}
+
+/** [pickThreeCandidates] with its roll passed in, so the time cap and the
+ *  keep-what-landed rule run in `commonTest` against fakes. Each candidate is
+ *  recorded the moment its roll lands (the rolls run in parallel — on
+ *  `Dispatchers.IO` on Android, hence the lock), and read only after the cap
+ *  has cancelled and joined every roll. */
+internal suspend fun pickThreeCandidates(
+    serverUsable: Boolean,
+    timeoutMs: Long = SPIN_TIMEOUT_MS,
+    roll: suspend () -> RouteCandidate,
+): List<RouteCandidate> {
+    val landed = mutableListOf<RouteCandidate>()
+    val landedLock = Mutex()
+    return withSpinTimeout(
+        onTimeout = {
+            landed.toList().ifEmpty {
+                throw SpinFailure(spinTimeoutMessage(serverError = null, roundTrip = false, serverUsable = serverUsable))
             }
-        }.awaitAll()
-        collectRolls(rolls)
+        },
+        timeoutMs = timeoutMs,
+    ) {
+        coroutineScope {
+            val rolls = (1..3).map {
+                async {
+                    runCatching { roll() }.onSuccess { landedLock.withLock { landed += it } }
+                }
+            }.awaitAll()
+            collectRolls(rolls)
+        }
     }
 }
 

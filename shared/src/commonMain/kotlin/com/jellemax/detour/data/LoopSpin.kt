@@ -5,6 +5,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * What a loop spin is asked for. [minutes] non-null sizes the loop by riding
@@ -99,27 +101,35 @@ object LoopSpin {
         val minutes = request.minutes
         val tripMeters = minutes?.let { LoopDuration.guessMeters(it) } ?: request.lengthMeters
         var serverError: String? = null
-        var inHand: RouteResult? = null
+        // Every loop that came back, recorded as each roll finishes rather than
+        // when all of them have: the rolls run in parallel (on Dispatchers.IO
+        // on Android, hence the lock), and one stalled roll must not cost the
+        // rider the two that already landed (#507 review).
+        val rolled = mutableListOf<Pair<RouteResult, Double>>()
+        val rolledLock = Mutex()
+        val keep: suspend (Pair<RouteResult, Double>) -> Unit = { rolledLock.withLock { rolled += it } }
         // One cap over the rolls and the fallback together (#507): a slow
         // server used to spend its own timeout and then hand the fallback 45 s
-        // more. When the cap fires during a timed re-roll, the first round's
-        // loop is still a loop and is what the rider gets; otherwise the
-        // message is read then, so a server failure that came first is still
-        // what the rider is told.
+        // more. When the cap fires with a loop already rolled — one roll of
+        // the first round stalled, or the timed re-roll did — the best of what
+        // came back is what the rider gets, by the same rule as a finished
+        // spin. Otherwise the message is read then, so a server failure that
+        // came first is still what the rider is told. `rolled` is read only
+        // after the cap has cancelled and joined every roll.
         return withSpinTimeout(
             onTimeout = {
-                inHand?.let { Result(it, warning = null) }
+                bestOf(rolled, minutes)?.let { Result(it, warning = null) }
                     ?: throw SpinFailure(spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable))
             },
             timeoutMs = timeoutMs,
         ) {
             if (serverUsable) {
                 val report: (String) -> Unit = { serverError = it }
-                val loops = rollLoops(tripMeters, roll, report)
+                val loops = rollLoops(tripMeters, roll, keep, report)
                 val best = when {
                     loops == null -> null
-                    minutes == null -> loops.maxBy { it.second }.first
-                    else -> pickTimed(minutes, loops, roll, report) { inHand = it }
+                    minutes == null -> bestOf(loops, minutes = null)
+                    else -> pickTimed(minutes, loops, roll, keep, report)
                 }
                 if (best != null) return@withSpinTimeout Result(best, warning = null)
             }
@@ -135,13 +145,24 @@ object LoopSpin {
     }
 
     /**
+     * Which of [scored] loops to ride: the curviest for a distance spin
+     * ([minutes] null), [LoopDuration.pick]'s choice for a timed one. Null only
+     * for an empty list.
+     */
+    private fun bestOf(scored: List<Pair<RouteResult, Double>>, minutes: Float?): RouteResult? =
+        if (minutes == null) scored.maxByOrNull { it.second }?.first
+        else LoopDuration.pick(scored, minutes)?.first
+
+    /**
      * Rolls [ROLLS] independent round trips, each paired with its curviness
-     * score; which one to ride is the caller's choice. Null when none came
-     * back, having told [onServerError] why.
+     * score; which one to ride is the caller's choice. Each loop goes to
+     * [onLoop] the moment its roll lands, so a spin cut off by its time cap
+     * still has it. Null when none came back, having told [onServerError] why.
      */
     private suspend fun rollLoops(
         tripMeters: Double,
         roll: suspend (Double) -> RouteResult,
+        onLoop: suspend (Pair<RouteResult, Double>) -> Unit,
         onServerError: (String) -> Unit,
     ): List<Pair<RouteResult, Double>>? {
         val rolls = try {
@@ -151,7 +172,7 @@ object LoopSpin {
                         runCatching {
                             val loop = roll(tripMeters)
                             loop to Curviness.routeScore(loop.polyline, loop.instructions)
-                        }
+                        }.onSuccess { onLoop(it) }
                     }
                 }.awaitAll()
             }
@@ -182,23 +203,22 @@ object LoopSpin {
      * estimate, so a second round nearly always fits, and a third would put the
      * rider's wait past the spin timeout for a few minutes' difference. The
      * second round failing is not an error — the first round's loops are still
-     * loops, which is why the best of them goes to [onFirstPick] before the
-     * re-roll: the spin's time cap may fire during it.
+     * loops. They already went to [onLoop] as they landed, so if the spin's
+     * time cap fires during the re-roll the spin rides the best of them.
      */
     private suspend fun pickTimed(
         minutes: Float,
         firstRolls: List<Pair<RouteResult, Double>>,
         roll: suspend (Double) -> RouteResult,
+        onLoop: suspend (Pair<RouteResult, Double>) -> Unit,
         onServerError: (String) -> Unit,
-        onFirstPick: (RouteResult) -> Unit,
     ): RouteResult? {
         val first = LoopDuration.pick(firstRolls, minutes)
         if (first != null && LoopDuration.fits(first.first, minutes)) return first.first
         val retryMeters = LoopDuration.rescaledMeters(
             minutes, LoopDuration.guessMeters(minutes), firstRolls.map { it.first },
         ) ?: return first?.first
-        first?.let { onFirstPick(it.first) }
-        val retry = rollLoops(retryMeters, roll, onServerError).orEmpty()
+        val retry = rollLoops(retryMeters, roll, onLoop, onServerError).orEmpty()
         return LoopDuration.pick(firstRolls + retry, minutes)?.first
     }
 }
