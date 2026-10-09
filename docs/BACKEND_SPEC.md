@@ -139,6 +139,7 @@ Accepted from the device (all optional):
 | Traces | Deduplicated on content. A genuinely new line is additionally unpacked into track points; a line already held is not re-unpacked, because every sync re-sends the whole history. |
 | Saved places | Keyed on the client-assigned identifier; a rename replaces the stored copy. |
 | Badges | The **earliest** earned instant wins, so a reinstall cannot move a date forward. |
+| Ride titles | Keyed on (owner, start instant), each with the instant it was edited. The **newest** edit wins, a tie keeps the stored copy, and an empty title is kept as a tombstone so a cleared rename does not come back from a device still holding the old one. |
 | Aggregate stats | Absent means "no update", not "clear" — a client that syncs only trips must not blank the numbers its friends read. |
 | Fog-sharing preference | Absent means "leave it alone", so an older client cannot silently flip the setting. |
 
@@ -158,8 +159,8 @@ Validation:
   readings are dropped point by point — one broken sample must not cost the whole
   ride.
 
-Returned: the merged union of trips (newest first), traces, badges and saved
-places.
+Returned: the merged union of trips (newest first), traces, badges, saved
+places and ride titles.
 
 ## 6. Friends
 
@@ -461,7 +462,7 @@ removing it:
 | Action | Rules |
 |---|---|
 | Overview | Per account: handle, address, administrator flag, fog-sharing flag, created and last-seen instants, **counts** of trips, traces, badges and dashboard keys, and total distance. No trip, trace, place or route content is readable, and no capability exists that would make it readable. |
-| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places and keys. Removing the rider from the realm is a separate act. |
+| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places and keys. Removing the rider from the realm is a separate act. |
 | Revoke dashboard keys | All API keys for one account — the lost-device remedy for the one credential the realm does not issue. Does not touch the rider's session, which is the realm's to end. |
 
 Role changes take effect on the next token the realm issues, which is the

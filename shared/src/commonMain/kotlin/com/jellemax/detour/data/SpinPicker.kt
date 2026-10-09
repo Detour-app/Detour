@@ -27,12 +27,16 @@ private const val REVERSE_GEOCODE_TIMEOUT_MS = 6_000L
 class SpinFailure(message: String) : IOException(message)
 
 /** One spin result awaiting a pick; [route] is null when the routing server
- *  couldn't be reached — the card then shows straight-line distance only. */
+ *  couldn't be reached — the card then shows straight-line distance only.
+ *  [twistiness] is [Curviness.forecastScore] of [route], worked out once when
+ *  the candidate is rolled rather than on every recomposition of the card
+ *  that shows it; null wherever the forecast is. */
 data class RouteCandidate(
     val destination: LatLon,
     val name: String?,
     val route: RouteResult?,
     val straightLineMeters: Double,
+    val twistiness: Double? = null,
 )
 
 /** The three candidates a spin offers, rolled concurrently — each is an
@@ -145,5 +149,6 @@ suspend fun pickCandidate(
         name = label,
         route = route,
         straightLineMeters = RoadRoulette.distanceMeters(loc, dest),
+        twistiness = route?.let { Curviness.forecastScore(it) },
     )
 }

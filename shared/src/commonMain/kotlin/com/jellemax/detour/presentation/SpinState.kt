@@ -1,5 +1,6 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.TravelMode
 
@@ -16,11 +17,14 @@ val DIRECTION_NAMES = listOf(
 /** One candidate row in the spin result sheet: a rolled destination's name
  *  plus its already-formatted distance and, when the route reported one, its
  *  duration. [durationText] is null exactly when `CandidatesCard`'s duration
- *  chip today is absent - a route with no `timeMs` (straight-line-only draw). */
+ *  chip today is absent - a route with no `timeMs` (straight-line-only draw).
+ *  [bends] is the candidate's twistiness as 1..[Curviness.MAX_BENDS] icons,
+ *  null when it has no road route to score (#442). */
 data class SpinCandidateRow(
     val name: String,
     val distanceText: String,
     val durationText: String?,
+    val bends: Int?,
 )
 
 /**
@@ -80,6 +84,7 @@ internal fun candidateRow(
             ?: formatCoordinatePair(candidate.destination.lat, candidate.destination.lon),
         distanceText = prefix + formatDistanceKm(distanceMeters, sep),
         durationText = candidate.route?.timeMs?.let { "${formatFixed(it / 60_000.0, 0)} min" },
+        bends = candidate.twistiness?.let { Curviness.bends(it) },
     )
 }
 
