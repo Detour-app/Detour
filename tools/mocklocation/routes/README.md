@@ -176,17 +176,17 @@ answering JSON, `overpass-api.de` serving an HTML 200. Each row is one
 | Route | Section armed | `candidates` | Cleared | `acc` / span | `nearestGate` | avg (input) |
 |---|---|---|---|---|---|---|
 | `public-trajectcontrole.txt` | `15682532` | 1 | `REACHED_END` | 8000.0 / 7949.9 m | 58.5 m | 99.6 (100.0) |
-| ″ (Bertem gantry, 0.3 s later) | `15685856` | 1 | `OVERSHOT` — the file ends 4 s in; see below | — | — | — |
+| ″ (Bertem gantry, 0.3 s later) | `15685856` | 1 | `OVERSHOT` — the file ends 1 s after it arms; see below | — | — | — |
 | `public-trajectcontrole-reverse.txt` | `15682532`, east → west | 1 | `REACHED_END` | 8003.5 / 7949.9 m | 51.5 m | 119.1 (119.5) |
 | `public-trajectcontrole-two-sections.txt` | `15682532` | 1 | `REACHED_END` | 8000.0 / 7949.9 m | 58.5 m | 99.7 (100.0) |
 | ″ (Bertem gantry, 0.3 s later) | `15685856` | 1 | `REACHED_END` | 3833.3 / 3873.0 m | 57.2 m | 99.4 (100.0) |
 
 Every `AVG-ON` is paired with an `AVG-CLEARED`, and every `REACHED_END` fired
-inside `SECTION_GATE_METERS` of the section's own far end. The one `OVERSHOT`
-is the forward file running out 4 s after Bertem: once the port disarmed, the
-next fix was the phone's real position 120 km away, so `acc` jumped past the
-overshoot bound. That is the clause doing its job on a teleport, not a
-mid-section loss — and why the two-section file exists.
+inside `SECTION_GATE_METERS` of the section's own far end. The one `OVERSHOT` is
+the forward file running out 1 s after `15685856` arms (line 456 of 0–457): once
+the port disarmed, the next fix, 4.3 s later, was the phone's real position 120
+km away, so `acc` jumped past the overshoot bound. That is the clause doing its
+job on a teleport, not a mid-section loss — and why the two-section file exists.
 
 **`candidates` was never above 1, and at Bertem it cannot be.** `arm` counts a
 section only when the fix is at one end *and* the other end lies inside the
@@ -198,13 +198,14 @@ needs two sections whose far ends are both ahead — one nested inside another,
 or two parallel relations for one carriageway. None of the committed routes
 transits such a pair.
 
-**What this does not cover.** All three files are smooth 1 Hz geometry at a
-constant speed, the port bypasses fused, and the forward route takes the
-eastbound carriageway only. The mid-section clear from 2026-09-08 (v2.18.1,
-degraded mirror) did not reproduce. On this build the section state is held in
-`retained.sectionState` (`ui/MapHazardAlerts.kt`), and `advance` never reads
-the section list, so a refetch that changes or empties `speedSections` cannot
-clear a measurement already running.
+**What this does not cover.** Two of the three files are synthetic, smooth 1 Hz
+geometry at a constant speed; the reverse file is a real openpilot trace
+resampled to 1 Hz (mean 116.4, max 135 km/h). The port bypasses fused, and the
+forward route takes the eastbound carriageway only. The mid-section clear from
+2026-09-08 (v2.18.1, degraded mirror) did not reproduce. On this build the
+section state is held in `retained.sectionState` (`ui/MapHazardAlerts.kt`), and
+`advance` never reads the section list, so a refetch that changes or empties
+`speedSections` cannot clear a measurement already running.
 
 ## The synthetic instruments
 
