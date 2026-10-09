@@ -45,6 +45,12 @@ Routing is packaged for production too, in
 and it downloads its own extract for the region you pick. Keep the two configs in
 sync.
 
+To exercise spin and in-app navigation on an **emulator** without any of the
+setup below, use `tools/dev-rig/up.sh <serial>` instead: it fetches a small
+extract (Luxembourg), builds GraphHopper from this config, runs the API with
+roads/POIs/speed limits imported, and points the debug build at it. See
+[`tools/dev-rig/README.md`](../../tools/dev-rig/README.md).
+
 **It will not start without an OSM extract**, which is not in git — 662 MB of
 Belgium. Fetch it once:
 
