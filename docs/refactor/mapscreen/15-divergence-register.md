@@ -1016,6 +1016,17 @@ everything else is mechanical.
 the cheapest `shared/` win left in the repo — one deletion, one parameter — and audit 13 §3.4
 already lists it as a three-copy item.
 
+**RESOLVED (shared survives, with a 20 s cap) — #507, PR #559.** The phone calls the shared
+`pickThreeCandidates` (`app/…/map/SpinRun.kt`), so the inline copy above is gone and the
+cancellation fix came with it. The timeout the recommendation asked for landed as
+`SPIN_TIMEOUT_MS` in `SpinPicker.kt`, but not as the phone's 30 s: the owner chose **20 s, over the
+whole spin** — the three candidate rolls here, and for a round trip `LoopSpin`'s rolls, timed
+re-roll and fallback together (the fallback's own 45 s `withTimeout` is gone). Both surfaces get
+it. When the cap fires, the rolls that already landed are kept: the candidates that came back are
+shown, and a round trip rides the best loop rolled so far. Only a spin with nothing in hand fails,
+with `spinTimeoutMessage`'s sentence — "The routing server is too slow or unreachable — try
+again", or the server's earlier failure when there was one.
+
 ---
 
 ## 10. The car's search screen ignores the routing preferences the rest of the app honours
