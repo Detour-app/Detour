@@ -45,8 +45,8 @@ public class SpeedLimitWayRepositoryTests(PostgresFixture postgres) : Integratio
     [Fact]
     public async Task UpsertAsync_of_the_same_source_id_replaces_even_without_a_flush_between_them()
     {
-        // Same reason CameraRepositoryTests' equivalent exists (#367): SpeedLimitImport does
-        // one FlushChangesAsync at the very end of a run, not one per entry.
+        // Same reason CameraRepositoryTests' equivalent exists (#367): a caller may upsert
+        // several ways before one FlushChangesAsync.
         var repo = new SpeedLimitWayRepository(Factory);
 
         var first = SpeedLimitWay.Create("w-replace-2", Polyline(50.95, 4.45), 50).Value;
@@ -74,5 +74,27 @@ public class SpeedLimitWayRepositoryTests(PostgresFixture postgres) : Integratio
 
         Assert.Contains(found, w => w.Id == inside.Id);
         Assert.DoesNotContain(found, w => w.Id == outside.Id);
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_replaces_an_existing_row_and_collapses_a_duplicate_within_the_batch()
+    {
+        var repo = new SpeedLimitWayRepository(Factory);
+        var first = SpeedLimitWay.Create("w-batch-1", Polyline(51.50, 5.50), 50).Value;
+        await repo.UpsertBatchAsync([first], CancellationToken.None);
+
+        await repo.UpsertBatchAsync(
+            [
+                SpeedLimitWay.Create("w-batch-1", Polyline(51.50, 5.50), 90).Value,
+                SpeedLimitWay.Create("w-batch-2", Polyline(51.50, 5.50), 30).Value,
+                SpeedLimitWay.Create("w-batch-2", Polyline(51.50, 5.50), 70).Value,
+            ],
+            CancellationToken.None);
+
+        var found = await repo.BboxAsync(51.49, 5.49, 51.51, 5.51, CancellationToken.None);
+        var replaced = Assert.Single(found, w => w.SourceId == "w-batch-1");
+        Assert.Equal(first.Id, replaced.Id);
+        Assert.Equal(90, replaced.MaxSpeedKmh);
+        Assert.Equal(70, Assert.Single(found, w => w.SourceId == "w-batch-2").MaxSpeedKmh);
     }
 }

@@ -1,6 +1,5 @@
 package com.jellemax.detour.car
 
-import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import androidx.car.app.CarContext
@@ -10,7 +9,6 @@ import androidx.car.app.model.ItemList
 import androidx.car.app.model.Row
 import androidx.car.app.model.SearchTemplate
 import androidx.car.app.model.Template
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
@@ -25,6 +23,7 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.failureText
+import com.jellemax.detour.tracking.hasLocationPermission
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -202,9 +201,7 @@ class SearchScreen(
 
     private fun fetchLocation() {
         if (myLocation != null) return
-        if (ContextCompat.checkSelfPermission(carContext, Manifest.permission.ACCESS_FINE_LOCATION)
-            != android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) return
+        if (!hasLocationPermission(carContext)) return
         LocationServices.getFusedLocationProviderClient(carContext).lastLocation
             .addOnSuccessListener { loc ->
                 if (loc != null) myLocation = LatLon(loc.latitude, loc.longitude)

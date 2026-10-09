@@ -67,6 +67,24 @@ fun startupAsk(missing: Boolean, explainerShown: Boolean, locationGranted: Boole
 }
 
 /**
+ * Which of [requiredStartupPermissions] to ask for at first composition, given
+ * the ones already [granted]. Empty means the map can start as it is.
+ *
+ * Approximate location is a complete answer (#500): a rider who chose it is
+ * not asked for precise again on every cold start — asking for fine while
+ * coarse is held is the "change to precise" dialog. Precise is asked for when
+ * a trip starts recording instead.
+ */
+fun startupPermissionsToAsk(sdkInt: Int, granted: Set<String>): List<String> {
+    val missing = requiredStartupPermissions(sdkInt).filterNot { it in granted }
+    return if (Manifest.permission.ACCESS_COARSE_LOCATION in granted) {
+        missing - Manifest.permission.ACCESS_FINE_LOCATION
+    } else {
+        missing
+    }
+}
+
+/**
  * Whether to raise the app's own background-location disclosure.
  *
  * Background location must be requested separately from fine location and only

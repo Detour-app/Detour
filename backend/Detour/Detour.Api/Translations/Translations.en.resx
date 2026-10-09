@@ -77,6 +77,12 @@
   <data name="Trip.NotFound" xml:space="preserve">
     <value>No such ride.</value>
   </data>
+  <data name="TripTitle.EditedAtInvalid" xml:space="preserve">
+    <value>A ride title needs the instant it was edited.</value>
+  </data>
+  <data name="TripTitle.TooLong" xml:space="preserve">
+    <value>A ride title can be at most {0} characters.</value>
+  </data>
   <data name="Trace.LineRequired" xml:space="preserve">
     <value>A trace line cannot be empty.</value>
   </data>

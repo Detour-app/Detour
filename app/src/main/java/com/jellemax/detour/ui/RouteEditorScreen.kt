@@ -1,7 +1,5 @@
 package com.jellemax.detour.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +47,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -58,6 +55,7 @@ import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteFill
+import com.jellemax.detour.data.RouteOrigin
 import com.jellemax.detour.data.RoutePreferences
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
@@ -69,6 +67,7 @@ import com.jellemax.detour.data.StopsTooLong
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.formatCoordinatePair
+import com.jellemax.detour.tracking.hasLocationPermission
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -295,9 +294,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             cameraForPoints(map, stops.map { it.at }, fitPaddingPx)
             return@LaunchedEffect
         }
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
-        ) return@LaunchedEffect
+        if (!hasLocationPermission(context)) return@LaunchedEffect
         try {
             val client = LocationServices.getFusedLocationProviderClient(context)
             val loc = client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null).await()
@@ -377,6 +374,9 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                     distanceMeters = distanceMeters,
                     timeMs = timeMs,
                     sharedBy = editing?.sharedBy ?: "",
+                    // Edited stops still came from a spin; dropping the marker
+                    // here would turn a saved spin into a planned route on save.
+                    origin = editing?.origin ?: RouteOrigin.PLANNED,
                 ),
             )
         }

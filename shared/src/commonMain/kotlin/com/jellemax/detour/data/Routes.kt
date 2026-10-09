@@ -15,6 +15,25 @@ import kotlinx.serialization.json.putJsonArray
  *  label picked up from a search result or a saved place. */
 data class RouteStop(val at: LatLon, val name: String = "")
 
+/** Where a [SavedRoute] came from. Stored by [name], so a value is never
+ *  renamed — only added. */
+enum class RouteOrigin {
+    /** Built in the route editor, imported from a file, or shared by a friend. */
+    PLANNED,
+
+    /** A spin candidate the rider chose to keep (#588). Its [SavedRoute.stops]
+     *  are the candidate's destination or loop waypoints; reopening it re-routes
+     *  from them and never re-spins. */
+    SPIN;
+
+    companion object {
+        /** Tolerant of unknown names: a route written by a newer build with an
+         *  origin this one has never heard of still reads, as a planned one. */
+        fun of(name: String?): RouteOrigin =
+            entries.firstOrNull { it.name == name } ?: PLANNED
+    }
+}
+
 /**
  * A route the user planned and chose to keep: the stops that define it, plus
  * the geometry GraphHopper returned for them, so it can be shown or resumed
@@ -34,6 +53,7 @@ data class SavedRoute(
     /** Username this route arrived from via sharing; blank for one of the
      *  user's own routes. */
     val sharedBy: String = "",
+    val origin: RouteOrigin = RouteOrigin.PLANNED,
 )
 
 /**
@@ -45,6 +65,10 @@ data class SavedRoute(
  * than one `{"lat":..,"lon":..}` object per point: a routed polyline is
  * commonly a few thousand points, and the object-per-point form would
  * roughly triple the file for information the fixed stride already carries.
+ *
+ * `origin` is written only when it isn't [RouteOrigin.PLANNED], so a planned
+ * route keeps the exact bytes it had before the field existed. A build that
+ * predates it ignores the key and still reads the route.
  */
 fun SavedRoute.toJson(): JsonObject = buildJsonObject {
     put("id", id)
@@ -67,6 +91,7 @@ fun SavedRoute.toJson(): JsonObject = buildJsonObject {
     distanceMeters?.let { put("distanceMeters", it) }
     timeMs?.let { put("timeMs", it) }
     if (sharedBy.isNotEmpty()) put("sharedBy", sharedBy)
+    if (origin != RouteOrigin.PLANNED) put("origin", origin.name)
 }
 
 /** Inverse of [SavedRoute.toJson]. Null for a route with fewer than two
@@ -93,6 +118,7 @@ fun routeFromJson(o: JsonObject): SavedRoute? {
         distanceMeters = o.optDouble("distanceMeters").takeIf { !it.isNaN() },
         timeMs = if (o.has("timeMs")) o.optLong("timeMs") else null,
         sharedBy = o.optString("sharedBy"),
+        origin = RouteOrigin.of(o.optString("origin")),
     )
 }
 

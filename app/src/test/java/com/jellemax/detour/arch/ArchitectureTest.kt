@@ -101,8 +101,8 @@ class ArchitectureTest {
     @Test
     fun `files stay under 1000 lines - section 8`() {
         val pinned = mapOf(
-            // +4: #472 car-started flag on the nav start intent
-            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1806,
+            // +4: #472 car-started flag on the nav start intent; +5: #500 precise-only trip start
+            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1811,
             // +3: #456 stale-destination guard; +1: #485 MapSurface import; -1: #432 route-fetch guard
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
             "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1418,
@@ -120,7 +120,7 @@ class ArchitectureTest {
     @Test
     fun `shared functions stay under 100 lines - section 8`() {
         val pinned = mapOf(
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#sync" to 159,
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#sync" to 157,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 152,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 105,

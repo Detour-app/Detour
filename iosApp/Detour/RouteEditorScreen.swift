@@ -288,7 +288,9 @@ struct RouteEditorScreen: View {
             // `long:` is C long, which Swift sees as Int; `value:` is the
             // Int64 overload, matching the KotlinDouble(value:) use elsewhere.
             timeMs: timeMs.map { KotlinLong(value: $0) },
-            sharedBy: existing?.sharedBy ?? ""
+            sharedBy: existing?.sharedBy ?? "",
+            // Edited stops still came from a spin; see the Android editor.
+            origin: existing?.origin ?? RouteOrigin.planned
         )
         RouteStore.shared.save(route: route)
         // RoutesScreen observes RouteStore's StateFlow, so it picks this up
