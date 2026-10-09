@@ -208,8 +208,7 @@ struct RouteEditorScreen: View {
                 stops: stops.map(\.stop),
                 minutes: Float(fillMinutes),
                 profile: mode.ghProfile,
-                avoidHighways: SettingsValues.shared.avoidHighways,
-                avoidSmallRoads: SettingsValues.shared.avoidSmallRoads
+                preferences: SettingsValues.shared.routePreferences
             )
             if routeKey == key {
                 stops = filled.stops.map { EditorStop(stop: $0) }
@@ -264,8 +263,7 @@ struct RouteEditorScreen: View {
                 config: config,
                 points: stops.map(\.stop.at),
                 profile: mode.ghProfile,
-                avoidHighways: SettingsValues.shared.avoidHighways,
-                avoidSmallRoads: SettingsValues.shared.avoidSmallRoads,
+                preferences: SettingsValues.shared.routePreferences,
                 heading: nil
             )
             polyline = result.polyline

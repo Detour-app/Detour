@@ -84,8 +84,7 @@ final class SpinModel: ObservableObject {
             from: LatLon(lat: here.latitude, lon: here.longitude),
             to: target,
             profile: mode.ghProfile,
-            avoidHighways: SettingsValues.shared.avoidHighways,
-            avoidSmallRoads: SettingsValues.shared.avoidSmallRoads,
+            preferences: SettingsValues.shared.routePreferences,
             heading: nil
         )
         // Compared field-wise rather than by identity: another commit or a
@@ -169,7 +168,7 @@ final class SpinModel: ObservableObject {
                     lengthMeters: radiusMeters,
                     minutes: loopMinutes.map { KotlinFloat(value: $0) },
                     headingDeg: nil,
-                    avoidSmallRoads: SettingsValues.shared.avoidSmallRoads,
+                    preferences: SettingsValues.shared.routePreferences,
                     highwayRegex: mode.highwayRegex
                 )
             )

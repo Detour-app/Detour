@@ -56,6 +56,7 @@ import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteFill
 import com.jellemax.detour.data.RouteOrigin
+import com.jellemax.detour.data.RoutePreferences
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.RoutingClient
@@ -193,7 +194,12 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
         try {
             val result = withContext(Dispatchers.IO) {
                 RoutingClient.routeVia(
-                    serverConfig, stops.map { it.at }, mode.ghProfile, avoidHighways, avoidSmallRoads)
+                    serverConfig, stops.map { it.at }, mode.ghProfile,
+                    RoutePreferences(
+                        avoidHighways = avoidHighways,
+                        avoidSmallRoads = avoidSmallRoads,
+                    ),
+                )
             }
             polyline = result.polyline
             distanceMeters = result.distanceMeters
@@ -327,7 +333,12 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             try {
                 val filled = withContext(Dispatchers.IO) {
                     RouteFill.fillRouted(
-                        serverConfig, from, minutes, mode.ghProfile, avoidHighways, avoidSmallRoads)
+                        serverConfig, from, minutes, mode.ghProfile,
+                        RoutePreferences(
+                            avoidHighways = avoidHighways,
+                            avoidSmallRoads = avoidSmallRoads,
+                        ),
+                    )
                 }
                 if (stops == from && mode == fromMode) stops = filled.stops
             } catch (e: StopsTooLong) {

@@ -187,10 +187,9 @@ object RouteFill {
         stops: List<RouteStop>,
         minutes: Float,
         profile: String,
-        avoidHighways: Boolean,
-        avoidSmallRoads: Boolean,
+        preferences: RoutePreferences,
     ): Filled = fill(stops, minutes, route = { points ->
-        RoutingClient.routeVia(config, points, profile, avoidHighways, avoidSmallRoads)
+        RoutingClient.routeVia(config, points, profile, preferences)
     })
 
     /** One layout's rounds: route, compare the spare time gained with the

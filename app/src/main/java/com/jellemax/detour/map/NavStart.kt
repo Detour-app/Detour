@@ -66,8 +66,6 @@ suspend fun fetchNavRoute(
     heading: HeadingHint? = null,
 ): RouteResult = withContext(Dispatchers.IO) {
     RoutingClient.route(
-        serverConfig, from, to, mode.ghProfile,
-        Settings.avoidHighways.value, Settings.avoidSmallRoads.value,
-        heading,
+        serverConfig, from, to, mode.ghProfile, Settings.routePreferences(), heading,
     )
 }
