@@ -3,8 +3,6 @@ package com.jellemax.detour.data
 import com.jellemax.detour.data.RoutingServer.routingBase
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
-import kotlinx.serialization.json.addJsonObject
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -142,7 +140,7 @@ object RoutingClient {
         distanceMeters: Double,
         seed: Long,
         headingDeg: Double? = null,
-        avoidSmallRoads: Boolean = false,
+        preferences: RoutePreferences = RoutePreferences(),
     ): RouteResult {
         // Long loops can point past the graph's map edge or into road-sparse
         // areas ("could not find a valid point"). Shrink and reroll direction
@@ -152,7 +150,7 @@ object RoutingClient {
         var lastError: IOException? = null
         repeat(4) {
             try {
-                return requestRoundTrip(config, start, dist, s, headingDeg, avoidSmallRoads)
+                return requestRoundTrip(config, start, dist, s, headingDeg, preferences)
             } catch (e: IOException) {
                 lastError = e
                 dist *= 0.75
@@ -168,9 +166,11 @@ object RoutingClient {
         distanceMeters: Double,
         seed: Long,
         headingDeg: Double?,
-        avoidSmallRoads: Boolean = false,
+        preferences: RoutePreferences,
     ): RouteResult {
-        if (!avoidSmallRoads) {
+        // Only avoidSmallRoads shapes a loop: a moto round trip never takes a
+        // motorway, so avoidHighways would only cost the CH fast path.
+        if (!preferences.avoidSmallRoads) {
             return fetchRoute(
                 requireRoutingBase(config) +
                     "/route?profile=moto" +
@@ -199,49 +199,11 @@ object RoutingClient {
             putJsonArray("details") { add("max_speed"); add("roundabout") }
             put("ch.disable", true)
             putJsonObject("custom_model") {
-                put("priority", preferenceRules(avoidHighways = false, avoidSmallRoads = true))
+                put("priority", RoutePreferences(avoidSmallRoads = true).priorityRules())
             }
             headingDeg?.let { h -> putJsonArray("heading") { add(h.toInt()) } }
         }
         return fetchRoute(requireRoutingBase(config) + "/route", body.string())
-    }
-
-    /**
-     * Priority rules for the routing preferences, or an empty list when neither
-     * is on. Multipliers, never zero: a house sits on a residential street and
-     * the destination itself may be down a lane, so these roads have to stay
-     * usable — just expensive enough that a route only takes them when there is
-     * no reasonable alternative.
-     */
-    private fun preferenceRules(
-        avoidHighways: Boolean,
-        avoidSmallRoads: Boolean,
-    ) = buildJsonArray {
-        if (avoidHighways) {
-            addJsonObject {
-                put("if", "road_class == MOTORWAY || road_class == TRUNK")
-                put("multiply_by", 0.05)
-            }
-        }
-        if (avoidSmallRoads) {
-            // Belgium's landelijke wegen: narrow, badly surfaced, full of
-            // 90° farm-track corners. Tertiary and up are left alone; the
-            // unclassified layer is where the misery lives, so it takes the
-            // heaviest penalty that still leaves it routable.
-            addJsonObject {
-                put("if", "road_class == UNCLASSIFIED || road_class == RESIDENTIAL")
-                put("multiply_by", 0.2)
-            }
-            addJsonObject {
-                put("if", "road_class == LIVING_STREET || road_class == SERVICE")
-                put("multiply_by", 0.1)
-            }
-            // Unpaved: never worth it on two wheels or four.
-            addJsonObject {
-                put("if", "road_class == TRACK || road_class == PATH")
-                put("multiply_by", 0.02)
-            }
-        }
     }
 
     /**
@@ -261,22 +223,18 @@ object RoutingClient {
         from: LatLon,
         to: LatLon,
         profile: String,
-        avoidHighways: Boolean = false,
-        avoidSmallRoads: Boolean = false,
+        preferences: RoutePreferences = RoutePreferences(),
         /** Set by a reroute so the fresh line continues in the rider's
          *  direction of travel instead of turning them around; see [HeadingHint]. */
         heading: HeadingHint? = null,
     ): RouteResult = routeVia(
-        config, listOf(from, to), profile, avoidHighways, avoidSmallRoads, heading,
+        config, listOf(from, to), profile, preferences, heading,
     )
 
     /**
      * Turn-by-turn route through an ordered list of stops (a saved multi-point
-     * route, or the plain two-point case via [route]). [avoidHighways]
-     * downgrades motorways/trunks (only matters for the car profile; moto
-     * never uses them anyway); [avoidSmallRoads] pushes the route onto
-     * roads worth driving instead of the nearest lane through a field. Either
-     * one switches to a POST with a custom model, which needs flexible
+     * route, or the plain two-point case via [route]). Any [preferences]
+     * option that is on switches to a POST with a custom model, which needs flexible
      * routing — hence `ch.disable`. A [heading] does the same: GraphHopper
      * only honours `heading` outside CH.
      */
@@ -285,12 +243,11 @@ object RoutingClient {
         config: ServerConfig,
         points: List<LatLon>,
         profile: String,
-        avoidHighways: Boolean = false,
-        avoidSmallRoads: Boolean = false,
+        preferences: RoutePreferences = RoutePreferences(),
         heading: HeadingHint? = null,
     ): RouteResult {
         if (points.size < 2) throw IOException("routeVia needs at least two points")
-        val rules = preferenceRules(avoidHighways, avoidSmallRoads)
+        val rules = preferences.priorityRules()
         if (rules.isEmpty()) {
             val query = buildString {
                 append(requireRoutingBase(config))
