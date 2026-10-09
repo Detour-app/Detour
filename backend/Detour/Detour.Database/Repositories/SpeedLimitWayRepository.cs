@@ -19,9 +19,9 @@ public class SpeedLimitWayRepository(ICustomDbContextFactory<DetourDbContext> fa
         var existing = await Set
             .TagWith(Tag(nameof(UpsertAsync)))
             .FirstOrDefaultAsync(w => w.SourceId == incoming.SourceId, cancellationToken)
-            // A row added earlier in this same import run is not yet flushed to the DB — the
-            // import command does one FlushChangesAsync at the end, not one per entry — so
-            // without this a same-run duplicate way id would insert twice. Same reason
+            // A row added earlier on this context is not yet flushed to the DB when the caller
+            // upserts several before one FlushChangesAsync, so without this a duplicate way id
+            // would insert twice. Same reason
             // CameraRepository.UpsertAsync unions in Set.Local (#367).
             ?? Set.Local.FirstOrDefault(w => w.SourceId == incoming.SourceId);
 
@@ -33,5 +33,32 @@ public class SpeedLimitWayRepository(ICustomDbContextFactory<DetourDbContext> fa
 
         existing.ReplaceWith(incoming);
         return existing;
+    }
+
+    public async Task UpsertBatchAsync(IReadOnlyCollection<SpeedLimitWay> batch, CancellationToken cancellationToken)
+    {
+        // One query for the whole batch instead of UpsertAsync's per-row lookup plus Set.Local
+        // scan: Set.Local runs DetectChanges over every tracked entity, so a run of n rows on one
+        // context cost O(n²) and a country-sized extract never finished (#561).
+        var sourceIds = batch.Select(w => w.SourceId).Distinct().ToList();
+        var bySourceId = await Set
+            .TagWith(Tag(nameof(UpsertBatchAsync)))
+            .Where(w => sourceIds.Contains(w.SourceId))
+            .ToDictionaryAsync(w => w.SourceId, cancellationToken);
+
+        foreach (var incoming in batch)
+        {
+            if (bySourceId.TryGetValue(incoming.SourceId, out var existing))
+            {
+                existing.ReplaceWith(incoming);
+                continue;
+            }
+
+            Set.Add(incoming);
+            bySourceId[incoming.SourceId] = incoming;
+        }
+
+        await Context.SaveChangesAsync(cancellationToken);
+        Context.ChangeTracker.Clear();
     }
 }

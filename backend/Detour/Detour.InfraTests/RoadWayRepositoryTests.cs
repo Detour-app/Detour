@@ -46,8 +46,7 @@ public class RoadWayRepositoryTests(PostgresFixture postgres) : IntegrationTestB
     public async Task UpsertAsync_of_the_same_source_id_replaces_even_without_a_flush_between_them()
     {
         // Same reason CameraRepositoryTests'/SpeedLimitWayRepositoryTests' equivalent exists
-        // (#367): RoadImport does one FlushChangesAsync at the very end of a run, not one per
-        // entry.
+        // (#367): a caller may upsert several ways before one FlushChangesAsync.
         var repo = new RoadWayRepository(Factory);
 
         var first = RoadWay.Create("w-replace-2", Polyline(50.95, 4.45), "residential").Value;
@@ -91,5 +90,27 @@ public class RoadWayRepositoryTests(PostgresFixture postgres) : IntegrationTestB
 
         Assert.Contains(found, w => w.Id == primary.Id);
         Assert.DoesNotContain(found, w => w.Id == residential.Id);
+    }
+
+    [Fact]
+    public async Task UpsertBatchAsync_replaces_an_existing_row_and_collapses_a_duplicate_within_the_batch()
+    {
+        var repo = new RoadWayRepository(Factory);
+        var first = RoadWay.Create("w-batch-1", Polyline(51.50, 5.50), "residential").Value;
+        await repo.UpsertBatchAsync([first], CancellationToken.None);
+
+        await repo.UpsertBatchAsync(
+            [
+                RoadWay.Create("w-batch-1", Polyline(51.50, 5.50), "primary").Value,
+                RoadWay.Create("w-batch-2", Polyline(51.50, 5.50), "tertiary").Value,
+                RoadWay.Create("w-batch-2", Polyline(51.50, 5.50), "secondary").Value,
+            ],
+            CancellationToken.None);
+
+        var found = await repo.BboxAsync(51.49, 5.49, 51.51, 5.51, null, CancellationToken.None);
+        var replaced = Assert.Single(found, w => w.SourceId == "w-batch-1");
+        Assert.Equal(first.Id, replaced.Id);
+        Assert.Equal("primary", replaced.Highway);
+        Assert.Equal("secondary", Assert.Single(found, w => w.SourceId == "w-batch-2").Highway);
     }
 }
