@@ -146,7 +146,7 @@ class ArchitectureTest {
     fun `detekt baselines only shrink`() {
         val pinned = mapOf(
             "config/detekt/baseline-app.xml" to 128,
-            "config/detekt/baseline-shared.xml" to 63,
+            "config/detekt/baseline-shared.xml" to 62,
         )
         val errors = pinned.mapNotNull { (path, ceiling) ->
             val entries = Regex("<ID>").findAll(File(root + path).readText()).count()

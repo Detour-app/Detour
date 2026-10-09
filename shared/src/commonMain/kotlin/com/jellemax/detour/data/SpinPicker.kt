@@ -194,8 +194,7 @@ suspend fun pickCandidate(
     val (route, label) = coroutineScope {
         val lookup = async { name ?: withTimeoutOrNull(REVERSE_GEOCODE_TIMEOUT_MS) { Geocoder.reverse(dest) } }
         val route = try {
-            RoutingClient.route(config, loc, dest, mode.ghProfile,
-                Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+            RoutingClient.route(config, loc, dest, mode.ghProfile, Settings.routePreferences())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
