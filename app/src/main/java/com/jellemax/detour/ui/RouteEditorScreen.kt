@@ -56,7 +56,6 @@ import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteFill
 import com.jellemax.detour.data.RouteOrigin
-import com.jellemax.detour.data.RoutePreferences
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.RoutingClient
@@ -175,10 +174,15 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     val serverConfig = remember { RoutingServer.load() }
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
     val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
+    val avoidTolls by Settings.avoidTolls.collectAsStateWithLifecycle()
+    val avoidFerries by Settings.avoidFerries.collectAsStateWithLifecycle()
+    val avoidUnpaved by Settings.avoidUnpaved.collectAsStateWithLifecycle()
 
     // Re-route on every stop/mode/preference change — the point of showing
     // distance/duration inline is that it always matches what's on screen.
-    LaunchedEffect(stops, mode, avoidHighways, avoidSmallRoads) {
+    // The avoid flags are keys only: the request reads Settings.routePreferences(),
+    // which already holds the same values and drops what the server can't honour.
+    LaunchedEffect(stops, mode, avoidHighways, avoidSmallRoads, avoidTolls, avoidFerries, avoidUnpaved) {
         if (stops.size < 2) {
             // Removing a stop while a request is in flight cancels this effect
             // mid-call, so the early return has to drop the spinner too.
@@ -195,10 +199,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             val result = withContext(Dispatchers.IO) {
                 RoutingClient.routeVia(
                     serverConfig, stops.map { it.at }, mode.ghProfile,
-                    RoutePreferences(
-                        avoidHighways = avoidHighways,
-                        avoidSmallRoads = avoidSmallRoads,
-                    ),
+                    Settings.routePreferences(),
                 )
             }
             polyline = result.polyline
@@ -334,10 +335,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                 val filled = withContext(Dispatchers.IO) {
                     RouteFill.fillRouted(
                         serverConfig, from, minutes, mode.ghProfile,
-                        RoutePreferences(
-                            avoidHighways = avoidHighways,
-                            avoidSmallRoads = avoidSmallRoads,
-                        ),
+                        Settings.routePreferences(),
                     )
                 }
                 if (stops == from && mode == fromMode) stops = filled.stops

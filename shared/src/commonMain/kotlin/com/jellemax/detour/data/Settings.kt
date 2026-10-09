@@ -113,11 +113,26 @@ object Settings {
     private val _avoidSmallRoads = MutableStateFlow(false)
     val avoidSmallRoads: StateFlow<Boolean> = _avoidSmallRoads
 
-    /** The avoid options as they stand now, for a routing request. */
+    /** The three avoid options that need the routing server's graph to carry
+     *  an encoded value (#587). What the rider chose, not what is sent: see
+     *  [routePreferences]. */
+    private val _avoidTolls = MutableStateFlow(false)
+    val avoidTolls: StateFlow<Boolean> = _avoidTolls
+    private val _avoidFerries = MutableStateFlow(false)
+    val avoidFerries: StateFlow<Boolean> = _avoidFerries
+    private val _avoidUnpaved = MutableStateFlow(false)
+    val avoidUnpaved: StateFlow<Boolean> = _avoidUnpaved
+
+    /** The avoid options as they stand now, for a routing request — minus any
+     *  the routing server has not said it supports, so a choice made against
+     *  one server never 400s every route on another. */
     fun routePreferences() = RoutePreferences(
         avoidHighways = _avoidHighways.value,
         avoidSmallRoads = _avoidSmallRoads.value,
-    )
+        avoidTolls = _avoidTolls.value,
+        avoidFerries = _avoidFerries.value,
+        avoidUnpaved = _avoidUnpaved.value,
+    ).supportedBy(RoutingSupport.known())
 
     /** Broadcast turn-by-turn state over BLE for an external display (e.g. a
      *  handlebar-mounted screen). Off by default: it advertises the phone over
@@ -352,6 +367,9 @@ object Settings {
         _autoDetectDrives.value = prefs.bool("auto_detect_drives", true)
         _avoidHighways.value = prefs.bool("avoid_highways", false)
         _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
+        _avoidTolls.value = prefs.bool("avoid_tolls", false)
+        _avoidFerries.value = prefs.bool("avoid_ferries", false)
+        _avoidUnpaved.value = prefs.bool("avoid_unpaved", false)
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
         loadSpinPrefs()
         _shareFog.value = prefs.bool("share_fog", false)
@@ -559,6 +577,21 @@ object Settings {
     fun setAvoidSmallRoads(value: Boolean) {
         _avoidSmallRoads.value = value
         prefs.put("avoid_small_roads", value)
+    }
+
+    fun setAvoidTolls(value: Boolean) {
+        _avoidTolls.value = value
+        prefs.put("avoid_tolls", value)
+    }
+
+    fun setAvoidFerries(value: Boolean) {
+        _avoidFerries.value = value
+        prefs.put("avoid_ferries", value)
+    }
+
+    fun setAvoidUnpaved(value: Boolean) {
+        _avoidUnpaved.value = value
+        prefs.put("avoid_unpaved", value)
     }
 
     fun setExternalDisplayEnabled(value: Boolean) {

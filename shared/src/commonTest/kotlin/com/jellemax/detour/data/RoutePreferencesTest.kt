@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -47,5 +48,40 @@ class RoutePreferencesTest {
             "[$highwayRules,$smallRoadRules]",
             RoutePreferences(avoidHighways = true, avoidSmallRoads = true).priorityRules().toString(),
         )
+    }
+
+    @Test
+    fun theGraphDependentOptionsAddOneRuleEach() {
+        assertEquals(
+            """[{"if":"toll == ALL","multiply_by":0.05},""" +
+                """{"if":"road_environment == FERRY","multiply_by":0.05},""" +
+                """{"if":"surface == UNPAVED || surface == GRAVEL || surface == DIRT || surface == SAND",""" +
+                """"multiply_by":0.05}]""",
+            RoutePreferences(avoidTolls = true, avoidFerries = true, avoidUnpaved = true)
+                .priorityRules().toString(),
+        )
+    }
+
+    private val all = RoutePreferences(
+        avoidHighways = true, avoidSmallRoads = true,
+        avoidTolls = true, avoidFerries = true, avoidUnpaved = true,
+    )
+
+    @Test
+    fun anUnknownServerKeepsOnlyTheOptionsEveryGraphHas() {
+        val sent = all.supportedBy(null)
+        assertEquals(RoutePreferences(avoidHighways = true, avoidSmallRoads = true), sent)
+    }
+
+    @Test
+    fun aGraphWithoutTollDropsOnlyTolls() {
+        val sent = all.supportedBy(setOf("road_class", "surface", "road_environment"))
+        assertFalse(sent.avoidTolls)
+        assertEquals(all.copy(avoidTolls = false), sent)
+    }
+
+    @Test
+    fun aGraphWithAllThreeKeepsEverything() {
+        assertEquals(all, all.supportedBy(setOf("toll", "surface", "road_environment")))
     }
 }

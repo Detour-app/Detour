@@ -104,6 +104,23 @@ struct SettingsScreen: View {
                 get: { model.avoidSmallRoads },
                 set: { Settings.shared.setAvoidSmallRoads(value: $0) }
             ))
+            // Off and disabled when the routing server's graph can't express
+            // the rule, rather than sent and failing every route (#587).
+            Toggle("Avoid tolls", isOn: Binding(
+                get: { model.avoidTolls && model.tollsSupported },
+                set: { Settings.shared.setAvoidTolls(value: $0) }
+            ))
+            .disabled(!model.tollsSupported)
+            Toggle("Avoid ferries", isOn: Binding(
+                get: { model.avoidFerries && model.ferriesSupported },
+                set: { Settings.shared.setAvoidFerries(value: $0) }
+            ))
+            .disabled(!model.ferriesSupported)
+            Toggle("Avoid unpaved roads", isOn: Binding(
+                get: { model.avoidUnpaved && model.unpavedSupported },
+                set: { Settings.shared.setAvoidUnpaved(value: $0) }
+            ))
+            .disabled(!model.unpavedSupported)
             Toggle("Spoken directions", isOn: Binding(
                 get: { model.voiceGuidance },
                 set: { Settings.shared.setVoiceGuidance(value: $0) }
@@ -111,8 +128,14 @@ struct SettingsScreen: View {
         } header: {
             Text("Routing")
         } footer: {
-            Text("Small roads are the narrow rural lanes a router picks because they are short, not because anyone wants to drive them.")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Small roads are the narrow rural lanes a router picks because they are short, not because anyone wants to drive them.")
+                if !(model.tollsSupported && model.ferriesSupported && model.unpavedSupported) {
+                    Text("A greyed-out option is one your routing server can't do yet.")
+                }
+            }
         }
+        .task { await model.refreshRoutingSupport() }
     }
 
     /// Camera-warning settings (#496); `CameraWarner` in `:shared` reads them.
@@ -246,6 +269,13 @@ final class SettingsModel: ObservableObject {
     @Published var defaultZoom: Float = 16
     @Published var avoidHighways = false
     @Published var avoidSmallRoads = false
+    @Published var avoidTolls = false
+    @Published var avoidFerries = false
+    @Published var avoidUnpaved = false
+    @Published var tollsSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.TOLL)
+    @Published var ferriesSupported =
+        RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.ROAD_ENVIRONMENT)
+    @Published var unpavedSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.SURFACE)
     @Published var voiceGuidance = true
     @Published var cameraWarnings = true
     @Published var cameraWarnNotSpeeding = false
@@ -260,6 +290,9 @@ final class SettingsModel: ObservableObject {
     private let zoom = SettingsFlows.shared.defaultZoom()
     private let highways = SettingsFlows.shared.avoidHighways()
     private let smallRoads = SettingsFlows.shared.avoidSmallRoads()
+    private let tolls = SettingsFlows.shared.avoidTolls()
+    private let ferries = SettingsFlows.shared.avoidFerries()
+    private let unpaved = SettingsFlows.shared.avoidUnpaved()
     private let voice = SettingsFlows.shared.voiceGuidance()
     private let cameras = SettingsFlows.shared.cameraWarnings()
     private let camerasNotSpeeding = SettingsFlows.shared.cameraWarnNotSpeeding()
@@ -277,6 +310,9 @@ final class SettingsModel: ObservableObject {
         zoom.watch { [weak self] in self?.defaultZoom = self?.zoom.value ?? 16 }
         highways.watch { [weak self] in self?.avoidHighways = self?.highways.value ?? false }
         smallRoads.watch { [weak self] in self?.avoidSmallRoads = self?.smallRoads.value ?? false }
+        tolls.watch { [weak self] in self?.avoidTolls = self?.tolls.value ?? false }
+        ferries.watch { [weak self] in self?.avoidFerries = self?.ferries.value ?? false }
+        unpaved.watch { [weak self] in self?.avoidUnpaved = self?.unpaved.value ?? false }
         voice.watch { [weak self] in self?.voiceGuidance = self?.voice.value ?? true }
         cameras.watch { [weak self] in self?.cameraWarnings = self?.cameras.value ?? true }
         camerasNotSpeeding.watch { [weak self] in
@@ -293,8 +329,18 @@ final class SettingsModel: ObservableObject {
     }
 
     deinit {
-        [fog, lineColor, radius, zoom, highways, smallRoads, voice, cameras, camerasNotSpeeding,
-         camerasLimitUnknown, auto, fogSharing, fallback]
+        [fog, lineColor, radius, zoom, highways, smallRoads, tolls, ferries, unpaved, voice, cameras,
+         camerasNotSpeeding, camerasLimitUnknown, auto, fogSharing, fallback]
             .forEach { $0.cancel() }
+    }
+
+    /// Asks the routing server which avoid options its graph can honour —
+    /// same moment Android asks, when the rider opens these settings. A failed
+    /// probe keeps the last answer (`RoutingSupport.refresh`).
+    func refreshRoutingSupport() async {
+        try? await RoutingSupport.shared.refresh()
+        tollsSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.TOLL)
+        ferriesSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.ROAD_ENVIRONMENT)
+        unpavedSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.SURFACE)
     }
 }
