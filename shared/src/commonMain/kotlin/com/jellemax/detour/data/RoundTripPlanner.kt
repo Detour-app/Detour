@@ -12,7 +12,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeout
 
 /**
  * Junction-aware curviness scoring.
@@ -202,31 +201,29 @@ object RoundTripPlanner {
         highwayRegex: String,
         bearingDeg: Double? = null,
     ): List<LatLon> =
-        withTimeout(45_000) {
-            coroutineScope {
-                // A loop covers all directions; a bearing just anchors where it starts.
-                val startAngle = bearingDeg?.let { toRadians(it) }
-                    ?: Random.nextDouble(2 * PI)
-                val fetchLimit = Semaphore(2) // be polite to the backend
-                val waypoints = (0 until SECTORS).map { s ->
-                    async {
-                        fetchLimit.withPermit {
-                            // Any single-sector failure just skips that sector.
-                            try {
-                                sectorWaypoint(center, radiusMeters,
-                                    startAngle + s * 2 * PI / SECTORS, highwayRegex)
-                            } catch (e: Exception) {
-                                if (e is CancellationException) throw e
-                                null
-                            }
+        coroutineScope {
+            // A loop covers all directions; a bearing just anchors where it starts.
+            val startAngle = bearingDeg?.let { toRadians(it) }
+                ?: Random.nextDouble(2 * PI)
+            val fetchLimit = Semaphore(2) // be polite to the backend
+            val waypoints = (0 until SECTORS).map { s ->
+                async {
+                    fetchLimit.withPermit {
+                        // Any single-sector failure just skips that sector.
+                        try {
+                            sectorWaypoint(center, radiusMeters,
+                                startAngle + s * 2 * PI / SECTORS, highwayRegex)
+                        } catch (e: Exception) {
+                            if (e is CancellationException) throw e
+                            null
                         }
                     }
-                }.awaitAll().filterNotNull()
-                if (waypoints.size < MIN_WAYPOINTS) {
-                    throw SpinFailure("Not enough roads for a round trip — try a larger radius")
                 }
-                waypoints
+            }.awaitAll().filterNotNull()
+            if (waypoints.size < MIN_WAYPOINTS) {
+                throw SpinFailure("Not enough roads for a round trip — try a larger radius")
             }
+            waypoints
         }
 
     private suspend fun sectorWaypoint(
