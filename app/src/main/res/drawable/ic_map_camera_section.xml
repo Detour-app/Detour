@@ -2,11 +2,11 @@
 <!-- Average-speed section camera marker (#404), drawn at a section's entry and
      exit devices. Same shell and camera as ic_map_camera - round sign, front-on
      camera, multi-ring lens, on the same 48-unit grid at 36dp - but the whole
-     sign is blue (the Belgian trajectcontrole sign) with a thin white inner
-     line, the camera is white, and a two-headed arrow ("measured over a
-     distance") stands where the mounting bracket was. A blue face rather than
-     a blue ring keeps it apart from ic_map_camera_redlight, whose ring is blue
-     around a white face. See ic_map_camera.xml for the 2x rasterisation. -->
+     sign is purple, the camera is white, and a two-headed arrow ("measured over
+     a distance") stands where the mounting bracket was. Purple rather than blue:
+     ic_map_camera_redlight already has a blue ring, and a blue section sign read
+     as the same icon at marker size. See ic_map_camera.xml for the 2x
+     rasterisation. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="36dp"
     android:height="36dp"
@@ -16,17 +16,10 @@
     <path
         android:fillColor="#33000000"
         android:pathData="M24,26m-20,0a20,20 0 1,1 40,0a20,20 0 1,1 -40,0" />
-    <!-- blue sign -->
+    <!-- purple sign: ring and face in one colour -->
     <path
-        android:fillColor="#FF2B57D8"
+        android:fillColor="#FF8E44D0"
         android:pathData="M24,24m-20,0a20,20 0 1,1 40,0a20,20 0 1,1 -40,0" />
-    <!-- thin white inner line, where the spot camera's ring meets its face -->
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M24,24m-15.5,0a15.5,15.5 0 1,1 31,0a15.5,15.5 0 1,1 -31,0" />
-    <path
-        android:fillColor="#FF2B57D8"
-        android:pathData="M24,24m-14.2,0a14.2,14.2 0 1,1 28.4,0a14.2,14.2 0 1,1 -28.4,0" />
     <!-- camera body -->
     <path
         android:fillColor="#FFFFFFFF"
@@ -39,9 +32,9 @@
     <path
         android:fillColor="#FFF2A007"
         android:pathData="M15.5,19h3.6v2.8h-3.6z" />
-    <!-- lens: blue bezel, dark barrel, red pupil, white glint -->
+    <!-- lens: purple bezel, dark barrel, red pupil, white glint -->
     <path
-        android:fillColor="#FF2B57D8"
+        android:fillColor="#FF8E44D0"
         android:pathData="M25,24m-6.2,0a6.2,6.2 0 1,1 12.4,0a6.2,6.2 0 1,1 -12.4,0" />
     <path
         android:fillColor="#FF1B2430"
@@ -55,5 +48,5 @@
     <!-- two-headed arrow: the distance the average is taken over -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M16,35.2l3.2,-2.7v1.85h9.6v-1.85l3.2,2.7l-3.2,2.7v-1.85h-9.6v1.85z" />
+        android:pathData="M15.5,35.5l3.6,-3v1.8h9.8v-1.8l3.6,3l-3.6,3v-1.8h-9.8v1.8z" />
 </vector>
