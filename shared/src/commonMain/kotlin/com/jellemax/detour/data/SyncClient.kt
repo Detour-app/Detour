@@ -7,10 +7,10 @@ import kotlinx.serialization.json.put
 
 /**
  * Bidirectional sync with the rider's own server (see backend/README.md). One
- * POST uploads local trips, fog-of-war traces, badges and the aggregate stats
- * friends are allowed to see; the server merges them with its copy and returns
- * the union, which replaces the local stores. Deleting and reinstalling the app
- * therefore restores everything on the first sync.
+ * POST uploads local trips, fog-of-war traces, badges, ride titles and the
+ * aggregate stats friends are allowed to see; the server merges them with its
+ * copy and returns the union, which replaces the local stores. Deleting and
+ * reinstalling the app therefore restores everything on the first sync.
  *
  * The server keys everything on the signed-in rider, so syncing requires a
  * session ([Auth]). Traces and trips are only ever returned to their owner.
@@ -135,6 +135,7 @@ object SyncClient {
             put("deletedTripStartTimes", buildJsonArrayOfLongs(TripStore.deletedStartTimes()))
             put("traces", buildJsonArrayOfStrings(TraceStore.rawLines()))
             put("badges", jsonObjectOf(BadgeStore.rawJson()))
+            put("tripTitles", TripTitleStore.toUpload(TripTitleStore.loadEntries()))
             put("savedPlaces", jsonArrayOf(SavedPlaces.rawJson()))
             put("stats", stats.toJson())
             put("shareFog", Settings.shareFog.value)
@@ -196,12 +197,17 @@ object SyncClient {
         RiderTotals.refreshIfStale()
         TraceStore.replaceLines(traces.indices.map { traces.optString(it) })
         BadgeStore.replaceRaw(badges.string())
-        // Absent on an older server: leave the local shortcuts untouched.
-        merged.optArray("savedPlaces")?.let {
-            SavedPlaces.replaceFromServer(it.string())
-        }
+        writeBackOptional(merged)
         Settings.setLastSyncMs(nowMs())
         return SyncResult(trips.size, traces.size, badges.size)
+    }
+
+    /** The documents an older server omits from its response. Absent leaves
+     *  the local copy untouched. Titles are merged rather than replaced, so a
+     *  rename made while the round trip was in flight is not overwritten. */
+    private fun writeBackOptional(merged: JsonObject) {
+        merged.optArray("savedPlaces")?.let { SavedPlaces.replaceFromServer(it.string()) }
+        merged.optArray("tripTitles")?.let { TripTitleStore.mergeFromServer(TripTitleStore.fromServer(it)) }
     }
 
     private fun tripsForUpload() = buildJsonArray {

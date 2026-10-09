@@ -226,3 +226,13 @@ public class SavedPlaceRepository(ICustomDbContextFactory<DetourDbContext> facto
             .ToListAsync(cancellationToken);
     }
 }
+
+public class TripTitleRepository(ICustomDbContextFactory<DetourDbContext> factory)
+    : BaseRepository<TripTitle, DetourDbContext>(factory), ITripTitleRepository
+{
+    public Task<List<TripTitle>> GetForUserAsync(Guid userId, CancellationToken cancellationToken) =>
+        Set.TagWith(Tag(nameof(GetForUserAsync)))
+            .Where(t => t.UserId == userId)
+            .OrderBy(t => t.TripStartTimeMs)
+            .ToListAsync(cancellationToken);
+}

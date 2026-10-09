@@ -6,8 +6,8 @@ import kotlin.test.assertTrue
 
 /**
  * Pins the bytes of the per-account files that can't be rebuilt — trips,
- * traces, saved places, routes, tombstones, mode edits, badges — plus the
- * enum names and badge ids those files store as strings.
+ * traces, saved places, routes, tombstones, mode edits, badges, ride titles —
+ * plus the enum names and badge ids those files store as strings.
  *
  * A round-trip test can't catch a renamed key: encode and decode change
  * together and still agree, while every file already on a phone (and on the
@@ -321,6 +321,34 @@ class PersistedFormatTest {
         val earned = mapOf("dist_100000" to 1_726_000_000_000L, "speed_130" to 1_726_100_000_000L)
         assertEquals(earned, BadgeStore.decodeEarned(earnedV1))
         assertEquals(jsonObjectOf(earnedV1), jsonObjectOf(BadgeStore.encodeEarned(earned)))
+    }
+
+    // --- trip_titles.json ----------------------------------------------------
+    // Syncs since #471. V1 titles read as edited at 0 so any stamped edit wins.
+
+    private val tripTitlesV1 = """{"1726000000000":"Coast road","1726100000000":"Say \"hi\""}"""
+    private val tripTitlesV2 =
+        """{"1726000000000":{"title":"Coast road","editedAtMs":1726200000000},"1726100000000":{"title":"","editedAtMs":1726300000000}}"""
+
+    @Test
+    fun tripTitlesV1Reads() {
+        assertEquals(
+            mapOf(
+                1_726_000_000_000L to TripTitleStore.Entry("Coast road", 0L),
+                1_726_100_000_000L to TripTitleStore.Entry("Say \"hi\"", 0L),
+            ),
+            TripTitleStore.decode(tripTitlesV1),
+        )
+    }
+
+    @Test
+    fun tripTitlesWriterMatchesV2() {
+        val titles = mapOf(
+            1_726_000_000_000L to TripTitleStore.Entry("Coast road", 1_726_200_000_000L),
+            1_726_100_000_000L to TripTitleStore.Entry("", 1_726_300_000_000L),
+        )
+        assertEquals(titles, TripTitleStore.decode(tripTitlesV2))
+        assertEquals(jsonObjectOf(tripTitlesV2), jsonObjectOf(TripTitleStore.encode(titles)))
     }
 
     // --- names stored as strings ---------------------------------------------
