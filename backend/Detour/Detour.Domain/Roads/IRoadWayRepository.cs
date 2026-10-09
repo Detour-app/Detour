@@ -19,4 +19,12 @@ public interface IRoadWayRepository : IBaseRepository<RoadWay>
     /// <see cref="ISpeedLimitWayRepository.UpsertAsync"/>'s doc: a per-region import run must not
     /// wipe every other region's previously imported rows.</summary>
     Task<RoadWay> UpsertAsync(RoadWay incoming, CancellationToken cancellationToken);
+
+    /// <summary>Same upsert as <see cref="UpsertAsync"/> for a whole batch, then flushes it and
+    /// clears the change tracker, so a bulk import stays linear in its row count (#561). A later
+    /// entry in <paramref name="batch"/> with an earlier one's source id replaces it in place.
+    ///
+    /// Import-only: clearing the tracker detaches every entity this repository's context
+    /// holds, not just the batch's.</summary>
+    Task UpsertBatchAsync(IReadOnlyCollection<RoadWay> batch, CancellationToken cancellationToken);
 }

@@ -16,7 +16,7 @@ public class PoiConfiguration : IEntityTypeConfiguration<Poi>
         builder.Property(p => p.Kind).HasMaxLength(16).IsRequired();
         builder.Property(p => p.Name).HasMaxLength(256).IsRequired();
 
-        // One row per OSM element: UpsertAsync looks this up on every import entry.
+        // One row per OSM element: UpsertAsync/UpsertBatchAsync look rows up by it.
         builder.HasIndex(p => p.SourceId).IsUnique();
 
         // The one query this table exists to answer: does this POI's point overlap the rider's
