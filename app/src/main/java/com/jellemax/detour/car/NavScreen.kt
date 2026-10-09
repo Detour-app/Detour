@@ -456,7 +456,7 @@ class NavScreen(
                 if (result != null) {
                     speedCameras = result.cameras
                     speedSections = result.sections
-                    renderer.setCameras(speedCameras)
+                    renderer.setCameras(result)
                 }
             }
         }

@@ -54,12 +54,14 @@ private const val SRC_DEST = "mr-dest"
 private const val SRC_POSITION = "mr-position"
 private const val SRC_CAMERAS = "mr-cameras"
 private const val SRC_CAMERAS_REDLIGHT = "mr-cameras-redlight"
+private const val SRC_CAMERAS_SECTION = "mr-cameras-section"
 private const val SRC_FRIENDS = "mr-friends"
 private const val SRC_CIRCLE_MEMBERS = "mr-circle-members"
 private const val IMG_DEST = "mr-img-dest"
 private const val IMG_POSITION = "mr-img-position"
 private const val IMG_CAMERA = "mr-img-camera"
 private const val IMG_CAMERA_REDLIGHT = "mr-img-camera-redlight"
+private const val IMG_CAMERA_SECTION = "mr-img-camera-section"
 private const val IMG_FRIEND = "mr-img-friend"
 private const val IMG_CIRCLE_MEMBER = "mr-img-circle-member"
 private const val LAYER_ROUTE = "mr-route-line"
@@ -89,8 +91,8 @@ private const val POSITION_ICON_SCALE = 2
 // Below city zoom the speed-camera icons pile up into an unreadable blob, and
 // at loop-planning zoom they're just noise — hide them until zoomed past this.
 private const val SPEED_CAMERA_MIN_ZOOM = 11f
-// The camera marker is a detailed glyph on a 48-unit grid; rasterise it at this
-// multiple and scale back with iconSize so it doesn't come out soft. Same
+// The camera markers are detailed glyphs on a 48-unit grid; rasterise them at
+// this multiple and scale back with iconSize so they don't come out soft. Same
 // reasoning as POSITION_ICON_SCALE, minus the rotation — a static marker at 1:1
 // is already close, but the lens rings smear without it.
 private const val CAMERA_ICON_SCALE = 2
@@ -137,18 +139,19 @@ class MapOverlays(
             style.addImage(IMG_DEST, it.toBitmap())
         }
         setPositionIcon(Settings.mapIcon.value)
-        ContextCompat.getDrawable(context, R.drawable.ic_map_camera)?.let {
-            // Rasterised at 2x and scaled back by iconSize on the layer, so the
-            // detailed glyph stays crisp at marker size — same trick as the
-            // own-position icon (see POSITION_ICON_SCALE).
-            style.addImage(IMG_CAMERA, it.toBitmap(
-                it.intrinsicWidth * CAMERA_ICON_SCALE,
-                it.intrinsicHeight * CAMERA_ICON_SCALE))
-        }
-        ContextCompat.getDrawable(context, R.drawable.ic_map_camera_redlight)?.let {
-            style.addImage(IMG_CAMERA_REDLIGHT, it.toBitmap(
-                it.intrinsicWidth * CAMERA_ICON_SCALE,
-                it.intrinsicHeight * CAMERA_ICON_SCALE))
+        // Rasterised at 2x and scaled back by iconSize on the layer, so the
+        // glyph stays crisp at marker size — same trick as the own-position
+        // icon (see POSITION_ICON_SCALE).
+        listOf(
+            IMG_CAMERA to R.drawable.ic_map_camera,
+            IMG_CAMERA_SECTION to R.drawable.ic_map_camera_section,
+            IMG_CAMERA_REDLIGHT to R.drawable.ic_map_camera_redlight,
+        ).forEach { (name, res) ->
+            ContextCompat.getDrawable(context, res)?.let {
+                style.addImage(name, it.toBitmap(
+                    it.intrinsicWidth * CAMERA_ICON_SCALE,
+                    it.intrinsicHeight * CAMERA_ICON_SCALE))
+            }
         }
         ContextCompat.getDrawable(context, R.drawable.ic_map_friend)?.let {
             style.addImage(IMG_FRIEND, it.toBitmap())
@@ -157,7 +160,7 @@ class MapOverlays(
             style.addImage(IMG_CIRCLE_MEMBER, it.toBitmap())
         }
         listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_ROUTE_DRIVEN, SRC_ROUTE_TAIL,
-            SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_CAMERAS_REDLIGHT,
+            SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_CAMERAS_SECTION, SRC_CAMERAS_REDLIGHT,
             SRC_FRIENDS, SRC_CIRCLE_MEMBERS)
             .forEach { style.addSource(GeoJsonSource(it)) }
 
@@ -264,6 +267,14 @@ class MapOverlays(
         // candidate dots so a spin result is never hidden behind a camera.
         style.addLayer(SymbolLayer("mr-cameras", SRC_CAMERAS).withProperties(
             PropertyFactory.iconImage(IMG_CAMERA),
+            PropertyFactory.iconSize(1f / CAMERA_ICON_SCALE),
+            PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)
+        ).also { it.setMinZoom(SPEED_CAMERA_MIN_ZOOM) })
+        // Average-speed section entry/exit devices (#404): a spot camera
+        // judges one instant, a section the whole stretch, and a rider slows
+        // differently for each.
+        style.addLayer(SymbolLayer("mr-cameras-section", SRC_CAMERAS_SECTION).withProperties(
+            PropertyFactory.iconImage(IMG_CAMERA_SECTION),
             PropertyFactory.iconSize(1f / CAMERA_ICON_SCALE),
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)
         ).also { it.setMinZoom(SPEED_CAMERA_MIN_ZOOM) })
@@ -447,13 +458,16 @@ class MapOverlays(
     }
 
     /** Replace the speed-camera markers. Fed by the prefetch loop, not [render],
-     *  because cameras refresh only as you near the edge of the fetched area. */
-    fun setCameras(cameras: List<SpeedCameras.Camera>) {
-        val (redLight, plain) = cameras.partition { it.kind != SpeedCameras.CameraKind.SPEED }
-        setData(SRC_CAMERAS, FeatureCollection.fromFeatures(
-            plain.map { Feature.fromGeometry(Point.fromLngLat(it.at.lon, it.at.lat)) }))
-        setData(SRC_CAMERAS_REDLIGHT, FeatureCollection.fromFeatures(
-            redLight.map { Feature.fromGeometry(Point.fromLngLat(it.at.lon, it.at.lat)) }))
+     *  because cameras refresh only as you near the edge of the fetched area.
+     *  [sections] come from the same fetch and only decide which icon a camera
+     *  draws as ([SpeedCameras.markerIcon]). */
+    fun setCameras(cameras: List<SpeedCameras.Camera>, sections: List<SpeedCameras.Section>) {
+        val byIcon = cameras.groupBy { SpeedCameras.markerIcon(it, sections) }
+        fun points(icon: SpeedCameras.MarkerIcon) = FeatureCollection.fromFeatures(
+            byIcon[icon].orEmpty().map { Feature.fromGeometry(Point.fromLngLat(it.at.lon, it.at.lat)) })
+        setData(SRC_CAMERAS, points(SpeedCameras.MarkerIcon.SPOT))
+        setData(SRC_CAMERAS_SECTION, points(SpeedCameras.MarkerIcon.SECTION))
+        setData(SRC_CAMERAS_REDLIGHT, points(SpeedCameras.MarkerIcon.RED_LIGHT))
     }
 
     /** Replace the convoy friend markers. Fed on its own cadence by

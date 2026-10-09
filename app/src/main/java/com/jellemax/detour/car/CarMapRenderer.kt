@@ -233,7 +233,7 @@ class CarMapRenderer(
     private var destination: LatLon? = null
     private var position: LatLon? = null
     private var positionBearing: Double? = null
-    private var cameras: List<SpeedCameras.Camera> = emptyList()
+    private var cameras = SpeedCameras.Result(emptyList(), emptyList())
     private var friends: Collection<NamedFriendPosition> = emptyList()
     private var circleMembers: Collection<NamedMemberFix> = emptyList()
 
@@ -345,9 +345,9 @@ class CarMapRenderer(
         withOverlays { it.setPosition(pos, positionBearing) }
     }
 
-    fun setCameras(cameras: List<SpeedCameras.Camera>) {
+    fun setCameras(cameras: SpeedCameras.Result) {
         this.cameras = cameras
-        withOverlays { it.setCameras(cameras) }
+        withOverlays { it.setCameras(cameras.cameras, cameras.sections) }
     }
 
     fun setFriends(friends: Collection<NamedFriendPosition>) {
@@ -435,7 +435,7 @@ class CarMapRenderer(
                 // route change to redraw the line.
                 pushRoute(fresh)
                 position?.let { fresh.setPosition(it, positionBearing) }
-                if (cameras.isNotEmpty()) fresh.setCameras(cameras)
+                if (cameras.cameras.isNotEmpty()) fresh.setCameras(cameras.cameras, cameras.sections)
                 if (friends.isNotEmpty()) fresh.setFriends(friends)
                 // Signed-out guarded here too, not just in the poll loop
                 // above: the loop only notices a sign-out on its own
