@@ -91,10 +91,10 @@ private const val POSITION_ICON_SCALE = 2
 // Below city zoom the speed-camera icons pile up into an unreadable blob, and
 // at loop-planning zoom they're just noise — hide them until zoomed past this.
 private const val SPEED_CAMERA_MIN_ZOOM = 11f
-// The camera markers are drawn on a 48-unit grid; rasterise them at this
-// multiple and scale back with iconSize so they don't come out soft. Same
-// reasoning as POSITION_ICON_SCALE, minus the rotation. Kept after #404 made
-// the glyphs minimal: at 1:1 the white ring and the lamp edges still smear.
+// The camera markers are detailed glyphs on a 48-unit grid; rasterise them at
+// this multiple and scale back with iconSize so they don't come out soft. Same
+// reasoning as POSITION_ICON_SCALE, minus the rotation — a static marker at 1:1
+// is already close, but the lens rings smear without it.
 private const val CAMERA_ICON_SCALE = 2
 // Recutting the route into its driven and undriven halves costs two GeoJSON
 // pushes the size of the route, so the cut advances in steps rather than on
