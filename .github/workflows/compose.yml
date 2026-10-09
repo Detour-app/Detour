@@ -21,7 +21,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: fetch-extract.sh
         run: sh docker/prod/scripts/fetch-extract.test.sh
@@ -78,7 +78,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: base + idp comes up healthy
         working-directory: docker/prod
         run: |
