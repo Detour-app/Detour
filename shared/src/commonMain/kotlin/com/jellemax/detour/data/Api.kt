@@ -83,7 +83,7 @@ internal object Api {
             // refresh token, and the AuthException it throws is not an
             // HttpStatusException, so it passes straight through this catch.
             val detail = errorMessage(e.body) ?: "HTTP ${e.code}"
-            if (e.code != 401) throw HttpStatusException(e.code, e.body, detail)
+            if (e.code != 401) throw HttpStatusException(e.code, e.body, detail, problemDetail(e.body))
             // Which of the two 401s this was, named so a rider can report it.
             // Reaching here at all means the session survived: the provider
             // either vouched for it (SERVER_REFUSED) or was never asked
@@ -107,9 +107,19 @@ internal object Api {
      * localized message a rider can act on ("username already taken"); `title`
      * is the generic one behind it. Either beats "HTTP 409".
      */
-    private fun errorMessage(body: String): String? = try {
-        val o = jsonObjectOf(body)
-        o.optString("detail").ifBlank { o.optString("title") }.takeIf { it.isNotBlank() }
+    private fun errorMessage(body: String): String? = problemDetail(body) ?: try {
+        jsonObjectOf(body).optString("title").takeIf { it.isNotBlank() }
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * The problem's `detail` only, never its `title`: ASP.NET's bare
+     * NotFound/Forbid bodies carry just a title ("Not Found"), which reads
+     * worse than failureReason's own sentence for that status (#481).
+     */
+    internal fun problemDetail(body: String): String? = try {
+        jsonObjectOf(body).optString("detail").takeIf { it.isNotBlank() }
     } catch (e: Exception) {
         null
     }

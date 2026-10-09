@@ -39,11 +39,16 @@ import okio.buffer
  * [message] lets a caller that rewords the error keep the status: rethrowing a
  * plain `IOException` instead left `failureText` reading every server refusal
  * as a connection problem (#461).
+ *
+ * [detail] is the API's own problem-details sentence ("No rider goes by X"),
+ * set only by [Api], whose `detail` is written for the rider. Other servers'
+ * bodies stay out of it: GraphHopper's or nginx's text is not.
  */
 class HttpStatusException(
     val code: Int,
     val body: String,
     message: String = "HTTP $code",
+    val detail: String? = null,
 ) : IOException(message)
 
 /**
@@ -84,12 +89,19 @@ fun failureReason(e: Throwable): String = when {
     e is AuthException -> "the sign-in has expired. Sign in again."
     e is NoRoutingServerException -> "no routing server is set up. Add one in Settings → Servers & sync."
     e is NoRouteException -> "no road connects those points. Try moving them."
-    e is HttpStatusException && e.code in 401..403 -> "the server refused the sign-in."
-    e is HttpStatusException && e.code == 404 -> "the server has nothing at that address."
-    e is HttpStatusException && e.code >= 500 -> "the server hit a problem. Try again later."
-    e is HttpStatusException -> "the server answered ${e.code}."
+    // A 4xx the API explained says what to fix ("No rider goes by X") better
+    // than any status reading; a 5xx detail may be internals, so it doesn't.
+    e is HttpStatusException -> statusReason(e)
     e is IOException -> "it could not be opened. Check your connection and try again."
     else -> "the contents were not what this app expected."
+}
+
+private fun statusReason(e: HttpStatusException): String = when {
+    e.code in 400..499 && e.detail != null -> e.detail
+    e.code in 401..403 -> "the server refused the sign-in."
+    e.code == 404 -> "the server has nothing at that address."
+    e.code >= 500 -> "the server hit a problem. Try again later."
+    else -> "the server answered ${e.code}."
 }
 
 internal object Http {

@@ -11,8 +11,6 @@
     <string name="car_search_spin_title">Spin for a Destination</string>
     <string name="car_search_spin_text">Pick a random road nearby</string>
     <string name="car_search_nothing_found">Nothing found</string>
-    <string name="car_search_failed">Search failed</string>
-    <string name="car_search_route_failed">Could not build a route</string>
     <string name="car_waiting_for_location">Waiting for your location…</string>
     <!-- car/SpinScreen.kt -->
     <string name="car_spin_location_needed_title">Location needed</string>
@@ -24,7 +22,6 @@
     <string name="car_spin_random_road">Random road</string>
     <string name="car_spin_start_navigation">Start Navigation</string>
     <string name="car_spin_navigate">Navigate</string>
-    <string name="car_spin_failed">Spin failed</string>
     <!-- car/CarMapRenderer.kt -->
     <string name="car_hud_speed_unit">km/h</string>
     <string name="car_hud_avg_unit">avg km/h</string>
@@ -64,6 +61,8 @@
     <string name="update_row_found">Detour %1$s available</string>
     <string name="update_row_check_failed">Couldn\'t reach GitHub</string>
     <string name="update_row_rate_limited">Checked a few times just now — try again shortly</string>
+    <string name="update_installed_title">What\'s new in %1$s</string>
+    <string name="update_installed_ok">OK</string>
 
     <!-- convoy/ConvoyLiveService.kt -->
     <string name="convoy_channel">Convoy</string>

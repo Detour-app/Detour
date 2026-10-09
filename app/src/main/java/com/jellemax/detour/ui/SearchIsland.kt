@@ -69,6 +69,7 @@ import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RecentSearchStore
+import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -222,7 +223,7 @@ fun SearchIsland(
             results = merged
             error = if (merged.isEmpty()) "No results" else null
         } catch (e: Exception) {
-            error = e.message ?: "Search failed"
+            error = failureText("Search", e)
         }
         searching = false
     }

@@ -7,10 +7,10 @@ import kotlinx.serialization.json.put
 
 /**
  * Bidirectional sync with the rider's own server (see backend/README.md). One
- * POST uploads local trips, fog-of-war traces, badges and the aggregate stats
- * friends are allowed to see; the server merges them with its copy and returns
- * the union, which replaces the local stores. Deleting and reinstalling the app
- * therefore restores everything on the first sync.
+ * POST uploads local trips, fog-of-war traces, badges, ride titles and the
+ * aggregate stats friends are allowed to see; the server merges them with its
+ * copy and returns the union, which replaces the local stores. Deleting and
+ * reinstalling the app therefore restores everything on the first sync.
  *
  * The server keys everything on the signed-in rider, so syncing requires a
  * session ([Auth]). Traces and trips are only ever returned to their owner.
@@ -135,6 +135,7 @@ object SyncClient {
             put("deletedTripStartTimes", buildJsonArrayOfLongs(TripStore.deletedStartTimes()))
             put("traces", buildJsonArrayOfStrings(TraceStore.rawLines()))
             put("badges", jsonObjectOf(BadgeStore.rawJson()))
+            put("tripTitles", TripTitleStore.toUpload(TripTitleStore.loadEntries()))
             put("savedPlaces", jsonArrayOf(SavedPlaces.rawJson()))
             put("stats", stats.toJson())
             put("shareFog", Settings.shareFog.value)
@@ -196,29 +197,40 @@ object SyncClient {
         RiderTotals.refreshIfStale()
         TraceStore.replaceLines(traces.indices.map { traces.optString(it) })
         BadgeStore.replaceRaw(badges.string())
-        // Absent on an older server: leave the local shortcuts untouched.
-        merged.optArray("savedPlaces")?.let {
-            SavedPlaces.replaceFromServer(it.string())
-        }
+        writeBackOptional(merged)
         Settings.setLastSyncMs(nowMs())
         return SyncResult(trips.size, traces.size, badges.size)
     }
 
+    /** The documents an older server omits from its response. Absent leaves
+     *  the local copy untouched. Titles are merged rather than replaced, so a
+     *  rename made while the round trip was in flight is not overwritten. */
+    private fun writeBackOptional(merged: JsonObject) {
+        merged.optArray("savedPlaces")?.let { SavedPlaces.replaceFromServer(it.string()) }
+        merged.optArray("tripTitles")?.let { TripTitleStore.mergeFromServer(TripTitleStore.fromServer(it)) }
+    }
+
+    private fun tripsForUpload() = buildJsonArray {
+        for (trip in jsonArrayOf(TripStore.rawJson()).objects()) add(tripForUpload(trip))
+    }
+
     /**
-     * The stored trips, each with `topSpeedKmh` alongside the `topSpeedMps` this
-     * app records in.
+     * One stored trip as uploaded: with `topSpeedKmh` alongside the
+     * `topSpeedMps` this app records in, and always with `editedAtMs`.
      *
      * The server keeps a trip document opaque apart from a handful of fields the
      * read-only dashboard lists, and top speed is one of them — in km/h. Derived
      * here rather than written into the store so that trips recorded before this
      * build also arrive complete.
+     *
+     * `editedAtMs` is 0 for a trip stored before #486 added it. Sending it
+     * anyway matters: the server lets a copy without the field overwrite, as an
+     * older client's, which is the revert of another device's edit the stamp
+     * exists to stop.
      */
-    private fun tripsForUpload() = buildJsonArray {
-        for (trip in jsonArrayOf(TripStore.rawJson()).objects()) {
-            add(buildJsonObject {
-                trip.forEach { (key, value) -> put(key, value) }
-                put("topSpeedKmh", trip.optDouble("topSpeedMps", 0.0) * 3.6)
-            })
-        }
+    internal fun tripForUpload(trip: JsonObject) = buildJsonObject {
+        trip.forEach { (key, value) -> put(key, value) }
+        put("topSpeedKmh", trip.optDouble("topSpeedMps", 0.0) * 3.6)
+        put("editedAtMs", trip.optLong("editedAtMs"))
     }
 }

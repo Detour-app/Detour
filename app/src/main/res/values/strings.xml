@@ -11,10 +11,10 @@
     <string name="friends_no_server">No sync server configured. Set one in Settings first — friends live on your own server.</string>
     <string name="friends_signin_intro">Sign in to sync your rides and compare stats with friends. Your trips and explored map stay private — friends only ever see totals and badges.</string>
     <string name="friends_signin_unconfigured">No server or sign-in realm is configured, so there is nobody to sign in to. Set your server address under Settings → Servers &amp; sync.</string>
-    <string name="friends_signin_invalid_realm">The sign-in realm address is not a valid URL. Check it under Settings → Servers &amp; sync.</string>
+    <string name="friends_signin_invalid_realm">The sign-in realm address is not a valid URL. Check your server address under Settings → Servers &amp; sync.</string>
     <string name="friends_signin_no_browser">No browser available to sign in with.</string>
-    <string name="friends_signin_no_realm_advertised">Your server did not say which realm to sign in to. Update the server, or set the sign-in realm URL under Settings → Servers &amp; sync.</string>
-    <string name="friends_signin_no_idp">No identity provider is configured. Set the sign-in realm URL under Settings → Servers &amp; sync.</string>
+    <string name="friends_signin_no_realm_advertised">Your server did not say which realm to sign in to. Update the server so it announces its realm.</string>
+    <string name="friends_signin_no_idp">No identity provider is configured. Set your server address under Settings → Servers &amp; sync.</string>
     <string name="friends_signin">Sign in</string>
     <string name="friends_signin_hint">Opens your browser. New accounts and password changes happen there too.</string>
     <string name="friends_server_settings">Server settings</string>
@@ -40,7 +40,6 @@
     <string name="friends_their_username">Their username</string>
     <string name="friends_now_friends">You are now friends with %1$s</string>
     <string name="friends_request_sent">Request sent to %1$s</string>
-    <string name="friends_failed">Failed</string>
     <string name="friends_send">Send</string>
     <string name="friends_close">Close</string>
     <string name="friends_convoys">Convoys</string>

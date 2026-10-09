@@ -879,6 +879,10 @@ namespace Detour.Database.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("distance_meters");
 
+                    b.Property<long?>("EditedAtMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("edited_at_ms");
+
                     b.Property<long?>("EndTimeMs")
                         .HasColumnType("bigint")
                         .HasColumnName("end_time_ms");
@@ -921,6 +925,40 @@ namespace Detour.Database.Migrations
                         .HasDatabaseName("ix_trips_user_id_start_time_ms");
 
                     b.ToTable("trips", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Trips.TripTitle", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long>("EditedAtMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("edited_at_ms");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
+                    b.Property<long>("TripStartTimeMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("trip_start_time_ms");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_trip_titles");
+
+                    b.HasIndex("UserId", "TripStartTimeMs")
+                        .IsUnique()
+                        .HasDatabaseName("ix_trip_titles_user_id_trip_start_time_ms");
+
+                    b.ToTable("trip_titles", "detour");
                 });
 
             modelBuilder.Entity("Detour.Domain.Users.BadgeAward", b =>
@@ -1183,6 +1221,16 @@ namespace Detour.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_trips_users_user_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Trips.TripTitle", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_trip_titles_users_user_id");
                 });
 
             modelBuilder.Entity("Detour.Domain.Users.BadgeAward", b =>

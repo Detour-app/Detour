@@ -24,10 +24,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.data.Features
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.map.LocationRecovery
+import com.jellemax.detour.map.StartupAsk
 import com.jellemax.detour.map.locationRecovery
 import com.jellemax.detour.map.requiredStartupPermissions
 import com.jellemax.detour.map.shouldRequestMic
+import com.jellemax.detour.map.startupAsk
 import kotlinx.coroutines.launch
 
 /**
@@ -43,9 +46,9 @@ import kotlinx.coroutines.launch
  * for. This file is the Android plumbing around those answers, and holds no
  * rule of its own.
  *
- * Returns the background-location launcher, because the disclosure dialog is
- * what fires it and that lives in `MapDialogs.kt`, and the way back from a
- * denied location, because Spin offers it too.
+ * Returns the background-location launcher and the permission explainer's
+ * Continue, because the dialogs that fire them live in `MapDialogs.kt`, and the
+ * way back from a denied location, because Spin offers it too.
  *
  * Also shows `s.error` in the snackbar: the one error that carries an action
  * is the denied location this file raises (#499).
@@ -108,21 +111,29 @@ internal fun rememberMapPermissions(
         }
     }
 
+    // Not keyed on anything that changes, so it runs once per composition: a
+    // recreation while the explainer is up raises it again, which is right —
+    // its Continue has not been pressed yet.
     LaunchedEffect(Unit) {
-        val needed = requiredStartupPermissions(Build.VERSION.SDK_INT)
-        val missing = needed.any {
+        val missing = requiredStartupPermissions(Build.VERSION.SDK_INT).any {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (!missing) {
-            ready()
-        } else {
-            permissionLauncher.launch(needed.toTypedArray())
+        when (startupAsk(missing, Settings.permissionExplainerShown(), fineLocationGranted(context))) {
+            StartupAsk.READY -> ready()
+            StartupAsk.EXPLAIN -> s.showPermissionExplainer = true
+            StartupAsk.LOCATION_DENIED -> s.error = LOCATION_DENIED_ERROR
         }
+    }
+
+    fun continueFromExplainer() {
+        s.showPermissionExplainer = false
+        Settings.setPermissionExplainerShown()
+        permissionLauncher.launch(requiredStartupPermissions(Build.VERSION.SDK_INT).toTypedArray())
     }
 
     val offerLocationIfDenied = rememberLocationRecovery(s, snackbarHostState, permissionLauncher, ready)
 
-    return MapPermissions(bgLocationLauncher, offerLocationIfDenied)
+    return MapPermissions(bgLocationLauncher, offerLocationIfDenied, ::continueFromExplainer)
 }
 
 /**
@@ -244,4 +255,6 @@ internal class MapPermissions(
     /** If location is not granted, shows the denied snackbar with Allow or
      *  Open settings and returns true; false when there is nothing to offer. */
     val offerLocationIfDenied: () -> Boolean,
+    /** The permission explainer's Continue (#501): fires the system dialogs. */
+    val continueFromExplainer: () -> Unit,
 )

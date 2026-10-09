@@ -7,6 +7,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import okio.IOException
 
@@ -45,6 +46,11 @@ internal suspend fun <T> withSpinTimeout(
     return finished.getOrThrow()
 }
 
+/** How long a road pick's name lookup may hold up its roll: a pick without a
+ *  name still shows (as its coordinates), a spin left waiting on a slow
+ *  geocoder does not show at all. */
+private const val REVERSE_GEOCODE_TIMEOUT_MS = 6_000L
+
 /** A spin's own dead end, worded for the rider ("No roads found within
  *  radius"), as opposed to a network or parser failure on the way. An
  *  [IOException] so every catch that moves on to the next server or sector
@@ -53,12 +59,16 @@ internal suspend fun <T> withSpinTimeout(
 class SpinFailure(message: String) : IOException(message)
 
 /** One spin result awaiting a pick; [route] is null when the routing server
- *  couldn't be reached — the card then shows straight-line distance only. */
+ *  couldn't be reached — the card then shows straight-line distance only.
+ *  [twistiness] is [Curviness.forecastScore] of [route], worked out once when
+ *  the candidate is rolled rather than on every recomposition of the card
+ *  that shows it; null wherever the forecast is. */
 data class RouteCandidate(
     val destination: LatLon,
     val name: String?,
     val route: RouteResult?,
     val straightLineMeters: Double,
+    val twistiness: Double? = null,
 )
 
 /** The three candidates a spin offers, rolled concurrently — each is an
@@ -109,7 +119,9 @@ internal suspend fun pickThreeCandidates(
     return withSpinTimeout(
         onTimeout = {
             landed.toList().ifEmpty {
-                throw SpinFailure(spinTimeoutMessage(serverError = null, roundTrip = false, serverUsable = serverUsable))
+                throw SpinFailure(
+                    spinTimeoutMessage(serverError = null, roundTrip = false, serverUsable = serverUsable),
+                )
             }
         },
         timeoutMs = timeoutMs,
@@ -176,18 +188,26 @@ suspend fun pickCandidate(
             loc, radiusMeters, mode.highwayRegex, bearing, explored, minRadiusMeters)
         d to null
     }
-    val route = try {
-        RoutingClient.route(config, loc, dest, mode.ghProfile,
-            Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        null
+    // A road pick has only coordinates (a POI always carries a name); look
+    // its name up alongside the route request rather than after it, so the spin
+    // waits for whichever is slower, not both (#503).
+    val (route, label) = coroutineScope {
+        val lookup = async { name ?: withTimeoutOrNull(REVERSE_GEOCODE_TIMEOUT_MS) { Geocoder.reverse(dest) } }
+        val route = try {
+            RoutingClient.route(config, loc, dest, mode.ghProfile,
+                Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        route to lookup.await()
     }
     return RouteCandidate(
         destination = dest,
-        name = name,
+        name = label,
         route = route,
         straightLineMeters = RoadRoulette.distanceMeters(loc, dest),
+        twistiness = route?.let { Curviness.forecastScore(it) },
     )
 }

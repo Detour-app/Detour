@@ -6,8 +6,10 @@ import com.jellemax.detour.data.SpeedCameras
 import kotlin.math.PI
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /**
  * Characterises [CameraWarner] - the one-chime-per-camera latch and its re-arm
@@ -459,5 +461,83 @@ class CameraWarnerTest {
             CameraWarner.Outcome.Silent,
             step(cameras = listOf(justPast)).outcome,
         )
+    }
+
+    // ---- the countdown (#548) ----------------------------------------------
+
+    /** A drive due north past a camera 300 m ahead, at 100 km/h under a 50
+     *  limit: one fix per 50 m. [northM] is how far the rider has come. */
+    private val countdownCam = cam(300.0, 0.0)
+
+    private fun drive(state: CameraWarner.State, northM: Double) = CameraWarner.onFix(
+        state = state, cameras = listOf(countdownCam), at = RoadRoulette.offset(here, northM, 0.0),
+        headingDeg = 0.0, speedKmh = 100.0, limitKmh = 50.0,
+    )
+
+    /** The countdown shrinks fix by fix while the warning itself fires once:
+     *  a banner needs the distance every fix, the chime and speech only the
+     *  first. Without it #549/#550 have nothing to count down from. */
+    @Test
+    fun theCountdownDecreasesFixByFixWhileTheWarningFiresOnce() {
+        var state = CameraWarner.State()
+        val distances = mutableListOf<Double>()
+        var warnings = 0
+        for (northM in listOf(0.0, 50.0, 100.0, 150.0, 200.0, 250.0)) {
+            val step = drive(state, northM)
+            state = step.state
+            if (step.outcome is CameraWarner.Outcome.Warn) warnings++
+            val countdown = assertNotNull(step.countdown, "no countdown ${300 - northM} m before the camera")
+            assertEquals(countdownCam.at, countdown.at)
+            assertEquals("Speed camera ahead", countdown.text)
+            distances += countdown.distanceMeters
+        }
+        assertEquals(1, warnings, "the warning must fire once per camera, not once per fix")
+        assertTrue(distances.zipWithNext().all { (a, b) -> b < a }, "countdown must shrink every fix: $distances")
+        // Straight-line metres, within the 1-in-890 offset/haversine skew.
+        assertEquals(300.0, distances.first(), 1.0)
+        assertEquals(50.0, distances.last(), 1.0)
+    }
+
+    /** Past the camera it leaves the wedge: the countdown ends and the latch
+     *  clears, so the next camera warns afresh. */
+    @Test
+    fun theCountdownEndsOnceTheCameraIsPassed() {
+        val near = drive(drive(CameraWarner.State(), 0.0).state, 280.0)
+        assertNotNull(near.countdown)
+        val passed = drive(near.state, 320.0)
+        assertNull(passed.countdown)
+        assertEquals(CameraWarner.Outcome.Silent, passed.outcome)
+        assertNull(passed.state.warnedAt)
+    }
+
+    /** No warning, no countdown: a camera the rule stays silent for (here at
+     *  the limit) must not show a banner either. */
+    @Test
+    fun noCountdownForACameraThatWasNotWorthWarning() {
+        assertNull(step(speedKmh = 100.0).countdown)
+    }
+
+    /** Slowing under the limit after the warning keeps the countdown - the
+     *  rider did what it asked - and switching warnings off ends it. */
+    @Test
+    fun slowingDownKeepsTheCountdownAndSwitchingOffEndsIt() {
+        val warned = step()
+        assertNotNull(step(state = warned.state, speedKmh = 100.0).countdown)
+        assertNull(step(state = warned.state, options = CameraWarner.Options(enabled = false)).countdown)
+    }
+
+    /** A nearer camera that is not worth warning for doesn't hide the
+     *  countdown to the one that was: it follows the warned camera, not the
+     *  nearest. */
+    @Test
+    fun theCountdownFollowsTheWarnedCameraNotTheNearest() {
+        val redLight = cam(380.0, 0.0).copy(kind = SpeedCameras.CameraKind.RED_LIGHT)
+        val warned = step(cameras = listOf(redLight), speedKmh = 50.0)
+        assertEquals(redLight.at, warned.state.warnedAt)
+        val nearSpeedCam = cam(120.0, 0.0)
+        val next = step(state = warned.state, cameras = listOf(redLight, nearSpeedCam), speedKmh = 50.0)
+        assertEquals(CameraWarner.Outcome.Silent, next.outcome)
+        assertEquals(redLight.at, next.countdown?.at)
+        assertEquals("Red light camera ahead", next.countdown?.text)
     }
 }

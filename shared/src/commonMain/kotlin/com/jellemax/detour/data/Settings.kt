@@ -765,6 +765,33 @@ object Settings {
         prefs.put("notified_update_version", version)
     }
 
+    /** Whether the rider has pressed Continue on the first-launch permission
+     *  explainer (#501). Android-only today, like [notifiedUpdateVersion];
+     *  once true, launch stops re-asking for a refused permission. */
+    fun permissionExplainerShown(): Boolean = prefs.bool("permission_explainer_shown", false)
+
+    fun setPermissionExplainerShown() {
+        prefs.put("permission_explainer_shown", true)
+    }
+
+    /** The version whose notes [pendingNotes] holds, written when its download
+     *  starts so the notes outlive the process death the install causes (#359). */
+    fun pendingNotesVersion(): String = prefs.string("pending_notes_version", "")
+
+    fun pendingNotes(): String = prefs.string("pending_notes", "")
+
+    fun setPendingNotes(version: String, notes: String) {
+        prefs.put("pending_notes_version", version)
+        prefs.put("pending_notes", notes)
+    }
+
+    /** The installed version whose notes the rider has already dismissed once. */
+    fun seenNotesVersion(): String = prefs.string("seen_notes_version", "")
+
+    fun setSeenNotesVersion(version: String) {
+        prefs.put("seen_notes_version", version)
+    }
+
     /** Whether arrive/depart notifications are raised for circle [circleId].
      *  Device-local, unlike the circle's `sharing` flag (real server state,
      *  see `Groups.setSharing`) — muting a circle on the phone says nothing

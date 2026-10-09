@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.MoreVert
@@ -332,6 +333,13 @@ private fun LogbookList(
         Logbook.build(loaded.trips, filter, loaded.places, loaded.titles, loaded.milestones)
     }
     val year = remember(loaded, filter) { Logbook.year(loaded.trips, filter, loaded.places, now) }
+    // The month by yyyymm, not the computed card, so it survives rotation; a
+    // month the filter no longer shows simply closes it.
+    var wrappedYm by rememberSaveable { mutableStateOf<Int?>(null) }
+    months.firstOrNull { it.year * 100 + it.month == wrappedYm }?.let { month ->
+        val wrapped = remember(month) { Logbook.wrapped(month) }
+        MonthWrappedDialog(wrapped, onDismiss = { wrappedYm = null })
+    }
     Column(modifier) {
         if (error.isNotEmpty()) {
             Text(
@@ -372,6 +380,7 @@ private fun LogbookList(
                         overlay = if (!current) null
                         else Logbook.mapFocus(month.rides.mapNotNull { loaded.thumbnails[it.trip.startTimeMs] }),
                         onToggle = { if (!openMonths.remove(ym)) openMonths.add(ym) },
+                        onShowWrap = { wrappedYm = ym },
                     )
                 }
                 if (!open) continue
@@ -497,6 +506,7 @@ private fun MonthHeader(
     current: Boolean,
     overlay: List<List<LatLon>>?,
     onToggle: () -> Unit,
+    onShowWrap: () -> Unit,
 ) {
     val rides = month.rides.size
     val summary = listOfNotNull(
@@ -529,6 +539,9 @@ private fun MonthHeader(
                     for (s in summary) MonthPill(s, colors.surfaceContainerHigh, colors.onSurfaceVariant)
                     comparison?.let { MonthPill(it, colors.secondaryContainer, colors.onSecondaryContainer) }
                 }
+            }
+            IconButton(onClick = onShowWrap) {
+                Icon(Icons.Outlined.AutoAwesome, contentDescription = stringResource(R.string.history_month_wrapped))
             }
             if (!current) {
                 Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,

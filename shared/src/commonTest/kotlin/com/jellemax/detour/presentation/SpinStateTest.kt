@@ -68,36 +68,46 @@ class SpinStateTest {
     // --- candidateRow: distance/duration strings ------------------------------
 
     @Test fun aRoutedCandidateShowsViaRoadDistanceAndItsMinutes() {
-        val row = candidateRow(0, candidate(distanceMeters = 12_400.0, timeMs = 25 * 60_000L))
+        val row = candidateRow(candidate(distanceMeters = 12_400.0, timeMs = 25 * 60_000L))
         assertEquals("via road 12.4 km", row.distanceText)
         assertEquals("25 min", row.durationText)
     }
 
     @Test fun anUnroutedCandidateFallsBackToStraightLineDistanceWithNoDuration() {
-        val row = candidateRow(0, candidate(distanceMeters = null, straightLineMeters = 9_000.0))
+        val row = candidateRow(candidate(distanceMeters = null, straightLineMeters = 9_000.0))
         assertEquals("~ straight-line 9.0 km", row.distanceText)
         assertNull(row.durationText)
     }
 
     @Test fun aRoutedCandidateWithNoReportedTimeHasNoDurationText() {
-        val row = candidateRow(0, candidate(distanceMeters = 5_000.0, timeMs = null))
+        val row = candidateRow(candidate(distanceMeters = 5_000.0, timeMs = null))
         assertEquals("via road 5.0 km", row.distanceText)
         assertNull(row.durationText)
     }
 
-    @Test fun aCandidateWithNoNameFallsBackToItsOneBasedOptionNumber() {
-        val row = candidateRow(1, candidate(name = null))
-        assertEquals("Option 2", row.name)
+    @Test fun aCandidateWithNoNameFallsBackToItsCoordinates() {
+        val row = candidateRow(candidate(name = null).copy(destination = LatLon(51.05738, 3.70934)))
+        assertEquals("51.05738, 3.70934", row.name)
     }
 
     @Test fun aNamedCandidateKeepsItsName() {
-        val row = candidateRow(0, candidate(name = "Old Mill Road"))
+        val row = candidateRow(candidate(name = "Old Mill Road"))
         assertEquals("Old Mill Road", row.name)
     }
 
     @Test fun subKilometreScaleDistancesRenderInMetresNotKilometres() {
-        val row = candidateRow(0, candidate(distanceMeters = 850.0))
+        val row = candidateRow(candidate(distanceMeters = 850.0))
         assertEquals("via road 850 m", row.distanceText)
+    }
+
+    @Test fun aScoredCandidateShowsItsBends() {
+        assertEquals(3, candidateRow(candidate().copy(twistiness = 0.45)).bends)
+    }
+
+    @Test fun anUnscoredCandidateShowsNoBends() {
+        // Straight-line draw, convoy offer: nothing to score, so no indicator
+        // rather than one bend that would read as "dead straight".
+        assertNull(candidateRow(candidate(distanceMeters = null)).bends)
     }
 
     // --- spinStateFrom: the whole mapper --------------------------------------

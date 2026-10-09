@@ -11,8 +11,6 @@
     <string name="car_search_spin_title">Draai voor een bestemming</string>
     <string name="car_search_spin_text">Kies een willekeurige weg in de buurt</string>
     <string name="car_search_nothing_found">Niets gevonden</string>
-    <string name="car_search_failed">Zoeken mislukt</string>
-    <string name="car_search_route_failed">Kon geen route maken</string>
     <string name="car_waiting_for_location">Wachten op je locatie…</string>
     <!-- car/SpinScreen.kt -->
     <string name="car_spin_location_needed_title">Locatie nodig</string>
@@ -24,7 +22,6 @@
     <string name="car_spin_random_road">Willekeurige weg</string>
     <string name="car_spin_start_navigation">Navigatie starten</string>
     <string name="car_spin_navigate">Navigeren</string>
-    <string name="car_spin_failed">Draaien mislukt</string>
     <!-- car/CarMapRenderer.kt -->
     <string name="car_hud_speed_unit">km/u</string>
     <string name="car_hud_avg_unit">gem. km/u</string>
@@ -64,6 +61,8 @@
     <string name="update_row_found">Detour %1$s beschikbaar</string>
     <string name="update_row_check_failed">GitHub is niet bereikbaar</string>
     <string name="update_row_rate_limited">Net een paar keer gecontroleerd — probeer het straks opnieuw</string>
+    <string name="update_installed_title">Nieuw in %1$s</string>
+    <string name="update_installed_ok">OK</string>
 
     <!-- convoy/ConvoyLiveService.kt -->
     <string name="convoy_channel">Konvooi</string>

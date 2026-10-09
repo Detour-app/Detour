@@ -5,10 +5,14 @@ import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.minus
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.math.roundToInt
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -62,6 +66,29 @@ data class LogbookYear(
     val towns: Int,
     val rides: Int,
     val weekStreak: Int,
+)
+
+/** A month's "wrapped" screen (#518). Each highlight is null when no ride in
+ *  the month recorded it, so a car-only month shows no lean rather than 0°. */
+data class MonthWrapped(
+    val year: Int,
+    /** 1..12 */
+    val month: Int,
+    val meters: Double,
+    val rides: Int,
+    /** Highest recorded `twistinessScore`. */
+    val twistiest: LogbookItem.Ride?,
+    /** Earliest start by time of day, whichever day it was on. */
+    val earliestStart: LogbookItem.Ride?,
+    /** The weekday with the most rides, more distance breaking a tie, as an
+     *  ISO day number (1 = Monday, 7 = Sunday) so the app can name it in the
+     *  rider's language. Null unless it has [Logbook.FAVOURITE_WEEKDAY_MIN_RIDES]. */
+    val favouriteWeekday: Int?,
+    val favouriteWeekdayRides: Int,
+    /** Deepest lean, from rides on a vehicle that records one. */
+    val deepestLean: LogbookItem.Ride?,
+    /** Towns first stamped this month, in the order they were first ridden. */
+    val newTowns: List<String>,
 )
 
 /** The Logbook's filter chips. [ALL] includes the modes that are neither. */
@@ -313,6 +340,39 @@ object Logbook {
         return streak
     }
 
+    /** One ride on a weekday doesn't make it a favourite — every weekday of a
+     *  month with three rides would tie. */
+    const val FAVOURITE_WEEKDAY_MIN_RIDES = 2
+
+    /** [wrapped] in the device's own zone. */
+    fun wrapped(month: LogbookMonth): MonthWrapped = wrapped(month, TimeZone.currentSystemDefault())
+
+    /** The month as [Logbook.build] grouped it, so the wrapped screen agrees
+     *  with the chapter it was opened from, filter included. */
+    internal fun wrapped(month: LogbookMonth, zone: TimeZone): MonthWrapped {
+        val rides = month.rides
+        fun local(r: LogbookItem.Ride) = Instant.fromEpochMilliseconds(r.trip.startTimeMs).toLocalDateTime(zone)
+        val favourite = rides.groupBy { local(it).dayOfWeek }
+            .maxWithOrNull(compareBy({ it.value.size }, { e -> e.value.sumOf { it.trip.distanceMeters } }))
+            ?.takeIf { it.value.size >= FAVOURITE_WEEKDAY_MIN_RIDES }
+        return MonthWrapped(
+            year = month.year,
+            month = month.month,
+            meters = month.meters,
+            rides = rides.size,
+            twistiest = rides.filter { it.trip.drivingStats.twistinessScore > 0.0 }
+                .maxByOrNull { it.trip.drivingStats.twistinessScore },
+            earliestStart = rides.minByOrNull { local(it).time },
+            favouriteWeekday = favourite?.key?.isoDayNumber,
+            favouriteWeekdayRides = favourite?.value?.size ?: 0,
+            deepestLean = rides.filter { it.trip.mode.tracksLean && it.trip.maxLeanAngleDeg > 0.0 }
+                .maxByOrNull { it.trip.maxLeanAngleDeg },
+            newTowns = rides.sortedBy { it.trip.startTimeMs }
+                .flatMap { r -> r.places.filter { it.isNew }.map { it.name } }
+                .distinct(),
+        )
+    }
+
     /** Whole weeks (Monday-based) between [ms] and [nowMs]: 0 this week, 1 last. */
     fun weeksAgo(ms: Long, nowMs: Long): Int = weeksAgo(ms, nowMs, TimeZone.currentSystemDefault())
 
@@ -346,13 +406,23 @@ object Logbook {
  * Its own file rather than a field on the trip: trips.json is replaced
  * wholesale by every sync response (see [TripStore.replaceRaw]), so an edit
  * stored there would need the same override bookkeeping vehicle-mode edits
- * carry. The cost is that titles stay on this device (and its backup) and
- * don't follow the rider to a second phone.
+ * carry. Instead the file syncs as its own document, the way badges.json does
+ * (#471): every entry carries the instant it was edited, the newer edit wins
+ * on both the server and here, and a cleared title is kept as a blank
+ * tombstone so the older title another device still holds cannot come back.
  */
 object TripTitleStore {
     private const val FILE_NAME = "trip_titles.json"
 
-    fun load(): Map<Long, String> {
+    /** One rider edit. A blank [title] is a cleared rename, not an absent one. */
+    data class Entry(val title: String, val editedAtMs: Long)
+
+    /** The titles to show: tombstones left out. */
+    fun load(): Map<Long, String> =
+        loadEntries().filterValues { it.title.isNotBlank() }.mapValues { it.value.title }
+
+    /** Every entry, tombstones included — what sync uploads. */
+    fun loadEntries(): Map<Long, Entry> {
         val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyMap()
         return runCatching { decode(f.readText()) }.getOrDefault(emptyMap())
@@ -360,16 +430,67 @@ object TripTitleStore {
 
     /** A blank [title] goes back to the generated one. */
     fun set(startTimeMs: Long, title: String) {
-        val all = load().toMutableMap()
-        if (title.isBlank()) all.remove(startTimeMs) else all[startTimeMs] = title.trim()
+        val all = loadEntries().toMutableMap()
+        all[startTimeMs] = Entry(title.trim(), nowMs())
         accountFile(FILE_NAME).writeText(encode(all))
     }
 
-    internal fun decode(text: String): Map<Long, String> =
-        jsonObjectOf(text).entries.associate { (k, v) -> k.toLong() to v.jsonPrimitive.content }
+    /** Folds a sync response into whatever is on disk now, so a rename made
+     *  while the request was in flight survives the write-back. */
+    fun mergeFromServer(server: Map<Long, Entry>) {
+        accountFile(FILE_NAME).writeText(encode(merge(loadEntries(), server)))
+    }
 
-    internal fun encode(titles: Map<Long, String>): String =
+    /**
+     * Newest edit wins per ride, the same rule the server applies. A tie goes
+     * to the server: an equal stamp is either the edit this device just sent
+     * echoed back, or two pre-#471 titles both read as edited at 0, and
+     * taking the server's there is what lets two devices agree on one.
+     */
+    internal fun merge(local: Map<Long, Entry>, server: Map<Long, Entry>): Map<Long, Entry> {
+        val merged = local.toMutableMap()
+        for ((start, entry) in server) {
+            val mine = merged[start]
+            if (mine == null || entry.editedAtMs >= mine.editedAtMs) merged[start] = entry
+        }
+        return merged
+    }
+
+    /** Reads both the stamped form and the bare-string V1 one; a V1 title
+     *  counts as edited at 0, so any stamped edit elsewhere beats it. */
+    internal fun decode(text: String): Map<Long, Entry> =
+        jsonObjectOf(text).entries.associate { (k, v) ->
+            k.toLong() to when (v) {
+                is JsonObject -> Entry(v.optString("title"), v.optLong("editedAtMs"))
+                else -> Entry(v.jsonPrimitive.content, 0L)
+            }
+        }
+
+    internal fun encode(titles: Map<Long, Entry>): String =
         buildJsonObject {
-            for ((k, v) in titles) put(k.toString(), JsonPrimitive(v))
+            for ((k, v) in titles) {
+                put(k.toString(), buildJsonObject {
+                    put("title", JsonPrimitive(v.title))
+                    put("editedAtMs", JsonPrimitive(v.editedAtMs))
+                })
+            }
         }.string()
+
+    /** The sync wire form: `[{startTimeMs, title, editedAtMs}]`. Tombstones
+     *  included: a cleared title has to reach the server to stop another
+     *  device's older one coming back. */
+    internal fun toUpload(titles: Map<Long, Entry>): JsonArray = buildJsonArray {
+        for ((start, entry) in titles) {
+            add(buildJsonObject {
+                put("startTimeMs", JsonPrimitive(start))
+                put("title", JsonPrimitive(entry.title))
+                put("editedAtMs", JsonPrimitive(entry.editedAtMs))
+            })
+        }
+    }
+
+    internal fun fromServer(array: JsonArray): Map<Long, Entry> =
+        array.objects()
+            .filter { it.optLong("startTimeMs") > 0 }
+            .associate { it.optLong("startTimeMs") to Entry(it.optString("title"), it.optLong("editedAtMs")) }
 }

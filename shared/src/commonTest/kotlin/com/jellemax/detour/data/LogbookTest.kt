@@ -188,8 +188,51 @@ class LogbookTest {
 
     @Test
     fun titlesRoundTripThroughTheirFileFormat() {
-        val titles = mapOf(1L to "Say \"hi\"", 2L to "Plain")
+        val titles = mapOf(
+            1L to TripTitleStore.Entry("Say \"hi\"", 10L),
+            2L to TripTitleStore.Entry("", 20L),
+        )
         assertEquals(titles, TripTitleStore.decode(TripTitleStore.encode(titles)))
+    }
+
+    private fun title(text: String, at: Long) = TripTitleStore.Entry(text, at)
+
+    @Test
+    fun aNewerServerTitleReplacesAnOlderLocalOne() {
+        val merged = TripTitleStore.merge(mapOf(1L to title("Sunday ride", 4)), mapOf(1L to title("Coast road", 5)))
+        assertEquals(title("Coast road", 5), merged[1L])
+    }
+
+    @Test
+    fun anOlderServerTitleDoesNotRevertANewerLocalRename() {
+        // A rename made while the sync was in flight: the response still holds the old title.
+        val merged = TripTitleStore.merge(mapOf(1L to title("Coast road", 6)), mapOf(1L to title("Sunday ride", 5)))
+        assertEquals(title("Coast road", 6), merged[1L])
+    }
+
+    @Test
+    fun aClearedTitleOnTheServerStaysCleared() {
+        val merged = TripTitleStore.merge(mapOf(1L to title("Coast road", 5)), mapOf(1L to title("", 6)))
+        assertEquals(title("", 6), merged[1L])
+    }
+
+    @Test
+    fun aTieGoesToTheServerSoTwoUnstampedTitlesConverge() {
+        // Both devices renamed before titles carried a stamp: both read as edited at 0.
+        val merged = TripTitleStore.merge(mapOf(1L to title("Mine", 0)), mapOf(1L to title("Theirs", 0)))
+        assertEquals(title("Theirs", 0), merged[1L])
+    }
+
+    @Test
+    fun titlesOnlyOneSideHoldsAreKept() {
+        val merged = TripTitleStore.merge(mapOf(1L to title("Local", 5)), mapOf(2L to title("Remote", 5)))
+        assertEquals(setOf(1L, 2L), merged.keys)
+    }
+
+    @Test
+    fun titlesRoundTripThroughTheSyncWireForm() {
+        val titles = mapOf(1L to title("Coast road", 5), 2L to title("", 6))
+        assertEquals(titles, TripTitleStore.fromServer(TripTitleStore.toUpload(titles)))
     }
 
     @Test
@@ -202,5 +245,61 @@ class LogbookTest {
         assertEquals("Gent to Brugge", Logbook.distanceComparison(50_000.0))
         assertNull(Logbook.distanceComparison(49_000.0))
         assertEquals("Gent to Nordkapp, with 2000 km left over", Logbook.distanceComparison(5_000_000.0))
+    }
+
+    @Test
+    fun aMonthWrappedPicksEachHighlightFromItsOwnRide() {
+        val sunday = trip(at(27, 14), twist = 0.4).copy(maxLeanAngleDeg = 38.0)
+        val earlySunday = trip(at(20, 6), km = 120.0, twist = 0.7).copy(maxLeanAngleDeg = 31.0)
+        // The car records a deeper "lean" (the phone sliding in its cradle)
+        // that must not win.
+        val car = trip(at(23, 8), TravelMode.CAR).copy(maxLeanAngleDeg = 50.0)
+        val places = mapOf(
+            sunday.startTimeMs to listOf(place("Gent"), place("Ronse", new = true)),
+            earlySunday.startTimeMs to listOf(place("Gent", new = true), place("Ronse")),
+        )
+        val month = Logbook.build(listOf(sunday, car, earlySunday), LogbookFilter.ALL, places, emptyMap(), emptyList(), utc).single()
+        val w = Logbook.wrapped(month, utc)
+        assertEquals(2026 to 9, w.year to w.month)
+        assertEquals(3, w.rides)
+        assertEquals(220_000.0, w.meters)
+        assertEquals(earlySunday, w.twistiest?.trip)
+        assertEquals(earlySunday, w.earliestStart?.trip)
+        assertEquals(sunday, w.deepestLean?.trip)
+        assertEquals(7, w.favouriteWeekday) // Sunday
+        assertEquals(2, w.favouriteWeekdayRides)
+        // Oldest ride first, so Gent (20th) comes before Ronse (27th).
+        assertEquals(listOf("Gent", "Ronse"), w.newTowns)
+    }
+
+    @Test
+    fun earliestStartIsByTimeOfDayNotDate() {
+        val month = Logbook.build(
+            listOf(trip(at(1, 9)), trip(at(28, 7))), LogbookFilter.ALL, emptyMap(), emptyMap(), emptyList(), utc,
+        ).single()
+        assertEquals(at(28, 7), Logbook.wrapped(month, utc).earliestStart?.trip?.startTimeMs)
+    }
+
+    @Test
+    fun aMonthWrappedLeavesOutWhatNoRideRecorded() {
+        // Three rides on three weekdays, nothing twisty, car only.
+        val trips = listOf(at(21, 8), at(22, 8), at(23, 8)).map { trip(it, TravelMode.CAR) }
+        val w = Logbook.wrapped(Logbook.build(trips, LogbookFilter.ALL, emptyMap(), emptyMap(), emptyList(), utc).single(), utc)
+        assertNull(w.twistiest)
+        assertNull(w.deepestLean)
+        assertNull(w.favouriteWeekday)
+        assertEquals(0, w.favouriteWeekdayRides)
+        assertTrue(w.newTowns.isEmpty())
+    }
+
+    @Test
+    fun aFavouriteWeekdayTieGoesToTheMoreDistance() {
+        // 2026-09-21 and 09-28 are Mondays; 09-22 and 09-29 Tuesdays.
+        val trips = listOf(
+            trip(at(21, 8), km = 10.0), trip(at(28, 8), km = 10.0),
+            trip(at(22, 8), km = 80.0), trip(at(29, 8), km = 80.0),
+        )
+        val w = Logbook.wrapped(Logbook.build(trips, LogbookFilter.ALL, emptyMap(), emptyMap(), emptyList(), utc).single(), utc)
+        assertEquals(2, w.favouriteWeekday) // Tuesday
     }
 }

@@ -36,6 +36,12 @@ public record SyncRequest
     /// <summary>Badge identifier to the instant it was earned. The earliest instant wins.</summary>
     public IReadOnlyDictionary<string, long>? Badges { get; init; }
 
+    /// <summary>
+    /// Ride titles the rider typed, keyed by the ride's start instant. The newest edit wins; an
+    /// empty title is a cleared rename and is kept, so an older title cannot come back (#471).
+    /// </summary>
+    public IReadOnlyList<TripTitlePayload>? TripTitles { get; init; }
+
     public RiderStatsPayload? Stats { get; init; }
 
     /// <summary>Absent leaves the setting alone; it is never read as "off".</summary>
@@ -52,6 +58,12 @@ public record TripPayload
     public string? Mode { get; init; }
 
     /// <summary>
+    /// When the rider last edited the trip, Unix milliseconds; 0 for never. Absent from a client
+    /// that predates it (#486), whose upload then overwrites as before.
+    /// </summary>
+    public long? EditedAtMs { get; init; }
+
+    /// <summary>
     /// Everything else the device recorded, kept verbatim. The backend never looks inside: it
     /// cannot disclose what it does not parse, and that is a property worth keeping.
     /// </summary>
@@ -66,6 +78,11 @@ public record SavedPlacePayload
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extra { get; init; }
 }
+
+public record TripTitlePayload(
+    [Required] long StartTimeMs,
+    [Required(AllowEmptyStrings = true)] string Title,
+    [Required] long EditedAtMs);
 
 public record RiderStatsPayload(
     double TotalDistanceMeters,
@@ -85,4 +102,5 @@ public record SyncResponse(
     [Required] IReadOnlyList<string> Traces,
     [Required] IReadOnlyList<JsonElement> SavedPlaces,
     [Required] IReadOnlyDictionary<string, long> Badges,
+    [Required] IReadOnlyList<TripTitlePayload> TripTitles,
     [Required] bool ShareFog);

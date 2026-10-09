@@ -222,7 +222,9 @@ final class TripRecorder: NSObject, ObservableObject {
             // (#478 fixed Android only), so its max g isn't one to show.
             gForceGravityFree: false,
             // What started the trip (#472) is recorded on Android only.
-            startedBy: nil
+            startedBy: nil,
+            // A new trip has never been edited (#486).
+            editedAtMs: 0
         )
         TripStore.shared.save(trip: trip)
 

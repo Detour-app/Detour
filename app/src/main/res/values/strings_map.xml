@@ -57,6 +57,7 @@
     <string name="spin_off">Off</string>
     <string name="spin_direction">Direction</string>
     <string name="spin_direction_any">Any</string>
+    <string name="spin_bends">Twistiness %1$d of %2$d</string>
     <string name="spin_loop_found">Loop found</string>
     <string name="spin_cancel">Cancel</string>
     <string name="spin_spin">Spin</string>
@@ -128,4 +129,13 @@
     <string name="hub_stat_rides">rides</string>
     <string name="hub_stat_places">places</string>
     <string name="hub_stat_badges">badges</string>
+    <string name="map_permission_explainer_title">Before you ride</string>
+    <string name="map_permission_explainer_intro">Detour will ask for a few permissions next. You can refuse any of them.</string>
+    <string name="map_permission_location">Location</string>
+    <string name="map_permission_location_why">The map, spin and recording your rides.</string>
+    <string name="map_permission_activity">Physical activity</string>
+    <string name="map_permission_activity_why">Noticing on its own when you start driving.</string>
+    <string name="map_permission_notifications">Notifications</string>
+    <string name="map_permission_notifications_why">The notification while a ride records, and alerts from your circles.</string>
+    <string name="map_continue">Continue</string>
 </resources>

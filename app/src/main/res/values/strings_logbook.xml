@@ -50,6 +50,18 @@
         <item quantity="other">%1$d new places</item>
     </plurals>
 
+    <!-- MonthWrapped.kt -->
+    <string name="history_month_wrapped">Month wrapped</string>
+    <string name="wrapped_title">Month wrapped</string>
+    <string name="wrapped_share">Share month wrapped</string>
+    <string name="wrapped_footer">Ridden with Detour</string>
+    <string name="wrapped_twistiest">Twistiest ride</string>
+    <string name="wrapped_earliest_start">Earliest start</string>
+    <string name="wrapped_favourite_weekday">Favourite weekday</string>
+    <string name="wrapped_deepest_lean">Deepest lean</string>
+    <string name="wrapped_new_towns">New towns</string>
+    <string name="wrapped_towns_more">%1$s and %2$d more</string>
+
     <!-- TripDetailScreen.kt -->
     <string name="trip_share_card">Share trip card</string>
     <string name="trip_export_gpx">Export GPX</string>
