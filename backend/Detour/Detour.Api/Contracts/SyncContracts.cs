@@ -36,6 +36,12 @@ public record SyncRequest
     /// <summary>Badge identifier to the instant it was earned. The earliest instant wins.</summary>
     public IReadOnlyDictionary<string, long>? Badges { get; init; }
 
+    /// <summary>
+    /// Ride titles the rider typed, keyed by the ride's start instant. The newest edit wins; an
+    /// empty title is a cleared rename and is kept, so an older title cannot come back (#471).
+    /// </summary>
+    public IReadOnlyList<TripTitlePayload>? TripTitles { get; init; }
+
     public RiderStatsPayload? Stats { get; init; }
 
     /// <summary>Absent leaves the setting alone; it is never read as "off".</summary>
@@ -73,6 +79,11 @@ public record SavedPlacePayload
     public Dictionary<string, JsonElement>? Extra { get; init; }
 }
 
+public record TripTitlePayload(
+    [Required] long StartTimeMs,
+    [Required(AllowEmptyStrings = true)] string Title,
+    [Required] long EditedAtMs);
+
 public record RiderStatsPayload(
     double TotalDistanceMeters,
     double TopSpeedKmh,
@@ -91,4 +102,5 @@ public record SyncResponse(
     [Required] IReadOnlyList<string> Traces,
     [Required] IReadOnlyList<JsonElement> SavedPlaces,
     [Required] IReadOnlyDictionary<string, long> Badges,
+    [Required] IReadOnlyList<TripTitlePayload> TripTitles,
     [Required] bool ShareFog);

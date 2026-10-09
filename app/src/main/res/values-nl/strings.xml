@@ -7,10 +7,10 @@
     <string name="friends_no_server">Geen sync-server ingesteld. Stel er eerst een in bij Instellingen — vrienden staan op je eigen server.</string>
     <string name="friends_signin_intro">Meld je aan om je ritten te synchroniseren en statistieken met vrienden te vergelijken. Je ritten en verkende kaart blijven privé — vrienden zien alleen totalen en badges.</string>
     <string name="friends_signin_unconfigured">Er is geen server of aanmeldrealm ingesteld, dus er is niemand om je bij aan te melden. Stel je serveradres in bij Instellingen → Servers &amp; sync.</string>
-    <string name="friends_signin_invalid_realm">Het adres van de aanmeldrealm is geen geldige URL. Controleer het bij Instellingen → Servers &amp; sync.</string>
+    <string name="friends_signin_invalid_realm">Het adres van de aanmeldrealm is geen geldige URL. Controleer je serveradres bij Instellingen → Servers &amp; sync.</string>
     <string name="friends_signin_no_browser">Geen browser beschikbaar om je mee aan te melden.</string>
-    <string name="friends_signin_no_realm_advertised">Je server gaf niet aan bij welke realm je je moet aanmelden. Werk de server bij, of stel de URL van de aanmeldrealm in bij Instellingen → Servers &amp; sync.</string>
-    <string name="friends_signin_no_idp">Er is geen identiteitsprovider ingesteld. Stel de URL van de aanmeldrealm in bij Instellingen → Servers &amp; sync.</string>
+    <string name="friends_signin_no_realm_advertised">Je server gaf niet aan bij welke realm je je moet aanmelden. Werk de server bij zodat hij zijn realm doorgeeft.</string>
+    <string name="friends_signin_no_idp">Er is geen identiteitsprovider ingesteld. Stel je serveradres in bij Instellingen → Servers &amp; sync.</string>
     <string name="friends_signin">Aanmelden</string>
     <string name="friends_signin_hint">Opent je browser. Nieuwe accounts en wachtwoordwijzigingen gebeuren daar ook.</string>
     <string name="friends_server_settings">Serverinstellingen</string>
@@ -36,7 +36,6 @@
     <string name="friends_their_username">Hun gebruikersnaam</string>
     <string name="friends_now_friends">Je bent nu bevriend met %1$s</string>
     <string name="friends_request_sent">Verzoek verstuurd naar %1$s</string>
-    <string name="friends_failed">Mislukt</string>
     <string name="friends_send">Versturen</string>
     <string name="friends_close">Sluiten</string>
     <string name="friends_convoys">Konvooien</string>

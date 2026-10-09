@@ -36,6 +36,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.drive.SpeedLimitTracker
+import com.jellemax.detour.presentation.spinFailureText
 import com.jellemax.detour.tracking.MapSurface
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ui.formatDistanceKm
@@ -323,7 +324,7 @@ class SpinScreen(
                 // whole point of having a map on this screen.
                 renderer.setRoute(picked.route?.polyline, picked.destination)
             } catch (e: Exception) {
-                errorText = e.message ?: carContext.getString(R.string.car_spin_failed)
+                errorText = spinFailureText(e)
             } finally {
                 spinning = false
                 invalidate()

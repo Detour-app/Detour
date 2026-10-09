@@ -111,6 +111,7 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var searchOpen: Boolean by mutableStateOf(false)
     var savePinTarget: LatLon? by mutableStateOf(null)
     var showBgLocationDisclosure: Boolean by mutableStateOf(false)
+    var showPermissionExplainer: Boolean by mutableStateOf(false)
 
     /** Every failure the screen reports, from a denied permission to a spin
      *  that found nothing. A dozen writers and, before the snackbar, one

@@ -1,6 +1,7 @@
 package com.jellemax.detour.data
 
 import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -47,6 +48,7 @@ class RoutesTest {
         assertEquals(r.distanceMeters, back.distanceMeters)
         assertEquals(r.timeMs, back.timeMs)
         assertEquals(r.sharedBy, back.sharedBy)
+        assertEquals(r.origin, back.origin)
     }
 
     @Test
@@ -63,6 +65,49 @@ class RoutesTest {
         val shared = route().copy(sharedBy = "alice")
         val back = routeFromJson(shared.toJson())!!
         assertEquals("alice", back.sharedBy)
+    }
+
+    @Test
+    fun savedSpinLoopRoundTripsThroughJson() {
+        // A moto spin: a loop out of Home and back, named after the candidate.
+        val spin = route().copy(
+            name = "Loop via Kemmelberg",
+            stops = listOf(
+                RouteStop(LatLon(50.8, 3.2), "Home"),
+                RouteStop(LatLon(50.78, 2.81)),
+                RouteStop(LatLon(50.9, 2.9)),
+                RouteStop(LatLon(50.8, 3.2), "Home"),
+            ),
+            origin = RouteOrigin.SPIN,
+        )
+        assertEquals(spin, routeFromJson(spin.toJson()))
+    }
+
+    @Test
+    fun savedSpinSurvivesTheStoreArrayThatSyncAndExportCarry() {
+        // routes.json is a JSON array of these objects; read it back the way
+        // RouteStore.replaceFromServer does.
+        val spin = route().copy(origin = RouteOrigin.SPIN)
+        val planned = route().copy(id = 43L)
+        val array = buildJsonArray { add(spin.toJson()); add(planned.toJson()) }.string()
+        val back = jsonArrayOf(array).objects().mapNotNull { routeFromJson(it) }
+        assertEquals(listOf(spin, planned), back)
+    }
+
+    @Test
+    fun anUnknownOriginReadsAsPlannedInsteadOfDroppingTheRoute() {
+        val future = buildJsonObject {
+            put("id", 1L)
+            put("name", "x")
+            put("createdMs", 1L)
+            put("mode", "CAR")
+            put("origin", "SOMETHING_NEWER")
+            putJsonArray("stops") {
+                addJsonObject { put("lat", 50.0); put("lon", 3.0) }
+                addJsonObject { put("lat", 50.1); put("lon", 3.1) }
+            }
+        }
+        assertEquals(RouteOrigin.PLANNED, routeFromJson(future)?.origin)
     }
 
     @Test

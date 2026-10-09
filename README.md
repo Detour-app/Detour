@@ -126,7 +126,7 @@ Third-party, contacted by the **app** rather than by your server:
 | --- | --- | --- |
 | **OpenFreeMap** | Vector basemap tiles | Sees your current map viewport |
 | **Overpass API** | The OSM data behind spins, POIs, speed cameras and coverage boundaries | Sees the spin centre and radius you choose. Two public endpoints are used in rotation |
-| **photon.komoot.io** | Search, when you have no Photon of your own or yours is down | Sees your query and an approximate location. Turn the fallback off to keep search on your own hardware |
+| **photon.komoot.io** | Search and place naming, when you have no Photon of your own or yours is down | Sees your query and an approximate location, and the exact coordinates of spin destinations and unnamed route stops (tapped or GPX-imported) it names. Turn the fallback off to keep search on your own hardware |
 | **FCM / APNs** | The content-free circle wake-ping | Your server talks to these, not the app. Both optional; without them circles still deliver over the socket and the catch-up sweep. See [docs/PUSH.md](docs/PUSH.md) |
 
 ### How the pieces connect
@@ -134,7 +134,8 @@ Third-party, contacted by the **app** rather than by your server:
 **Everything the app sends goes over HTTPS**, and the app addresses each service
 directly — the API, the router and the geocoder are three independent addresses
 in Settings, with one `url` covering them all only when a single host path-routes
-to all three. The sign-in realm is a fourth address and deliberately never falls
+to all three. The sign-in realm is announced by the API server rather than typed
+(an address saved by an older version still wins), and deliberately never falls
 back to the others.
 
 Sign-in is standard OIDC authorization-code with PKCE, run in a **system

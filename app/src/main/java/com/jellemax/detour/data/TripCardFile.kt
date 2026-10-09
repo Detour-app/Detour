@@ -20,9 +20,13 @@ import java.util.Locale
  */
 object TripCardFile {
 
-    fun writeForShare(context: Context, trip: Trip, bitmap: Bitmap): Uri {
+    fun writeForShare(context: Context, trip: Trip, bitmap: Bitmap): Uri =
+        writeForShare(context, fileName(trip), bitmap)
+
+    /** Any other shared image — the Month wrapped card (#518) — under [name]. */
+    fun writeForShare(context: Context, name: String, bitmap: Bitmap): Uri {
         val dir = File(context.cacheDir, Gpx.SHARE_DIR).apply { mkdirs() }
-        val file = File(dir, fileName(trip))
+        val file = File(dir, name)
         FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
         return FileProvider.getUriForFile(
             context, "${BuildConfig.APPLICATION_ID}.fileprovider", file)

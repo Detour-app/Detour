@@ -12,7 +12,8 @@ struct SettingsScreen: View {
     @State private var serverURL = ""
     // Carried through load/save untouched: this screen has no editors for the
     // per-service addresses yet, and saving defaults over values set
-    // elsewhere would silently unconfigure them.
+    // elsewhere would silently unconfigure them. The realm field was retired
+    // (#354), but a stored realm still wins, so it is carried the same way.
     @State private var apiURL = ""
     @State private var routingURL = ""
     @State private var geocoderURL = ""
@@ -157,10 +158,6 @@ struct SettingsScreen: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
-            TextField("Sign-in realm (deprecated)", text: $idpIssuer)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
             Button("Save server") { saveServer() }
             if let invalidAddress {
                 Text("“\(invalidAddress)” is not a server address — use http:// or https:// and a host name.")
@@ -178,10 +175,8 @@ struct SettingsScreen: View {
         } footer: {
             Text("""
                 One address reaches routing, search, sync and convoys — the tunnel \
-                routes by path. Leave blank to use the built-in defaults. The realm \
-                field is deprecated: newer servers tell the app which realm to use, \
-                so leave it empty unless your server has not been updated. Anything \
-                typed there still wins over what the server says.
+                routes by path. Leave blank to use the built-in defaults. Your \
+                server tells the app which sign-in realm to use.
                 """)
         }
     }
@@ -204,7 +199,7 @@ struct SettingsScreen: View {
         } header: {
             Text("Privacy")
         } footer: {
-            Text("The fallback sends your query and approximate location to komoot's public Photon when your own geocoder is unreachable.")
+            Text("The fallback sends your query, your approximate location and the coordinates of spin destinations being named to komoot's public Photon when your own geocoder is unreachable.")
         }
     }
 

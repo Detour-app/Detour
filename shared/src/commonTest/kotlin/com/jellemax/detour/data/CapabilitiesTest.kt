@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The three decisions in issuer discovery that can be made without a network.
+ * The decisions in issuer discovery that can be made without a network.
  *
  * They are separated from the fetch deliberately: `Http`'s client is private
  * with no injection seam and there is no `MockEngine` in this source set, so a
@@ -333,6 +333,7 @@ class CapabilitiesTest {
             Capabilities.preferredDiscovered(
                 fetched = "https://new.example/realms/detour",
                 stored = "https://old.example/realms/detour",
+                fetchedAnswers = true,
             ),
         )
     }
@@ -344,7 +345,11 @@ class CapabilitiesTest {
         // still the right answer.
         assertEquals(
             "https://old.example/realms/detour",
-            Capabilities.preferredDiscovered(fetched = "", stored = "https://old.example/realms/detour"),
+            Capabilities.preferredDiscovered(
+                fetched = "",
+                stored = "https://old.example/realms/detour",
+                fetchedAnswers = false,
+            ),
         )
     }
 
@@ -357,6 +362,7 @@ class CapabilitiesTest {
             Capabilities.preferredDiscovered(
                 fetched = "http://idp.example/realms/detour",
                 stored = "https://old.example/realms/detour",
+                fetchedAnswers = true,
             ),
         )
     }
@@ -370,12 +376,75 @@ class CapabilitiesTest {
         // sitting there unfetched.
         assertEquals(
             "",
-            Capabilities.preferredDiscovered(fetched = "", stored = "http://evil.example/realms/detour"),
+            Capabilities.preferredDiscovered(
+                fetched = "",
+                stored = "http://evil.example/realms/detour",
+                fetchedAnswers = false,
+            ),
         )
     }
 
     @Test
     fun nothingFetchedAndNothingStoredIsBlank() {
-        assertEquals("", Capabilities.preferredDiscovered(fetched = "", stored = ""))
+        assertEquals("", Capabilities.preferredDiscovered(fetched = "", stored = "", fetchedAnswers = false))
+    }
+
+    @Test
+    fun anAnnouncedRealmWhoseDiscoveryFailsDoesNotDisplaceTheStoredOne() {
+        // #354: a well-formed but wrong announcement used to replace a working
+        // realm and sign the rider out on the way.
+        assertEquals(
+            "https://old.example/realms/detour",
+            Capabilities.preferredDiscovered(
+                fetched = "https://new.example/realms/typo",
+                stored = "https://old.example/realms/detour",
+                fetchedAnswers = false,
+            ),
+            "#354: an announced realm with no discovery document must not displace a stored one",
+        )
+    }
+
+    @Test
+    fun withNothingStoredTheAnnouncedRealmIsUsedUnchecked() {
+        // Nothing to protect, so no round trip is asked for, and the realm is
+        // used as before — a broken one fails at the browser.
+        assertFalse(Capabilities.displaces(fetched = "https://new.example/realms/detour", stored = ""))
+        assertEquals(
+            "https://new.example/realms/detour",
+            Capabilities.preferredDiscovered(
+                fetched = "https://new.example/realms/detour",
+                stored = "",
+                fetchedAnswers = false,
+            ),
+        )
+    }
+
+    @Test
+    fun theSameRealmAgainNeedsNoDiscoveryCheck() {
+        val realm = "https://idp.example/realms/detour"
+        assertFalse(Capabilities.displaces(fetched = realm, stored = realm))
+        assertEquals(realm, Capabilities.preferredDiscovered(realm, realm, fetchedAnswers = false))
+    }
+
+    @Test
+    fun aNewRealmOverAStoredOneAsksForTheDiscoveryCheck() {
+        assertTrue(
+            Capabilities.displaces(
+                fetched = "https://new.example/realms/detour",
+                stored = "https://old.example/realms/detour",
+            ),
+        )
+    }
+
+    @Test
+    fun aDiscoveryDocumentNamesAnIssuer() {
+        assertTrue(
+            Capabilities.isDiscoveryDocument(
+                """{"issuer":"https://idp.example/realms/detour","authorization_endpoint":"x"}""",
+            ),
+        )
+        assertFalse(Capabilities.isDiscoveryDocument("{}"), "a proxy's empty object is not one")
+        assertFalse(Capabilities.isDiscoveryDocument("<html>sign in</html>"), "a gateway page is not one")
+        assertFalse(Capabilities.isDiscoveryDocument("""{"issuer":""}"""))
     }
 }

@@ -1,6 +1,7 @@
 package com.jellemax.detour.data
 
 import io.ktor.http.encodeURLParameter
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import okio.IOException
 
@@ -30,20 +31,8 @@ object Geocoder {
     // `IOException`.
     @Throws(Exception::class)
     suspend fun search(query: String, near: LatLon?, limit: Int = 8): List<GeocodeResult> {
-        val primary = baseUrl().trimEnd('/')
-        // If a custom/baked instance is down, fail over to the public one so search
-        // keeps working — but only when the user has allowed it (Settings): that
-        // fallback sends the query and an approximate location to a third party,
-        // which someone who bothered to self-host precisely wants to avoid. When
-        // the primary already is public there is nothing to add either way.
-        val endpoints = if (primary == PUBLIC || !Settings.geocoderPublicFallback.value) {
-            listOf(primary)
-        } else {
-            listOf(primary, PUBLIC)
-        }
-
         var lastError: IOException? = null
-        for (base in endpoints) {
+        for (base in endpoints()) {
             try {
                 return fetch(base, query, near, limit)
             } catch (e: IOException) {
@@ -52,6 +41,59 @@ object Geocoder {
         }
         throw lastError ?: IOException("Search failed")
     }
+
+    /**
+     * The name of the place at [at] — "Kerkstraat, Gent, België" — via Photon's
+     * `/reverse`, for a spin pick or a tapped route stop that has only
+     * coordinates. Null when no endpoint answers with a usable name (offline,
+     * a self-hosted proxy that does not route `/reverse`, open water): every
+     * caller then shows the coordinates or its own placeholder, so a failed
+     * lookup is not an error worth surfacing. Only cancellation propagates.
+     *
+     * Same endpoints, in the same order and under the same public-fallback
+     * consent, as [search].
+     */
+    suspend fun reverse(at: LatLon): String? {
+        for (base in endpoints()) {
+            try {
+                val url = "$base/reverse?lat=${at.lat}&lon=${at.lon}&limit=1"
+                val body = Http.get(url, userAgent(), readTimeoutMs = REVERSE_READ_TIMEOUT_MS)
+                reverseLabel(body)?.let { return it }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unreachable, an HTTP error, or a non-JSON page from a proxy
+                // that does not route /reverse: try the next endpoint.
+            }
+        }
+        return null
+    }
+
+    /** First feature's label in a Photon `/reverse` answer; null when it has none. */
+    internal fun reverseLabel(json: String): String? = parse(json).firstOrNull()?.name
+
+    // A reverse lookup only decorates a result that is already on screen, so
+    // it gets a shorter leash than a search the rider is waiting on.
+    private const val REVERSE_READ_TIMEOUT_MS = 5_000L
+
+    /**
+     * The custom/baked instance, then the public one if it is down — but only
+     * when the user has allowed it (Settings): that fallback sends the query
+     * and an approximate location (or, for [reverse], the exact point being
+     * named) to a third party, which someone who bothered
+     * to self-host precisely wants to avoid. When the primary already is
+     * public there is nothing to add either way.
+     */
+    private fun endpoints(): List<String> {
+        val primary = baseUrl().trimEnd('/')
+        return if (primary == PUBLIC || !Settings.geocoderPublicFallback.value) {
+            listOf(primary)
+        } else {
+            listOf(primary, PUBLIC)
+        }
+    }
+
+    private fun userAgent() = mapOf("User-Agent" to "Detour/${BuildDefaults.versionName}")
 
     private suspend fun fetch(
         base: String,
@@ -63,9 +105,8 @@ object Geocoder {
         val bias = near?.let { "&lat=${it.lat}&lon=${it.lon}" } ?: ""
         val url = "$base/api/?q=" + query.encodeURLParameter() + "&limit=$limit" + bias
 
-        val headers = mapOf("User-Agent" to "Detour/${BuildDefaults.versionName}")
         val body = try {
-            Http.get(url, headers, readTimeoutMs = 10_000)
+            Http.get(url, userAgent(), readTimeoutMs = 10_000)
         } catch (e: HttpStatusException) {
             throw IOException("Search failed: HTTP ${e.code}")
         }
