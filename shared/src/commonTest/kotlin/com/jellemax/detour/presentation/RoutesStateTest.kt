@@ -1,6 +1,7 @@
 package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.RouteOrigin
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.TravelMode
@@ -139,6 +140,27 @@ class RoutesStateTest {
         assertFalse(routeOpensExternally(stopCount = 1))
         assertEquals("Ride", cardFor(stopCount = 1).actionLabel)
     }
+
+    @Test fun aSavedSpinLoopRidesInTheAppWhateverItsStopCount() {
+        // #589: a loop is routed through its stops in-app, so its pill must not
+        // promise a hand-off to Google Maps the tap no longer makes.
+        val loop = routesStateFrom(listOf(spinWith(stopCount = 10))).single()
+        assertEquals("Ride", loop.actionLabel)
+        assertFalse(routeOpensExternally(spinWith(stopCount = 10)))
+    }
+
+    private fun spinWith(stopCount: Int): SavedRoute = SavedRoute(
+        id = 2L,
+        name = "Loop",
+        createdMs = 0L,
+        mode = TravelMode.MOTO,
+        // A saved loop closes on its start.
+        stops = List(stopCount) { RouteStop(LatLon(50.0 + it % (stopCount - 1), 5.0)) },
+        polyline = emptyList(),
+        distanceMeters = null,
+        timeMs = null,
+        origin = RouteOrigin.SPIN,
+    )
 
     private fun cardFor(stopCount: Int): RouteCard = routesStateFrom(
         listOf(

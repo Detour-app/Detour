@@ -73,6 +73,12 @@
         <item quantity="other">%1$d votes · %2$s</item>
     </plurals>
     <string name="candidates_share">Share with convoy</string>
+    <string name="save_spin_action">Save to Routes</string>
+    <string name="save_spin_title">Save to Routes</string>
+    <string name="save_spin_name">Name</string>
+    <string name="save_spin_loop">Save loop</string>
+    <string name="save_spin_loop_name">Loop · %1$s</string>
+    <string name="save_spin_destination_name">Spin destination</string>
     <string name="candidates_go_with_lead">Go with the lead</string>
     <string name="candidates_cancel">Cancel</string>
     <string name="candidates_reroll">Reroll</string>

@@ -221,6 +221,11 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
 3. **watchOS app.** Small, and starting from nothing — the Android watch
    companion was removed in #57.
 4. **Signed device builds.** CI builds for the simulator only.
+5. **Saved spins (#589).** Android saves a spin candidate or loop to Routes
+   and rides a saved loop in-app through its stops (`SavedSpins` in
+   `shared/…/data/`, the joining rule included). iOS reads and keeps those
+   routes — `RouteOrigin` is shared — but has neither the Save action on its
+   spin results nor a ride action in its Routes list at all yet.
 
 ### Will not port
 

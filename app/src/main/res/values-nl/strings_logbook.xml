@@ -175,6 +175,11 @@
 
     <!-- RoutesScreen.kt -->
     <string name="routes_no_maps_app">Geen app om een route met meerdere stops te openen</string>
+    <string name="routes_loop_join_title">Je bent niet bij de start van de lus</string>
+    <string name="routes_loop_join_text">Hoe wil je deze lus oppakken? Je rijdt hem hoe dan ook één keer, in de richting waarin hij is opgeslagen.</string>
+    <string name="routes_loop_via_start">Eerst naar de start rijden</string>
+    <string name="routes_loop_nearest">Instappen op het dichtstbijzijnde punt</string>
+    <string name="routes_loop_routing">Lus wordt berekend…</string>
     <string name="routes_exported">%1$s geëxporteerd</string>
     <string name="routes_imported">%1$s geïmporteerd</string>
     <string name="routes_import_unreadable">Dat bestand is geen route die Detour kan lezen</string>

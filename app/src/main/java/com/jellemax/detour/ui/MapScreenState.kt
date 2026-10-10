@@ -10,6 +10,7 @@ import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
+import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.map.CameraAuthority
 import kotlinx.coroutines.Job
 
@@ -110,6 +111,8 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var rideSheetExpanded: Boolean by mutableStateOf(false)
     var searchOpen: Boolean by mutableStateOf(false)
     var savePinTarget: LatLon? by mutableStateOf(null)
+    /** A spin result waiting to be named and kept in Routes (#589). */
+    var saveSpinDraft: SavedRoute? by mutableStateOf(null)
     var showBgLocationDisclosure: Boolean by mutableStateOf(false)
     var showPermissionExplainer: Boolean by mutableStateOf(false)
 

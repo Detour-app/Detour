@@ -170,6 +170,10 @@ internal fun MapScreenDialogs(
         )
     }
 
+    s.saveSpinDraft?.let { draft ->
+        SaveSpinDialog(draft = draft, onDismiss = { s.saveSpinDraft = null })
+    }
+
     s.savePinTarget?.let { target ->
         val droppedPin = stringResource(R.string.map_dropped_pin)
         SavePinDialog(
