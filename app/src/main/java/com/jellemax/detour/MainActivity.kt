@@ -52,6 +52,7 @@ import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.AuthException
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.RoutingServer
+import com.jellemax.detour.data.RoutingSupport
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
@@ -128,6 +129,10 @@ class MainActivity : ComponentActivity() {
             runCatching { RoutingServer.probeCapabilities() }
             CircleNotifyService.refresh(this@MainActivity)
         }
+        // Which avoid options the routing graph can honour (#587), read
+        // synchronously by every routing request. Its own launch so a slow
+        // routing server can't hold up the transport decision above.
+        lifecycleScope.launch { runCatching { RoutingSupport.refresh() } }
         // MapLibre must be initialised before any MapView is created. No API key:
         // OpenFreeMap tiles are keyless, so no token provider is needed.
         ColdStartTiming.timed("MapLibre.getInstance") { MapLibre.getInstance(this) }

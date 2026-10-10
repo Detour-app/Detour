@@ -168,9 +168,10 @@ object RoutingClient {
         headingDeg: Double?,
         preferences: RoutePreferences,
     ): RouteResult {
-        // Only avoidSmallRoads shapes a loop: a moto round trip never takes a
-        // motorway, so avoidHighways would only cost the CH fast path.
-        if (!preferences.avoidSmallRoads) {
+        // Every option but avoidHighways shapes a loop: a moto round trip never
+        // takes a motorway, so that one would only cost the CH fast path.
+        val rules = preferences.copy(avoidHighways = false).priorityRules()
+        if (rules.isEmpty()) {
             return fetchRoute(
                 requireRoutingBase(config) +
                     "/route?profile=moto" +
@@ -199,7 +200,7 @@ object RoutingClient {
             putJsonArray("details") { add("max_speed"); add("roundabout") }
             put("ch.disable", true)
             putJsonObject("custom_model") {
-                put("priority", RoutePreferences(avoidSmallRoads = true).priorityRules())
+                put("priority", rules)
             }
             headingDeg?.let { h -> putJsonArray("heading") { add(h.toInt()) } }
         }

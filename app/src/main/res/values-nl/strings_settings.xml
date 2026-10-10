@@ -65,6 +65,13 @@
     <string name="settings_avoid_highways_hint">Navigatie in de app slaat autosnelwegen over (automodus; moto gebruikt ze nooit)</string>
     <string name="settings_avoid_small_roads">Kleine wegen vermijden</string>
     <string name="settings_avoid_small_roads_hint">Echte wegen verkiezen boven smalle landweggetjes, dienstwegen en onverharde paden</string>
+    <string name="settings_avoid_tolls">Tol vermijden</string>
+    <string name="settings_avoid_tolls_hint">Alleen over een tolweg, -brug of -tunnel als er geen redelijke omweg is</string>
+    <string name="settings_avoid_ferries">Veerboten vermijden</string>
+    <string name="settings_avoid_ferries_hint">Over water via de weg waar een brug of tunnel volstaat</string>
+    <string name="settings_avoid_unpaved">Onverharde wegen vermijden</string>
+    <string name="settings_avoid_unpaved_hint">Grind, aarde en zand mijden, ook op wegen die verder echte wegen zijn</string>
+    <string name="settings_avoid_unsupported">Je routeserver kan dit nog niet</string>
 
     <!-- Map -->
     <string name="settings_marker">Jouw markering</string>

@@ -64,6 +64,15 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
     val theme by Settings.theme.collectAsStateWithLifecycle()
     val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
+    val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
+    val avoidTolls by Settings.avoidTolls.collectAsStateWithLifecycle()
+    val avoidFerries by Settings.avoidFerries.collectAsStateWithLifecycle()
+    val avoidUnpaved by Settings.avoidUnpaved.collectAsStateWithLifecycle()
+    // Read back through Settings rather than built here, so the subtitle drops
+    // an option the server can't honour exactly as a routing request does.
+    val avoid = remember(avoidHighways, avoidSmallRoads, avoidTolls, avoidFerries, avoidUnpaved) {
+        Settings.routePreferences()
+    }
     val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
     val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
     val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
@@ -77,7 +86,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
     val hub = settingsHubStateFrom(
         themeName = theme.name,
         autoDetectDrives = autoDetect,
-        avoidHighways = avoidHighways,
+        avoid = avoid,
         fogRadiusMeters = fogRadius.toDouble(),
         externalDisplayEnabled = externalDisplayEnabled,
         authUsername = authUsername,
