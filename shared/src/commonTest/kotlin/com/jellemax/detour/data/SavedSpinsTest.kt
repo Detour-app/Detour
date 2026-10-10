@@ -63,6 +63,15 @@ class SavedSpinsTest {
         assertFalse(SavedSpins.isLoop(planned))
     }
 
+    @Test fun aSpinRouteThatDoesNotCloseIsNotALoop() {
+        // A destination spin with a stop added, or a loop whose closing stop
+        // was removed, rides as a planned route, not with the join choice.
+        val loop = SavedSpins.fromSpin(1L, "x", TravelMode.MOTO, home, null, loopResult())
+        assertFalse(SavedSpins.isLoop(loop.copy(stops = loop.stops.dropLast(1))))
+        val edited = SavedSpins.fromSpin(1L, "x", TravelMode.MOTO, home, b, null)
+        assertFalse(SavedSpins.isLoop(edited.copy(stops = listOf(edited.stops[0], RouteStop(a), edited.stops[1]))))
+    }
+
     @Test fun atStartIsWithinTheRadiusOfTheFirstStop() {
         val saved = SavedSpins.fromSpin(1L, "x", TravelMode.MOTO, home, null, loopResult())
         // 0.0003° of latitude is about 33 m.

@@ -54,9 +54,12 @@ object SavedSpins {
 
     /** Whether [route] is a saved loop, ridden in-app through its stops. A
      *  two-stop spin (or a loop saved with no via points) is a plain A-to-B
-     *  route and takes the existing destination path. */
+     *  route and takes the existing destination path. A spin route edited so
+     *  it no longer ends where it starts is not a loop either: joining it at
+     *  its nearest stop would ride past its end and back to its start. */
     fun isLoop(route: SavedRoute): Boolean =
-        route.origin == RouteOrigin.SPIN && route.stops.size > 2
+        route.origin == RouteOrigin.SPIN && route.stops.size > 2 &&
+            route.stops.first().at == route.stops.last().at
 
     /** Whether [at] is close enough to [route]'s start to ride it without
      *  asking how to join it. */

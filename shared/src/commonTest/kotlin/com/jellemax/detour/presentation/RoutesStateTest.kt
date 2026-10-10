@@ -154,7 +154,8 @@ class RoutesStateTest {
         name = "Loop",
         createdMs = 0L,
         mode = TravelMode.MOTO,
-        stops = List(stopCount) { RouteStop(LatLon(50.0 + it, 5.0)) },
+        // A saved loop closes on its start.
+        stops = List(stopCount) { RouteStop(LatLon(50.0 + it % (stopCount - 1), 5.0)) },
         polyline = emptyList(),
         distanceMeters = null,
         timeMs = null,
