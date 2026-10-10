@@ -81,11 +81,11 @@ adb -s emulator-5556 emu geo fix 6.13 49.61     # longitude first
 ```
 
 For anything that has to move (a trip that records, arrival, reroute) use a
-replayed route rather than `geo fix` steps — see the `detour-gps-replay` skill,
-including its note on keeping the map off screen during a replay on an
-emulator (#301). A replay with the navigation map on screen crashed the app
-within seconds here too. What worked: start navigation, then move the app to
-Settings before starting the replay —
+replayed route rather than `geo fix` steps — see the `detour-gps-replay` skill.
+A replay with the navigation map on screen crashed the app within seconds here
+on MapLibre 11.8.0 (#301); 11.8.8 fixed that for the idle map, but the
+navigation map has not been re-measured on this rig. If it still crashes,
+start navigation, then move the app to Settings before starting the replay —
 
 ```sh
 adb -s emulator-5556 shell am start -n io.github.maxke24.detour.debug/com.jellemax.detour.MainActivity --ez open_update_settings true
