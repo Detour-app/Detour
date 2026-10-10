@@ -93,15 +93,20 @@ object ConvoyGapDetector {
     data class State(
         val riders: Map<RiderId, Rider> = emptyMap(),
         /** The route [Rider.history] was measured along; a different one
-         *  invalidates every history. */
+         *  restarts every history from the rider's last fix. */
         val route: List<LatLon> = emptyList(),
     )
 
     data class Step(val state: State, val events: List<Event>)
 
     fun step(state: State, fixes: List<Fix>, leadId: RiderId, route: List<LatLon>, nowMs: Long): Step {
+        // A new route restarts each history at the rider's last fix rather than
+        // emptying it: a rider whose next frame is still on its way must stay
+        // someone the others can be behind.
         var riders = if (route == state.route) state.riders
-            else state.riders.mapValues { it.value.copy(history = emptyList()) }
+            else state.riders.mapValues { (_, rider) ->
+                rider.copy(history = listOfNotNull(sampleOn(route, rider.last, rider.movingMs)))
+            }
         for (fix in fixes.sortedBy { it.tsMs }) {
             val prev = riders[fix.riderId]
             if (prev != null && fix.tsMs <= prev.last.tsMs) continue
@@ -126,10 +131,7 @@ object ConvoyGapDetector {
         val moving = speedKmh != null && speedKmh >= STOPPED_KMH
         val stopped = speedKmh != null && speedKmh < STOPPED_KMH
         val movingMs = base.movingMs + if (moving) fix.tsMs - base.last.tsMs else 0L
-        val history = if (route.size < 2) emptyList() else {
-            val sample = Sample(fix.tsMs, NavEngine.advance(route, fix.at, null).meters, movingMs)
-            trimmed(base.history, sample)
-        }
+        val history = sampleOn(route, fix, movingMs)?.let { trimmed(base.history, it) } ?: emptyList()
         return base.copy(
             last = fix,
             movingSince = if (moving) base.movingSince ?: fix.tsMs else null,
@@ -138,6 +140,9 @@ object ConvoyGapDetector {
             history = history,
         )
     }
+
+    private fun sampleOn(route: List<LatLon>, fix: Fix, movingMs: Long): Sample? =
+        if (route.size < 2) null else Sample(fix.tsMs, NavEngine.advance(route, fix.at, null).meters, movingMs)
 
     private fun derivedKmh(from: Fix, to: Fix): Double? {
         val dtMs = to.tsMs - from.tsMs
@@ -175,7 +180,8 @@ object ConvoyGapDetector {
     }
 
     private fun isBehind(rider: Rider, live: Collection<Rider>): Boolean {
-        val here = rider.history.lastOrNull() ?: return rider.behind
+        // No history means no route: nothing to be behind along.
+        val here = rider.history.lastOrNull() ?: return false
         val ahead = live
             .mapNotNull { other -> other.history.lastOrNull()?.let { other to it.alongM } }
             .filter { (_, along) -> along > here.alongM }
@@ -183,18 +189,27 @@ object ConvoyGapDetector {
             ?.first
             ?: return false
         val gapM = ahead.history.last().alongM - here.alongM
-        val gapMs = movingMsSincePassing(ahead.history, here.alongM)
         val scale = if (rider.behind) REJOIN_FRACTION else 1.0
-        return gapM >= BEHIND_METERS * scale || gapMs >= BEHIND_MS * scale
+        if (gapM >= BEHIND_METERS * scale) return true
+        val gapMs = movingMsSincePassing(ahead.history, here.alongM, BEHIND_MS * scale)
+            ?: return rider.behind
+        return gapMs >= BEHIND_MS * scale
     }
 
-    /** Moving time [history]'s rider has spent since they were at [alongM].
-     *  When that is older than the history, the whole history's moving time —
-     *  a lower bound, and already past [BEHIND_MS] once the history is full. */
-    private fun movingMsSincePassing(history: List<Sample>, alongM: Double): Double {
+    /**
+     * Moving time [history]'s rider has spent since they were at [alongM], or
+     * null when that can't be told against [thresholdMs]. When [alongM] is
+     * older than the history, the whole history's moving time is a lower
+     * bound: decisive once it reaches [thresholdMs], undecidable before — as
+     * right after a route change, when the history is one sample long.
+     */
+    private fun movingMsSincePassing(history: List<Sample>, alongM: Double, thresholdMs: Double): Double? {
         val latest = history.last()
         val i = history.indexOfLast { it.alongM <= alongM }
-        if (i == -1) return (latest.movingMs - history.first().movingMs).toDouble()
+        if (i == -1) {
+            val spanMs = (latest.movingMs - history.first().movingMs).toDouble()
+            return if (spanMs >= thresholdMs) spanMs else null
+        }
         if (i == history.lastIndex) return 0.0
         // Every sample after i is past alongM, so b is strictly ahead of a.
         val a = history[i]

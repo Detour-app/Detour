@@ -32,11 +32,13 @@ class ConvoyGapDetectorTest {
     /**
      * Steps both riders once a second for [speeds].size seconds, each second
      * moving them at the pair of speeds given, and returns every event raised.
+     * [routeAt] is the route handed in at each second.
      */
     private fun ride(
         start: Pair<Double, Double>,
         speeds: List<Pair<Double, Double>>,
         resend: Boolean = false,
+        routeAt: (Int) -> List<LatLon> = { route },
     ): List<Pair<Long, Event>> {
         val front = Rider(lead, start.first)
         val back = Rider(tail, start.second)
@@ -49,7 +51,7 @@ class ConvoyGapDetectorTest {
             back.alongM += tailKmh / 3.6
             val fresh = listOf(fix(lead, front.alongM, leadKmh, now), fix(tail, back.alongM, tailKmh, now))
             val fixes = if (resend) previous + fresh + fresh else fresh
-            val step = ConvoyGapDetector.step(state, fixes, lead, route, now)
+            val step = ConvoyGapDetector.step(state, fixes, lead, routeAt(second), now)
             state = step.state
             step.events.forEach { events += now to it }
             previous = fresh
@@ -150,5 +152,48 @@ class ConvoyGapDetectorTest {
         val speeds = List(120) { 50.0 to 90.0 } + List(60) { 0.0 to 50.0 }
         val events = ride(start = 0.0 to 0.0, speeds = speeds)
         assertEquals(emptyList<Pair<Long, Event>>(), events.filter { it.second.rider == lead })
+    }
+
+    @Test
+    fun aGapHoveringAtTheThresholdAlertsOnce() {
+        // 480 m back, then 20 s a little slower (+39 m) and 20 s a little faster
+        // (-39 m), six times over: the gap crosses 500 m every cycle.
+        val wobble = List(20) { 50.0 to 43.0 } + List(20) { 50.0 to 57.0 }
+        val speeds = List(6) { wobble }.flatten()
+        val events = ride(start = 480.0 to 0.0, speeds = speeds).map { it.second }
+        assertEquals(listOf<Event>(Event.FellBehind(tail)), events)
+    }
+
+    @Test
+    fun aNewRouteKeepsARiderWhoIsBehindOnTimeBehind() {
+        // 300 m at 15 km/h is 72 s back. Halfway through the ride the lead
+        // reroutes onto the same road, so every history restarts at one
+        // sample and the time gap can't be told until the tail reaches it.
+        val rerouted = listOf(LatLon(50.0, 4.0), LatLon(50.0, 4.15), LatLon(50.0, 4.3))
+        val speeds = List(300) { 15.0 to 15.0 }
+        val events = ride(start = 300.0 to 0.0, speeds = speeds, routeAt = { if (it < 150) route else rerouted })
+        assertEquals(listOf<Event>(Event.FellBehind(tail)), events.map { it.second })
+    }
+
+    @Test
+    fun losingTheRouteClearsBehind() {
+        val speeds = List(60) { 50.0 to 50.0 }
+        val events = ride(start = 700.0 to 0.0, speeds = speeds, routeAt = { if (it < 30) route else emptyList() })
+        assertEquals(listOf(t0 to Event.FellBehind(tail), t0 + 30_000L to Event.Rejoined(tail)), events)
+    }
+
+    @Test
+    fun aFrameOlderThanTheLastOneChangesNoState() {
+        val now = t0 + 10_000L
+        val first = ConvoyGapDetector.step(
+            ConvoyGapDetector.State(),
+            listOf(fix(lead, 600.0, 50.0, now), fix(tail, 0.0, 50.0, now)),
+            lead,
+            route,
+            now,
+        )
+        val late = ConvoyGapDetector.step(first.state, listOf(fix(tail, 300.0, 50.0, now - 5_000L)), lead, route, now)
+        assertEquals(first.state, late.state)
+        assertEquals(emptyList(), late.events)
     }
 }
