@@ -149,26 +149,30 @@ jobs:
       - name: Check credential fields use the secure components
         run: .claude/skills/detour-compose-state-hazards/scripts/check-secret-fields.sh
 
-      # Static analysis, gated on config/detekt/baseline-{app,shared}.xml so it fails on
-      # new violations only. The rules that matter are the Compose ones —
-      # parameter drilling, forwarded state holders, and an empty
-      # CompositionLocal allowlist — see docs/guidelines/state-holders.md.
-      # Before the tests: it needs no compiled output and finishes in ~20s.
-      - name: Static analysis
-        run: ./gradlew :app:detekt :shared:detekt
-
-      # app/src/test and shared/ both hold unit tests that had never run in CI:
-      # this job only ever assembled, and ios.yml — which does run the shared
-      # tests — is path-gated on shared/** and iosApp/**, so a change under app/
-      # was tested by nothing at all. Before the assemble step, so a red test
-      # fails the build in seconds rather than after a full release build.
-      - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest
-
-      # One invocation, so the version code stamped above is read once and
-      # every artifact in this release agrees on it. Both ways: .aab for Play,
-      # .apk for sideloading off the GitHub release.
-      - name: Build release artifacts
+      # Static analysis, unit tests and the release build in ONE Gradle
+      # invocation. Gradle configures the build once and runs independent tasks
+      # in parallel (org.gradle.parallel) and reuses cached outputs
+      # (org.gradle.caching), which three sequential invocations could not:
+      # each paid its own configuration and daemon start, and detekt's ~20 s
+      # waited behind nothing it depended on.
+      #
+      # What the old ordering bought, and what replaces it:
+      # - detekt gates on config/detekt/baseline-{app,shared}.xml so it fails on
+      #   new violations only (Compose rules: parameter drilling, forwarded
+      #   state holders, an empty CompositionLocal allowlist — see
+      #   docs/guidelines/state-holders.md). It still fails the run; Gradle stops
+      #   scheduling new tasks at the first failure, so a red check still ends
+      #   the build early instead of after the full release.
+      # - app/src/test and shared/ hold unit tests; ios.yml only runs shared's
+      #   and is path-gated, so these are what test a change under app/.
+      # - One invocation also means the version code stamped above is read once
+      #   and every artifact in this release agrees on it.
+      #
+      # The .aab (:app:bundleRelease) is a second full R8 pass. Only Play and
+      # the by-hand upload need it, and both exist only for a push to main, so a
+      # PR builds the .apk alone — enough to prove the release still compiles
+      # and minifies.
+      - name: Check, test and build release artifacts
         env:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
@@ -177,8 +181,11 @@ jobs:
           # fork's own releases. Blank in every build that is not this one,
           # which is what keeps the update check inert everywhere else.
           UPDATE_REPO: ${{ github.repository }}
+          BUNDLE: ${{ github.event_name == 'push' && ':app:bundleRelease' || '' }}
         run: |
-          ./gradlew :app:assembleGithubRelease :app:bundleRelease
+          ./gradlew :app:detekt :shared:detekt \
+            :app:testDebugUnitTest :shared:testDebugUnitTest \
+            :app:assembleGithubRelease $BUNDLE
 
       # The APK carries the version in its name, so a downloaded file still says
       # what it is once it's sitting in a Downloads folder next to four others.
@@ -217,11 +224,13 @@ jobs:
       # with the version code as well as the name: Play rejects a code it has
       # already seen, and the code comes from the run number, not the file.
       - name: Rename bundle
+        if: github.event_name == 'push'
         run: |
           cp app/build/outputs/bundle/release/app-release.aab \
              detour-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}.aab
 
       - name: Upload bundle
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: detour-aab-${{ steps.version.outputs.name }}
