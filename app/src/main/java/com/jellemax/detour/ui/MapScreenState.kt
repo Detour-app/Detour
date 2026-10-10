@@ -10,6 +10,7 @@ import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
+import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.map.CameraAuthority
 import kotlinx.coroutines.Job
 
@@ -77,6 +78,10 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     // --- position and hazards ------------------------------------------
     var myLocation: LatLon? by mutableStateOf(null)
     var speedLimitFetchJob: Job? by mutableStateOf(null)
+    /** The camera banner's countdown (#549), written by MapHazardAlerts every
+     *  fix. Per entry, not retained: the first fix after a return rewrites it,
+     *  and a retained copy would show a camera passed while the map was away. */
+    var cameraCountdown: CameraWarner.Countdown? by mutableStateOf(null)
 
     // --- convoy and circles ---------------------------------------------
     var convoyName: String? by mutableStateOf(null)
