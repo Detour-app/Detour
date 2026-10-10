@@ -2,6 +2,7 @@ package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.SavedSpins
 import com.jellemax.detour.data.TravelMode
 
 /** A point in a route thumbnail's own coordinate box, y growing downward. */
@@ -32,6 +33,11 @@ data class RouteCard(
  * the subtitle — so a rider tapping it had no way to know they were leaving.
  */
 fun routeOpensExternally(stopCount: Int): Boolean = stopCount > 2
+
+/** [routeOpensExternally] for a whole route: a saved spin loop has many stops
+ *  but rides in-app through them (#589), so only a planned route leaves. */
+fun routeOpensExternally(route: SavedRoute): Boolean =
+    !SavedSpins.isLoop(route) && routeOpensExternally(route.stops.size)
 
 /**
  * Marks whether the Routes screen's initial disk read has completed.
@@ -136,6 +142,6 @@ fun routesStateFrom(routes: List<SavedRoute>): List<RouteCard> = routes.map { r 
         name = r.name,
         subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy),
         polyline = r.polyline,
-        actionLabel = if (routeOpensExternally(r.stops.size)) "Open in Maps" else "Ride",
+        actionLabel = if (routeOpensExternally(r)) "Open in Maps" else "Ride",
     )
 }

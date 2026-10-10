@@ -175,6 +175,11 @@
 
     <!-- RoutesScreen.kt -->
     <string name="routes_no_maps_app">No app to open a multi-stop route</string>
+    <string name="routes_loop_join_title">You\'re not at the loop\'s start</string>
+    <string name="routes_loop_join_text">How do you want to join this loop? Either way it\'s ridden once, in the direction it was saved.</string>
+    <string name="routes_loop_via_start">Ride to the start first</string>
+    <string name="routes_loop_nearest">Join at the nearest point</string>
+    <string name="routes_loop_routing">Routing the loop…</string>
     <string name="routes_exported">Exported %1$s</string>
     <string name="routes_imported">Imported %1$s</string>
     <string name="routes_import_unreadable">That file isn\'t a route Detour can read</string>

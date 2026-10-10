@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BlurOn
+import androidx.compose.material.icons.rounded.BookmarkAdd
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Gesture
@@ -30,6 +31,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -188,6 +190,8 @@ internal fun SpinSheet(
     onCollapse: () -> Unit,
     onNavigateInApp: () -> Unit,
     onNavigate: () -> Unit,
+    // Keeps the loop on screen in Routes (#589); null when there is none.
+    onSaveLoop: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -474,6 +478,13 @@ internal fun SpinSheet(
                     onRespin = onSpin,
                     bends = bends,
                 )
+            }
+            if (!spinning && onSaveLoop != null) {
+                OutlinedButton(onClick = onSaveLoop, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.BookmarkAdd, contentDescription = null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.save_spin_loop))
+                }
             }
 
             Button(

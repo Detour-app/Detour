@@ -70,6 +70,12 @@
         <item quantity="other">%1$d stemmen · %2$s</item>
     </plurals>
     <string name="candidates_share">Delen met konvooi</string>
+    <string name="save_spin_action">Opslaan in Routes</string>
+    <string name="save_spin_title">Opslaan in Routes</string>
+    <string name="save_spin_name">Naam</string>
+    <string name="save_spin_loop">Lus opslaan</string>
+    <string name="save_spin_loop_name">Lus · %1$s</string>
+    <string name="save_spin_destination_name">Spinbestemming</string>
     <string name="candidates_go_with_lead">Volg de keuze van de koploper</string>
     <string name="candidates_cancel">Annuleren</string>
     <string name="candidates_reroll">Opnieuw</string>
