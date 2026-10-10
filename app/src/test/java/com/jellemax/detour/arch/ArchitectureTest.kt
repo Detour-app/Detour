@@ -105,9 +105,11 @@ class ArchitectureTest {
             "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1811,
             // +3: #456 stale-destination guard; +1: #485 MapSurface import; -1: #432 route-fetch guard
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1418,
+            // +3: #439 route tile prefetch at nav start
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1421,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1277,
+            // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1211,
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1006,
         )

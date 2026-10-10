@@ -111,6 +111,7 @@ import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.ModeSwipePolicy
 import com.jellemax.detour.map.NavStart
+import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.map.SpinOutcome
 import com.jellemax.detour.map.SpinParams
 import com.jellemax.detour.map.modeSwitch
@@ -823,6 +824,8 @@ fun MapScreen(
         fun beginGuidance(to: LatLon?) { // #422: no trip until there is a route to guide
             if (stats == null) permissions.recordTrip(to) // #500: asks for precise first
             s.navigating = true
+            // #439: fetch the map along the line now, while there is signal to do it.
+            s.route?.let { RouteTileCache.prefetch(context, it.polyline, darkTheme) }
         }
         s.error = null
         // A fresh session hears its first turn immediately, whatever the

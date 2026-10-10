@@ -47,6 +47,7 @@ import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.cameraWarnerOptions
 import com.jellemax.detour.map.NavPolicy
+import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.tracking.DriveClock
 import com.jellemax.detour.tracking.DriveClocks
 import com.jellemax.detour.tracking.SectionAverageLog
@@ -203,6 +204,8 @@ class NavScreen(
                     }
                 }
                 renderer.setRoute(route.polyline, destination)
+                // #439: same cache the phone fills; either surface's fetch serves both.
+                RouteTileCache.prefetch(carContext, route.polyline, carContext.isDarkMode)
             }
             // Covers every way this screen leaves the front of the stack —
             // the Exit action, arrival, and the car's own back control alike.

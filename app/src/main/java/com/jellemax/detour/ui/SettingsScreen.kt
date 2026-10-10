@@ -717,6 +717,7 @@ private fun MapSection() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        OfflineTilesRow()
     }
 }
 
