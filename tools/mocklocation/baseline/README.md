@@ -1122,9 +1122,9 @@ arithmetic against the backend's camera set, and the 3-fix sign clear on `stop-s
 
 | | |
 |---|---|
-| Commit | `42fbc76` (`main`, app `3.37.1`), `.debug`, built with `API_URL=https://detour.jellemax.be` |
+| Commit | `42fbc76` (`main`, app `3.37.1`), `.debug`, built against the hosted backend (`API_URL` from local config) |
 | Device | AVD `sdk_gphone64_x86_64`, Android 15 (SDK 35), `emulator-5554`, map on screen throughout |
-| Rig | location port, `start-port-replay.sh ../routes/trajectcontrole.txt emulator-5554 1000 1` |
+| Rig | location port, `.claude/skills/detour-gps-replay/scripts/start-port-replay.sh tools/mocklocation/routes/trajectcontrole.txt emulator-5554 1000 1`, run from the repo root |
 | Delivery | `pushed=1466 delivered=1466`, measured cadence **1.00524 s/fix**, no crash |
 | Backend | `/api/cameras` over the route's bbox: 249 cameras, 4 `Section`; `/api/speedlimits` populated |
 | Settings | defaults (`camera_warn_not_speeding` unset, so a chime needs the rider over the limit) |
@@ -1175,9 +1175,11 @@ the "predicted chime set" method above was not run against it.
 
 **Machine 3, `SpeedLimitTracker` — the same six-value ladder.** The sign showed 30, 70, 100, 120
 on the way in, 90 → 70 → 120 inside the second section (fixes 646, 674, 706), then 70, 50, 30 on
-the way out: **30/50/70/90/100/120**, the set `a90c3df` recorded. Its clears also line up:
-`a90c3df` cleared at 958, 1005, 1013 and 1372, and this run changed value at 958 and 1006, cleared
-at 1013 and cleared for good at 1373.
+the way out: **30/50/70/90/100/120**, the set `a90c3df` recorded. Its clears mostly line up:
+`a90c3df` cleared at 958, 1005, 1013 and 1372, and this run changed value at 958 (70), 995 (50) and
+1006 (30), cleared at 1013 and cleared for good at 1373. Two differences: this run shows a 50 at
+fix 995 that the clear list above does not mention, and the new events file has no clear during the
+route's only standstill (fixes 1124 to 1130). Why that clear is missing was not investigated.
 
 ## This baseline post-dates stage 2 and cannot verify it
 
