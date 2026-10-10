@@ -1100,6 +1100,63 @@ always derives a bearing, so the stopped-phone path is covered by
   fixtures, each for the quantity it can measure (`urban-limits` has **no** sign baseline for its
   urban half — see its section above).
 
+## `trajectcontrole` at `42fbc76`, 2026-10-10 — the stage-3 gates above, closed after the move
+
+The run the section above deferred, made once its two blockers had gone: cameras and sections come
+from Detour's backend since #302 (no Overpass), and MapLibre 11.8.8 (#618) keeps the map alive
+through a replay on an emulator (#301). It is an **after** of the stage-3 extraction, not a control:
+`69bdf6b` was not captured alongside it. File: `trajectcontrole-42fbc76-events.tsv`.
+
+| | |
+|---|---|
+| Commit | `42fbc76` (`main`, app `3.37.1`), `.debug`, built with `API_URL=https://detour.jellemax.be` |
+| Device | AVD `sdk_gphone64_x86_64`, Android 15 (SDK 35), `emulator-5554`, map on screen throughout |
+| Rig | location port, `start-port-replay.sh ../routes/trajectcontrole.txt emulator-5554 1000 1` |
+| Delivery | `pushed=1466 delivered=1466`, measured cadence **1.00524 s/fix**, no crash |
+| Backend | `/api/cameras` over the route's bbox: 249 cameras, 4 `Section`; `/api/speedlimits` populated |
+| Settings | defaults (`camera_warn_not_speeding` unset, so a chime needs the rider over the limit) |
+
+**How each column was read.** `CHIME` and `AVG-*` rows are logcat lines (`DetourCameraWarn`,
+`DetourSection`), dated to a fix by their timestamp against the port's start line. The `at=` of
+every `AVG-*` line lands within 1 m of the route point at that index, so the time mapping holds to
+one fix. `SIGN-*` rows come from `uiautomator` text sampled every ~2.3 s, so a sign change is
+dated to within **±2 fixes**, and a value held for under ~2 s can be missed altogether.
+
+**Machine 1, `SectionAverageTracker` — same four events, at the same fixes.**
+
+| Event | `a90c3df` (pixels) | `42fbc76` (logcat) |
+|---|---|---|
+| `AVG-ON` relation `15682532` | 166 | **165** (`candidates=1`) |
+| `AVG-CLEARED` | 543, `reachedEnd`, last read `Ø 75`, `accMeters` ≈ 7 946 m | **543**, `REACHED_END`, `avg=75.7`, `acc=7978.6m`, `nearestGate=54.0m` |
+| `AVG-ON` relation `15685856` | 546 | **544** |
+| `AVG-CLEARED` | 804, `overshot` | **804**, `OVERSHOT`, `acc=5834.0m` (bound 5 793 m) |
+
+The one-fix and two-fix differences are inside the pixel run's own uncertainty: its chip had to be
+drawn to be seen, and its index came from a frame time at 1.0187 s/fix. The chip's last on-screen
+value was 76 before the first clear and 80 before the second.
+
+**Machine 2, `CameraWarner` — the first chime baseline.** Five chimes, four speed and one red
+light. The section above counted 5 `highway=speed_camera` nodes near this route from Overpass;
+the backend's set is a different source with a red-light camera in it, so the equal count is not
+evidence that the same cameras fired:
+
+| Fix | `route_kmh` | Chime |
+|---|---|---|
+| 64 | 95.6 | `Speed camera ahead` |
+| 152 | 126.1 | `Speed camera ahead` |
+| 190 | 125.3 | `Speed camera ahead` |
+| 198 | 122.5 | `Red light camera ahead` |
+| 202 | 120.3 | `Speed camera ahead` |
+
+None fires after fix 202. The camera set now comes from the backend, not OSM nodes via Overpass, so
+the "predicted chime set" method above was not run against it.
+
+**Machine 3, `SpeedLimitTracker` — the same six-value ladder.** The sign showed 30, 70, 100, 120
+on the way in, 90 → 70 → 120 inside the second section (fixes 646, 674, 706), then 70, 50, 30 on
+the way out: **30/50/70/90/100/120**, the set `a90c3df` recorded. Its clears also line up:
+`a90c3df` cleared at 958, 1005, 1013 and 1372, and this run changed value at 958 and 1006, cleared
+at 1013 and cleared for good at 1373.
+
 ## This baseline post-dates stage 2 and cannot verify it
 
 Stated plainly because the filename pattern invites the opposite assumption. `FollowCamera`
