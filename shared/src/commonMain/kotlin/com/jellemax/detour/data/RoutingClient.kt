@@ -122,6 +122,28 @@ internal fun headingQuery(hint: HeadingHint?): String =
 internal fun headingDegInt(deg: Double): Int = ((deg % 360.0 + 360.0) % 360.0).toInt()
 
 /**
+ * The GET for a loop with no custom model. `ch.disable` is not optional:
+ * GraphHopper rejects `algorithm=round_trip` on a CH profile with a 400, and
+ * the repo's GraphHopper config prepares CH for `moto` (#626).
+ */
+internal fun roundTripQuery(
+    base: String,
+    start: LatLon,
+    distanceMeters: Double,
+    seed: Long,
+    headingDeg: Double?,
+): String =
+    base +
+        "/route?profile=moto" +
+        "&point=${start.lat},${start.lon}" +
+        "&algorithm=round_trip" +
+        "&round_trip.distance=${distanceMeters.toInt()}" +
+        "&round_trip.seed=$seed" +
+        "&ch.disable=true" +
+        (headingDeg?.let { "&heading=${it.toInt()}" } ?: "") +
+        "&points_encoded=false&details=max_speed&details=roundabout"
+
+/**
  * Client for a self-hosted GraphHopper instance. Configured by the user in
  * the app; the URL lives only in app-private preferences, never in the
  * repo/APK.
@@ -169,18 +191,11 @@ object RoutingClient {
         preferences: RoutePreferences,
     ): RouteResult {
         // Every option but avoidHighways shapes a loop: a moto round trip never
-        // takes a motorway, so that one would only cost the CH fast path.
+        // takes a motorway, so that one would only add a custom model for nothing.
         val rules = preferences.copy(avoidHighways = false).priorityRules()
         if (rules.isEmpty()) {
             return fetchRoute(
-                requireRoutingBase(config) +
-                    "/route?profile=moto" +
-                    "&point=${start.lat},${start.lon}" +
-                    "&algorithm=round_trip" +
-                    "&round_trip.distance=${distanceMeters.toInt()}" +
-                    "&round_trip.seed=$seed" +
-                    (headingDeg?.let { "&heading=${it.toInt()}" } ?: "") +
-                    "&points_encoded=false&details=max_speed&details=roundabout",
+                roundTripQuery(requireRoutingBase(config), start, distanceMeters, seed, headingDeg),
             )
         }
         // A loop is where this matters most: left to itself, round_trip strings
