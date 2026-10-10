@@ -481,11 +481,7 @@ object Auth {
                 "refresh_token" to Settings.refreshToken.value,
             ))
         } catch (e: HttpStatusException) {
-            // 400 invalid_grant: expired past the 90-day idle horizon, revoked,
-            // or replayed. All three mean this device has no session any more,
-            // and holding on to a dead refresh token only produces the same
-            // failure on every later request.
-            if (e.code == 400 || e.code == 401) {
+            if (refreshRefusalEndsSession(e.code, e.body)) {
                 clear()
                 throw AuthException(
                     AuthRefusal.message(
@@ -503,6 +499,28 @@ object Auth {
         store(response, establishesSession = false)
         resolveRiderId()
         return Settings.accessToken.value
+    }
+
+    /**
+     * Whether a refused refresh means the realm has ended the session, which is
+     * the one case [clear] is for.
+     *
+     * Only an OAuth `invalid_grant` says that (RFC 6749 §5.2): the refresh token
+     * expired past the 90-day idle horizon, was revoked, or was replayed. This
+     * used to clear on any 400 or 401, and both arrive for reasons that leave the
+     * session intact (#467): `invalid_client` or `unauthorized_client` from a
+     * realm whose client settings changed, and an HTML or empty body from a
+     * proxy, gateway or captive portal answering in the realm's place. Signing
+     * the rider out fixes none of those, and it drops every account-scoped
+     * store on the way.
+     *
+     * `internal` so the decision can be tested with literals; [refresh] itself
+     * reaches [Settings] and the network.
+     */
+    internal fun refreshRefusalEndsSession(code: Int, body: String): Boolean {
+        if (code != 400 && code != 401) return false
+        val error = runCatching { jsonObjectOf(body).optString("error") }.getOrDefault("")
+        return error == "invalid_grant"
     }
 
     private suspend fun post(name: String, form: Map<String, String>): String =
