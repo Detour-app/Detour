@@ -1022,6 +1022,14 @@ red** against an ambient 30. Those readings are faithful to the file; the file i
 
 ## Outstanding: the stage-3 replay gates, deferred 2026-08-13 — what a later batched run must measure
 
+> **Partly superseded 2026-10-10.** The run below this section
+> (`trajectcontrole` at `42fbc76`) replayed this route after the move. Overpass is no longer the
+> blocker — cameras and sections come from Detour's backend since #302 — and the chime is now
+> logged (`DetourCameraWarn`, `MapHazardAlerts.kt`), so it was observed directly rather than
+> predicted. Still open from this section: the `69bdf6b` control, the predicted-chime set against
+> the backend's cameras, and the 3-fix sign clear on `stop-start` and `urban-limits`. The text
+> below is kept as written on 2026-08-13.
+
 Stage 3 puts a mandatory replay gate **between** its three machines, not after them
 (`docs/refactor/mapscreen/plans/2026-08-13-stage-3-hazard-machines-to-shared.md`, Sequencing).
 None of those gates has been closed on hardware, because
@@ -1099,6 +1107,79 @@ always derives a bearing, so the stopped-phone path is covered by
   3-fix clear, independently sited at 470→473 on `stop-start` and 609→612 on `urban-limits`. Both
   fixtures, each for the quantity it can measure (`urban-limits` has **no** sign baseline for its
   urban half — see its section above).
+
+## `trajectcontrole` at `42fbc76`, 2026-10-10 — the stage-3 replay run, after the move
+
+The run the section above deferred, made once its two blockers had gone: cameras and sections come
+from Detour's backend since #302 (no Overpass), and MapLibre 11.8.8 (#618) keeps the map alive
+through a replay on an emulator (#301). It is an **after** of the stage-3 extraction, not a control:
+`69bdf6b` was not captured alongside it. File: `trajectcontrole-42fbc76-events.tsv`.
+
+What it closes: the four AVG events, a directly logged chime set, and the sign ladder on this one
+route. What it leaves open from the section above: the `69bdf6b` control, the predicted-chime
+arithmetic against the backend's camera set, and the 3-fix sign clear on `stop-start` and
+`urban-limits`.
+
+| | |
+|---|---|
+| Commit | `42fbc76` (`main`, app `3.37.1`), `.debug`, built against the hosted backend (`API_URL` from local config) |
+| Device | AVD `sdk_gphone64_x86_64`, Android 15 (SDK 35), `emulator-5554`, map on screen throughout |
+| Rig | location port, `.claude/skills/detour-gps-replay/scripts/start-port-replay.sh tools/mocklocation/routes/trajectcontrole.txt emulator-5554 1000 1`, run from the repo root |
+| Delivery | `pushed=1466 delivered=1466`, measured cadence **1.00524 s/fix**, no crash |
+| Backend | `/api/cameras` over the route's bbox: 249 cameras, 4 `Section`; `/api/speedlimits` populated |
+| Settings | defaults (`camera_warn_not_speeding` unset, so a chime needs the rider over the limit) |
+
+**How each column was read.** `CHIME` and `AVG-*` rows are logcat lines (`DetourCameraWarn`,
+`DetourSection`). An `AVG-*` row is dated by the route point nearest its `at=` coordinate (all four
+within 0.7 m of one), and its `acc=` matches the route's own cumulative distance between those
+points. A `CHIME` line has no coordinate, so it is dated by its timestamp against the port's start
+line; that mapping rounded the `OVERSHOT` clear to 804 where its `at=` puts it at 805, so a chime
+row is good to **±1 fix**. `SIGN-*` rows come from `uiautomator` text sampled every ~2.3 s, so a
+sign change is dated to within **±2 fixes**, and a value held for under ~2 s can be missed
+altogether.
+
+**Machine 1, `SectionAverageTracker` — same four events, within two fixes.**
+
+| Event | `a90c3df` (pixels) | `42fbc76` (logcat) |
+|---|---|---|
+| `AVG-ON` relation `15682532` | 166 | **165** (`candidates=1`) |
+| `AVG-CLEARED` | 543, `reachedEnd`, last read `Ø 75`, `accMeters` ≈ 7 946 m | **543**, `REACHED_END`, `avg=75.7`, `acc=7978.6m`, `nearestGate=54.0m` |
+| `AVG-ON` relation `15685856` | 546 | **544** |
+| `AVG-CLEARED` | 804, `overshot` | **805**, `OVERSHOT`, `acc=5834.0m` (bound 5 822 m) |
+
+The one-fix and two-fix differences are inside the pixel run's own uncertainty: its chip had to be
+drawn to be seen, and its index came from a frame time at 1.0187 s/fix. The chip's last on-screen
+value was 76 before the first clear and 80 before the second.
+
+The `OVERSHOT` bound moved because the second section did. The backend reports relation
+`15685856` as **3 873.0 m**, 20.8 m longer than the 3 852.2 m Overpass span `a90c3df` used, so the
+bound is 3 873.0 × 1.4 + 400 = **5 822.2 m**, not 5 793 m. On the route's own distances it is first
+exceeded at fix 805 (5 834.0 m from fix 544; fix 804 is 5 803.3 m) — the fix the `a90c3df` row's
+own arithmetic named. The first section is unchanged at 7 949.9 m.
+
+**Machine 2, `CameraWarner` — the first chime baseline.** Five chimes, four speed and one red
+light. The section above counted 5 `highway=speed_camera` nodes near this route from Overpass;
+the backend's set is a different source with a red-light camera in it, so the equal count is not
+evidence that the same cameras fired:
+
+| Fix | `route_kmh` | Chime |
+|---|---|---|
+| 64 | 95.6 | `Speed camera ahead` |
+| 152 | 126.1 | `Speed camera ahead` |
+| 190 | 125.3 | `Speed camera ahead` |
+| 198 | 122.5 | `Red light camera ahead` |
+| 202 | 120.3 | `Speed camera ahead` |
+
+None fires after fix 202. The camera set now comes from the backend, not OSM nodes via Overpass, so
+the "predicted chime set" method above was not run against it.
+
+**Machine 3, `SpeedLimitTracker` — the same six-value ladder.** The sign showed 30, 70, 100, 120
+on the way in, 90 → 70 → 120 inside the second section (fixes 646, 674, 706), then 70, 50, 30 on
+the way out: **30/50/70/90/100/120**, the set `a90c3df` recorded. Its clears mostly line up:
+`a90c3df` cleared at 958, 1005, 1013 and 1372, and this run changed value at 958 (70), 995 (50) and
+1006 (30), cleared at 1013 and cleared for good at 1373. Two differences: this run shows a 50 at
+fix 995 that the clear list above does not mention, and the new events file has no clear during the
+route's only standstill (fixes 1124 to 1130). Why that clear is missing was not investigated.
 
 ## This baseline post-dates stage 2 and cannot verify it
 
