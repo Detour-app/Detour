@@ -75,6 +75,11 @@
     <string name="candidates_share">Share with convoy</string>
     <string name="candidates_go_with_lead">Go with the lead</string>
     <string name="candidates_cancel">Cancel</string>
+    <string name="candidates_save_spin">Save spin</string>
+    <string name="candidates_save_spin_title">Save this spin</string>
+    <string name="candidates_save_spin_name">Name</string>
+    <string name="candidates_save_spin_done">Saved to Routes</string>
+    <string name="candidates_save_spin_failed">Couldn\'t save the spin</string>
     <string name="candidates_reroll">Reroll</string>
 
     <!-- NavigationDock.kt, NavAppLaunch.kt -->

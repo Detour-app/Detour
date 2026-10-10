@@ -1,11 +1,13 @@
 package com.jellemax.detour.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import android.Manifest
@@ -14,14 +16,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.jellemax.detour.R
+import com.jellemax.detour.data.RouteCandidate
+import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedPlaces
+import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.toSavedSpin
 import com.jellemax.detour.map.requiredStartupPermissions
+import kotlinx.coroutines.launch
 
 /** Prominent disclosure for background location, required by Play policy to
  *  appear — and be accepted — before the system permission prompt is raised.
@@ -112,16 +121,18 @@ internal fun SavePinDialog(
     suggestedName: String,
     onSave: (String) -> Unit,
     onDismiss: () -> Unit,
+    @StringRes title: Int = R.string.map_save_place_title,
+    @StringRes label: Int = R.string.map_save_place_name,
 ) {
     var name by remember { mutableStateOf(suggestedName) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.map_save_place_title)) },
+        title = { Text(stringResource(title)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text(stringResource(R.string.map_save_place_name)) },
+                label = { Text(stringResource(label)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -148,6 +159,8 @@ internal fun SavePinDialog(
 internal fun MapScreenDialogs(
     s: MapScreenState,
     permissions: MapPermissions,
+    mode: TravelMode,
+    snackbarHostState: SnackbarHostState,
 ) {
     if (s.showPermissionExplainer) {
         val asked = requiredStartupPermissions(Build.VERSION.SDK_INT)
@@ -179,6 +192,33 @@ internal fun MapScreenDialogs(
                 s.savePinTarget = null
             },
             onDismiss = { s.savePinTarget = null },
+        )
+    }
+
+    s.saveSpinTarget?.let { candidate ->
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        SavePinDialog(
+            suggestedName = candidate.name.orEmpty(),
+            onSave = { name ->
+                s.saveSpinTarget = null
+                // #589. RouteStore.save writes straight through, so a full disk
+                // throws here, from a click handler; report it, don't crash.
+                val start = s.myLocation ?: candidate.route?.polyline?.firstOrNull()
+                val saved = start != null && runCatching {
+                    RouteStore.save(candidate.toSavedSpin(start, mode, name, System.currentTimeMillis()))
+                }.isSuccess
+                val message = context.getString(
+                    if (saved) R.string.candidates_save_spin_done else R.string.candidates_save_spin_failed,
+                )
+                scope.launch {
+                    snackbarHostState.currentSnackbarData?.dismiss()
+                    snackbarHostState.showSnackbar(message)
+                }
+            },
+            onDismiss = { s.saveSpinTarget = null },
+            title = R.string.candidates_save_spin_title,
+            label = R.string.candidates_save_spin_name,
         )
     }
 }

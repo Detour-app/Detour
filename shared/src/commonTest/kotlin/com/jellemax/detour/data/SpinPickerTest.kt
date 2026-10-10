@@ -106,4 +106,51 @@ class SpinPickerTest {
         val picks = pickThreeCandidates(serverUsable = true, timeoutMs = 5_000) { candidate("roll ${++calls}") }
         assertEquals(3, picks.size)
     }
+
+    private val start = LatLon(52.0, 5.0)
+    private val dest = LatLon(52.1, 5.2)
+    private val routed = RouteCandidate(
+        destination = dest,
+        name = "Lake view",
+        route = RouteResult(
+            polyline = listOf(start, dest),
+            waypoints = emptyList(),
+            distanceMeters = 31_000.0,
+            timeMs = 2_400_000L,
+        ),
+        straightLineMeters = 20_000.0,
+    )
+
+    @Test
+    fun aKeptSpinIsAnOriginTaggedTwoStopRoute() {
+        val saved = routed.toSavedSpin(start, TravelMode.MOTO, "Sunday loop", nowMs = 77L)
+        assertEquals(RouteOrigin.SPIN, saved.origin)
+        assertEquals(77L, saved.id)
+        assertEquals("Sunday loop", saved.name)
+        assertEquals(TravelMode.MOTO, saved.mode)
+        assertEquals(listOf(RouteStop(start), RouteStop(dest, "Sunday loop")), saved.stops)
+        assertEquals(routed.route!!.polyline, saved.polyline)
+        assertEquals(31_000.0, saved.distanceMeters)
+        assertEquals(2_400_000L, saved.timeMs)
+    }
+
+    @Test
+    fun aBlankNameFallsBackToTheCandidatesOwn() {
+        assertEquals("Lake view", routed.toSavedSpin(start, TravelMode.CAR, "  ", 1L).name)
+        assertEquals("", routed.copy(name = null).toSavedSpin(start, TravelMode.CAR, "", 1L).name)
+    }
+
+    @Test
+    fun aCandidateWithoutARouteKeepsEmptyGeometryForGoToRoute() {
+        val saved = routed.copy(route = null).toSavedSpin(start, TravelMode.CAR, "x", 1L)
+        assertEquals(emptyList(), saved.polyline)
+        assertEquals(null, saved.distanceMeters)
+        assertEquals(null, saved.timeMs)
+    }
+
+    @Test
+    fun aKeptSpinSurvivesTheRoutesJsonRoundTrip() {
+        val saved = routed.toSavedSpin(start, TravelMode.CAR, "x", 5L)
+        assertEquals(saved, routeFromJson(saved.toJson()))
+    }
 }

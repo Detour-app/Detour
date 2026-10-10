@@ -23,6 +23,10 @@ class RoutesStateTest {
         )
     }
 
+    @Test fun aKeptSpinSaysSo() {
+        assertEquals("31 km · 2 stops · spin", routeSubtitle(31_000.0, 2, fromSpin = true))
+    }
+
     @Test fun aSingleStopIsNotPluralised() {
         assertEquals("12 km · 1 stop", routeSubtitle(distanceMeters = 12_000.0, stopCount = 1))
     }

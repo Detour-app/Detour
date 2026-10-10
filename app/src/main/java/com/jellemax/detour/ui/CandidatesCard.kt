@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BookmarkAdd
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material3.Button
@@ -21,6 +22,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -65,6 +67,9 @@ internal fun CandidatesCard(
     // Non-null only pre-share, in a convoy, with a spin actually on screen.
     onShare: (() -> Unit)? = null,
     onGoWithLead: (() -> Unit)? = null,
+    // Non-null only for a spin rolled on this phone: a candidate a convoy
+    // offered carries no route geometry, so there is nothing worth keeping.
+    onSave: ((RouteCandidate) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -150,6 +155,14 @@ internal fun CandidatesCard(
                                 duration,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                    if (onSave != null) {
+                        IconButton(onClick = { onSave(c) }) {
+                            Icon(
+                                Icons.Rounded.BookmarkAdd,
+                                contentDescription = stringResource(R.string.candidates_save_spin),
                             )
                         }
                     }

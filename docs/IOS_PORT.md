@@ -168,6 +168,11 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
   `docs/superpowers/specs/2026-08-26-shared-convoy-relay-design.md`. If that is
   ever confirmed, the two sockets and this divergence collapse together.
 
+- **Save spin (#589).** Android's spin card has a bookmark per candidate that
+  stores it as a `RouteOrigin.SPIN` route through the shared
+  `RouteCandidate.toSavedSpin`. iOS lists such routes (the "spin" tag comes from
+  the shared subtitle) but its candidate card has no save action yet.
+
 ## Not done
 
 1. **The iOS sign-in round trip on real hardware.** Signing in works and is

@@ -166,7 +166,9 @@ Two buttons sit under it:
 A spin returns **three candidates**, each routed, with distance and drive time.
 They are all drawn on the map as lettered pins — tap a pin or a row to commit to
 one. **Reroll** draws three new ones; **Cancel** drops them and leaves the map
-as it was.
+as it was. The bookmark on a row keeps that candidate as a **saved spin**: name
+it and it appears in **You → Routes** with a "spin" tag, ready to ride again
+without spinning. Candidates a convoy offered can't be saved.
 
 Picking one draws the route and leaves the destination pinned. From there you
 can save it as a shortcut with the **Save pin** chip.
@@ -317,6 +319,9 @@ each with its stop count, distance and time.
 - **Share one with a friend.** It lands in their Routes list marked with your
   name. Un-friending someone deletes every route shared between you, in both
   directions.
+- **Keep a spin.** A candidate saved from the spin card is a two-stop route from
+  where you spun to its destination. It re-routes when you ride it; it never
+  re-spins.
 
 Unlike trips and fog, routes are **not** part of sync: they live on the phone,
 and a shared one only leaves it when you send it to someone. Export the ones you

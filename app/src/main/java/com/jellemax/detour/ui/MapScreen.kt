@@ -1331,6 +1331,7 @@ fun MapScreen(
                 onShare = if (activeConvoyId != null && spinOffer == null && s.candidates.isNotEmpty()) {
                     { ConvoyLiveClient.sendSpinOffer(s.candidates.asSpinCandidates()) }
                 } else null,
+                onSaveCandidate = { s.saveSpinTarget = it },
                 onGoWithLead = spinOffer?.takeIf { it.fromMe }?.let { offer ->
                     {
                         ConvoyLiveClient.sendSpinOffer(listOf(
@@ -1413,6 +1414,5 @@ fun MapScreen(
 
     // The two dialogs and the state they read live together in MapDialogs.kt;
     // this screen just says when they are up.
-    MapScreenDialogs(s = s, permissions = permissions)
-
+    MapScreenDialogs(s, permissions, mode, snackbarHostState)
 }

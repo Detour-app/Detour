@@ -71,6 +71,29 @@ data class RouteCandidate(
     val twistiness: Double? = null,
 )
 
+/**
+ * The candidate as a route the rider keeps (#589): [start] where the spin was
+ * rolled from, then the destination, tagged [RouteOrigin.SPIN]. Two stops, so
+ * Routes' Go takes the in-app path and re-routes from them — it never re-spins.
+ * The polyline and numbers are the ones the card showed; with no route (the
+ * routing server was unreachable) they stay empty and Go routes it fresh.
+ * [name] is what the rider typed, falling back to the candidate's own.
+ */
+fun RouteCandidate.toSavedSpin(start: LatLon, mode: TravelMode, name: String, nowMs: Long): SavedRoute {
+    val title = name.trim().ifEmpty { this.name.orEmpty() }
+    return SavedRoute(
+        id = nowMs,
+        name = title,
+        createdMs = nowMs,
+        mode = mode,
+        stops = listOf(RouteStop(start), RouteStop(destination, title)),
+        polyline = route?.polyline.orEmpty(),
+        distanceMeters = route?.distanceMeters,
+        timeMs = route?.timeMs,
+        origin = RouteOrigin.SPIN,
+    )
+}
+
 /** The three candidates a spin offers, rolled concurrently — each is an
  *  independent draw plus its own routing request, so running them in sequence
  *  would take three times as long for no better result.

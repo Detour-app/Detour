@@ -1,6 +1,7 @@
 package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.RouteOrigin
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.TravelMode
 
@@ -48,19 +49,21 @@ data class RoutesState(
  * as zero, so the parts compose cleanly with no stray separator either way.
  * [sharedBy] follows the same discipline — blank (the common case, a route
  * the rider made themselves) drops the fact entirely rather than rendering
- * "shared by ".
+ * "shared by ". [fromSpin] adds "spin" for a route kept from a spin (#589).
  */
 fun routeSubtitle(
     distanceMeters: Double?,
     stopCount: Int,
     timeMs: Long? = null,
     sharedBy: String = "",
+    fromSpin: Boolean = false,
 ): String {
     val stops = "$stopCount ${if (stopCount == 1) "stop" else "stops"}"
     val parts = buildList {
         distanceMeters?.let { add(routeDistanceLabel(it)) }
         add(stops)
         timeMs?.let { add(formatDurationHistory(it)) }
+        if (fromSpin) add("spin")
         if (sharedBy.isNotBlank()) add("shared by $sharedBy")
     }
     return parts.joinToString(" · ")
@@ -134,7 +137,7 @@ fun routesStateFrom(routes: List<SavedRoute>): List<RouteCard> = routes.map { r 
     RouteCard(
         id = r.id,
         name = r.name,
-        subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy),
+        subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy, r.origin == RouteOrigin.SPIN),
         polyline = r.polyline,
         actionLabel = if (routeOpensExternally(r.stops.size)) "Open in Maps" else "Ride",
     )

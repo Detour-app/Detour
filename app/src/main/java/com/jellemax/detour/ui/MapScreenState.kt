@@ -110,6 +110,8 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var rideSheetExpanded: Boolean by mutableStateOf(false)
     var searchOpen: Boolean by mutableStateOf(false)
     var savePinTarget: LatLon? by mutableStateOf(null)
+    /** The spin candidate whose Save spin dialog is up (#589). */
+    var saveSpinTarget: RouteCandidate? by mutableStateOf(null)
     var showBgLocationDisclosure: Boolean by mutableStateOf(false)
     var showPermissionExplainer: Boolean by mutableStateOf(false)
 
