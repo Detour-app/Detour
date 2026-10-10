@@ -1022,6 +1022,14 @@ red** against an ambient 30. Those readings are faithful to the file; the file i
 
 ## Outstanding: the stage-3 replay gates, deferred 2026-08-13 — what a later batched run must measure
 
+> **Partly superseded 2026-10-10.** The run below this section
+> (`trajectcontrole` at `42fbc76`) replayed this route after the move. Overpass is no longer the
+> blocker — cameras and sections come from Detour's backend since #302 — and the chime is now
+> logged (`DetourCameraWarn`, `MapHazardAlerts.kt`), so it was observed directly rather than
+> predicted. Still open from this section: the `69bdf6b` control, the predicted-chime set against
+> the backend's cameras, and the 3-fix sign clear on `stop-start` and `urban-limits`. The text
+> below is kept as written on 2026-08-13.
+
 Stage 3 puts a mandatory replay gate **between** its three machines, not after them
 (`docs/refactor/mapscreen/plans/2026-08-13-stage-3-hazard-machines-to-shared.md`, Sequencing).
 None of those gates has been closed on hardware, because
@@ -1100,12 +1108,17 @@ always derives a bearing, so the stopped-phone path is covered by
   fixtures, each for the quantity it can measure (`urban-limits` has **no** sign baseline for its
   urban half — see its section above).
 
-## `trajectcontrole` at `42fbc76`, 2026-10-10 — the stage-3 gates above, closed after the move
+## `trajectcontrole` at `42fbc76`, 2026-10-10 — the stage-3 replay run, after the move
 
 The run the section above deferred, made once its two blockers had gone: cameras and sections come
 from Detour's backend since #302 (no Overpass), and MapLibre 11.8.8 (#618) keeps the map alive
 through a replay on an emulator (#301). It is an **after** of the stage-3 extraction, not a control:
 `69bdf6b` was not captured alongside it. File: `trajectcontrole-42fbc76-events.tsv`.
+
+What it closes: the four AVG events, a directly logged chime set, and the sign ladder on this one
+route. What it leaves open from the section above: the `69bdf6b` control, the predicted-chime
+arithmetic against the backend's camera set, and the 3-fix sign clear on `stop-start` and
+`urban-limits`.
 
 | | |
 |---|---|
@@ -1117,23 +1130,32 @@ through a replay on an emulator (#301). It is an **after** of the stage-3 extrac
 | Settings | defaults (`camera_warn_not_speeding` unset, so a chime needs the rider over the limit) |
 
 **How each column was read.** `CHIME` and `AVG-*` rows are logcat lines (`DetourCameraWarn`,
-`DetourSection`), dated to a fix by their timestamp against the port's start line. The `at=` of
-every `AVG-*` line lands within 1 m of the route point at that index, so the time mapping holds to
-one fix. `SIGN-*` rows come from `uiautomator` text sampled every ~2.3 s, so a sign change is
-dated to within **±2 fixes**, and a value held for under ~2 s can be missed altogether.
+`DetourSection`). An `AVG-*` row is dated by the route point nearest its `at=` coordinate (all four
+within 0.7 m of one), and its `acc=` matches the route's own cumulative distance between those
+points. A `CHIME` line has no coordinate, so it is dated by its timestamp against the port's start
+line; that mapping rounded the `OVERSHOT` clear to 804 where its `at=` puts it at 805, so a chime
+row is good to **±1 fix**. `SIGN-*` rows come from `uiautomator` text sampled every ~2.3 s, so a
+sign change is dated to within **±2 fixes**, and a value held for under ~2 s can be missed
+altogether.
 
-**Machine 1, `SectionAverageTracker` — same four events, at the same fixes.**
+**Machine 1, `SectionAverageTracker` — same four events, within two fixes.**
 
 | Event | `a90c3df` (pixels) | `42fbc76` (logcat) |
 |---|---|---|
 | `AVG-ON` relation `15682532` | 166 | **165** (`candidates=1`) |
 | `AVG-CLEARED` | 543, `reachedEnd`, last read `Ø 75`, `accMeters` ≈ 7 946 m | **543**, `REACHED_END`, `avg=75.7`, `acc=7978.6m`, `nearestGate=54.0m` |
 | `AVG-ON` relation `15685856` | 546 | **544** |
-| `AVG-CLEARED` | 804, `overshot` | **804**, `OVERSHOT`, `acc=5834.0m` (bound 5 793 m) |
+| `AVG-CLEARED` | 804, `overshot` | **805**, `OVERSHOT`, `acc=5834.0m` (bound 5 822 m) |
 
 The one-fix and two-fix differences are inside the pixel run's own uncertainty: its chip had to be
 drawn to be seen, and its index came from a frame time at 1.0187 s/fix. The chip's last on-screen
 value was 76 before the first clear and 80 before the second.
+
+The `OVERSHOT` bound moved because the second section did. The backend reports relation
+`15685856` as **3 873.0 m**, 20.8 m longer than the 3 852.2 m Overpass span `a90c3df` used, so the
+bound is 3 873.0 × 1.4 + 400 = **5 822.2 m**, not 5 793 m. On the route's own distances it is first
+exceeded at fix 805 (5 834.0 m from fix 544; fix 804 is 5 803.3 m) — the fix the `a90c3df` row's
+own arithmetic named. The first section is unchanged at 7 949.9 m.
 
 **Machine 2, `CameraWarner` — the first chime baseline.** Five chimes, four speed and one red
 light. The section above counted 5 `highway=speed_camera` nodes near this route from Overpass;
