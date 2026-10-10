@@ -345,6 +345,15 @@ fun MapScreen(
         mapLibreMap?.let { cameraForPoints(it, points, FIT_PADDING_PX, fitBottomPaddingPx, fitLeftPaddingPx) }
     val mapOverlays = retained.overlays
 
+    // Candidates restored from SpinResultHolder (app reopened, back from the
+    // Hub) get framed again, or the sheet's "all three are on the map" is a lie
+    // (#427). Keyed on the map: a new Activity has none until getMapAsync.
+    val restoredCandidates = remember { s.candidates.isNotEmpty() }
+    LaunchedEffect(mapLibreMap) {
+        if (!restoredCandidates || mapLibreMap == null || s.candidates.isEmpty()) return@LaunchedEffect
+        fitTo(s.candidates.map { it.destination } + listOfNotNull(s.myLocation))
+    }
+
     // Tell the tracker the map is being looked at, so it drops its battery-saving
     // batched fixes for navigation-grade ones while we're here. Tied to the
     // lifecycle, not to the composition: backgrounding the app keeps the map
@@ -575,6 +584,16 @@ fun MapScreen(
         )
         fitTo(listOf(loc, LatLon(c.lat, c.lon)))
     }
+
+    /** The candidates card's Cancel, and Back while that card is up. */
+    fun cancelCandidates() {
+        s.candidates = emptyList()
+        if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
+    }
+
+    // Back cancels the candidates rather than finishing the activity (#427).
+    // Declared before the rider card's handler so that card closes first.
+    BackHandler(enabled = bottomCard == HomeBottomCard.CANDIDATES) { cancelCandidates() }
 
     // How a vote round ends: the rule and its correctness argument are
     // ConvoyRelay.spinRoundOutcome (shared/.../drive/ConvoyRelay.kt).
@@ -1326,10 +1345,7 @@ fun MapScreen(
                     if (spinOffer != null) ConvoyLiveClient.sendSpinVote(index) else choose(c)
                 },
                 onReroll = { s.candidates = emptyList(); spin() },
-                onCancelCandidates = {
-                    s.candidates = emptyList()
-                    if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
-                },
+                onCancelCandidates = { cancelCandidates() },
                 onShare = if (activeConvoyId != null && spinOffer == null && s.candidates.isNotEmpty()) {
                     { ConvoyLiveClient.sendSpinOffer(s.candidates.asSpinCandidates()) }
                 } else null,
