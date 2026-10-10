@@ -180,6 +180,32 @@ public static class ValidationKeys
 
         public static readonly ValidationKeyDefinition NotAConvoy =
             ValidationKeyDefinition.Create($"{Base}.NotAConvoy");
+
+        public static readonly ValidationKeyDefinition NotTheHost =
+            ValidationKeyDefinition.Create($"{Base}.NotTheHost");
+    }
+
+    public static class ConvoyInvite
+    {
+        private const string Base = "ConvoyInvite";
+
+        /// <summary>No link hashes to the token presented.</summary>
+        public static readonly ValidationKeyDefinition NotFound =
+            ValidationKeyDefinition.Create($"{Base}.NotFound");
+
+        /// <summary>The link existed but was revoked or ran past its expiry.</summary>
+        public static readonly ValidationKeyDefinition Expired =
+            ValidationKeyDefinition.Create($"{Base}.Expired");
+
+        /// <summary>The host removed this rider; the same link will not let them back in.</summary>
+        public static readonly ValidationKeyDefinition GuestRemoved =
+            ValidationKeyDefinition.Create($"{Base}.GuestRemoved");
+
+        public static readonly ValidationKeyDefinition GuestNotFound =
+            ValidationKeyDefinition.Create($"{Base}.GuestNotFound");
+
+        public static readonly ValidationKeyDefinition TooManyAttempts =
+            ValidationKeyDefinition.Create($"{Base}.TooManyAttempts");
     }
 
     public static class CirclePlace

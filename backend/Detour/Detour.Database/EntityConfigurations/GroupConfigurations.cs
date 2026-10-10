@@ -175,3 +175,65 @@ public class PlaceEventConfiguration : IEntityTypeConfiguration<PlaceEvent>
         builder.HasIndex(e => new { e.GroupId, e.TimestampMs });
     }
 }
+
+public class ConvoyInviteConfiguration : IEntityTypeConfiguration<ConvoyInvite>
+{
+    public void Configure(EntityTypeBuilder<ConvoyInvite> builder)
+    {
+        builder.ToTable("convoy_invites");
+
+        builder.HasKey(i => i.Id);
+        builder.Property(i => i.Id).ValueGeneratedNever();
+
+        // Hex SHA-256, as for API keys: a database leak hands over no link that can be used.
+        builder.Property(i => i.TokenHash).HasMaxLength(64);
+        builder.Property(i => i.CreatedAt);
+        builder.Property(i => i.ExpiresAt);
+        builder.Property(i => i.RevokedAt);
+
+        // A link ends with its convoy. The cascade is that rule, not a cleanup job.
+        builder.HasOne<Group>()
+            .WithMany()
+            .HasForeignKey(i => i.GroupId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(i => i.CreatedBy)
+            .OnDelete(DeleteBehavior.NoAction);
+
+        builder.HasMany(i => i.Guests)
+            .WithOne()
+            .HasForeignKey(g => g.InviteId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Navigation(i => i.Guests)
+            .UsePropertyAccessMode(PropertyAccessMode.Field)
+            .HasField("_guests");
+
+        // The join lookup.
+        builder.HasIndex(i => i.TokenHash).IsUnique();
+        builder.HasIndex(i => i.GroupId);
+    }
+}
+
+public class ConvoyGuestConfiguration : IEntityTypeConfiguration<ConvoyGuest>
+{
+    public void Configure(EntityTypeBuilder<ConvoyGuest> builder)
+    {
+        builder.ToTable("convoy_guests");
+
+        builder.HasKey(g => g.Id);
+        builder.Property(g => g.Id).ValueGeneratedNever();
+
+        builder.Property(g => g.JoinedAt);
+        builder.Property(g => g.RemovedAt);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(g => g.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(g => new { g.InviteId, g.UserId }).IsUnique();
+    }
+}
