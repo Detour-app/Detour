@@ -1169,6 +1169,7 @@ fun MapScreen(
                 ) {
                     NavigationBanner(navState, Modifier.fillMaxWidth())
                 }
+                s.cameraCountdown?.let { CameraBanner(it, navigating = s.navigating) }
                 // Speed, the posted limit and the trajectcontrole average, in
                 // one island at the top-left — isHome.html's left:14/top:44,
                 // widened so the average keeps its slot.
@@ -1187,7 +1188,8 @@ fun MapScreen(
                 // now keeps its instruments, as the head unit always has. See
                 // the divergence register's entry 18.
                 if (!landscape) SpeedIsland(
-                    speedHud, obd2Lost, Modifier.padding(top = if (s.navigating) 10.dp else 0.dp),
+                    speedHud, obd2Lost,
+                    Modifier.padding(top = if (s.navigating || s.cameraCountdown != null) 10.dp else 0.dp),
                 )
             }
             // Landscape: a tall occupant of the start-edge column (the
