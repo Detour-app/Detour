@@ -44,6 +44,11 @@ struct MapView: UIViewRepresentable {
     /// camera carries one, surfaces on tap rather than as an always-visible
     /// label.
     var cameras: [SpeedCameras.Camera] = []
+    /// A finished trip's highlights — top speed, deepest lean, sharpest corner,
+    /// hardest braking — from `TripDetailScreen`. Empty everywhere else. Plain
+    /// annotations like the rest, so "Top speed · 132 km/h" surfaces on tap
+    /// rather than as Android's coloured circle layer.
+    var pins: [MapPin] = []
 
     func makeUIView(context: Context) -> MLNMapView {
         let view = MLNMapView(frame: .zero)
@@ -111,6 +116,13 @@ struct MapView: UIViewRepresentable {
             pin.coordinate = CLLocationCoordinate2D(latitude: camera.at.lat, longitude: camera.at.lon)
             pin.title = camera.maxspeedKmh.map { "Speed camera · \(Int($0.doubleValue)) km/h" }
                 ?? "Speed camera"
+            view.addAnnotation(pin)
+        }
+
+        for mapPin in pins {
+            let pin = MLNPointAnnotation()
+            pin.coordinate = mapPin.coordinate
+            pin.title = mapPin.title
             view.addAnnotation(pin)
         }
 
@@ -193,6 +205,12 @@ struct MapView: UIViewRepresentable {
             annotation.title == Coordinator.drivenTitle ? drivenColor : routeColor
         }
     }
+}
+
+/// One titled point for `MapView.pins`.
+struct MapPin {
+    let coordinate: CLLocationCoordinate2D
+    let title: String
 }
 
 /// `#RRGGBB` from the shared `RouteColors` as a `UIColor`. Anything that is not
