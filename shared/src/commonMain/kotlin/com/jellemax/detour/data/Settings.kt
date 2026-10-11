@@ -247,6 +247,15 @@ object Settings {
     private val _authRiderId = MutableStateFlow(RiderId(""))
     val authRiderId: StateFlow<RiderId> = _authRiderId
 
+    /** The rider's own HERE API key for live traffic (#637), blank when none.
+     *  In the secure bag with the session, and nowhere else: not synced, not
+     *  in the diagnostics export, never logged. Not cleared on sign-out — it
+     *  belongs to the device's rider, not to a Detour account. A blank key
+     *  means [HereTrafficClient.forKey] gives no client, so nothing about
+     *  traffic runs. */
+    private val _hereTrafficKey = MutableStateFlow("")
+    val hereTrafficKey: StateFlow<String> = _hereTrafficKey
+
     /** Mount-to-bike misalignment, subtracted from every lean reading. Zero
      *  until the user runs calibration (bike upright, engine off) from
      *  Settings; see [com.jellemax.detour.tracking.TripTrackingService]. */
@@ -554,6 +563,13 @@ object Settings {
         secure.put("auth_rider_id", id)
     }
 
+    /** Stores [key] trimmed; a blank one removes it rather than storing "". */
+    fun setHereTrafficKey(key: String) {
+        val trimmed = key.trim()
+        _hereTrafficKey.value = trimmed
+        if (trimmed.isEmpty()) secure.remove("here_traffic_key") else secure.put("here_traffic_key", trimmed)
+    }
+
     fun setTheme(value: Theme) {
         _theme.value = value
         prefs.put("theme", value.name)
@@ -620,6 +636,9 @@ object Settings {
         _cameraWarnings.value = prefs.bool("camera_warnings", true)
         _cameraWarnNotSpeeding.value = prefs.bool("camera_warn_not_speeding", false)
         _cameraWarnLimitUnknown.value = prefs.bool("camera_warn_limit_unknown", false)
+        // A Navigation setting (#637) but a credential, so from the secure
+        // bag. Here rather than in init(), whose length §8 pins.
+        _hereTrafficKey.value = secure.string("here_traffic_key")
     }
 
     fun setLoopByTime(value: Boolean) {
