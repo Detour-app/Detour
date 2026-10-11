@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Detour.Domain.Groups;
 using Detour.InfraTests.Database;
 using Microsoft.EntityFrameworkCore;
 
@@ -89,6 +90,28 @@ public class AdminTests(PostgresFixture postgres) : IAsyncLifetime
         (await db.BadgeAwards.AnyAsync(b => b.UserId == riderId)).Should().BeFalse();
         (await db.TripTitles.AnyAsync(t => t.UserId == riderId)).Should().BeFalse();
         (await db.ApiKeys.AnyAsync(k => k.UserId == riderId)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Deleting_a_host_takes_their_live_invite_link_with_them()
+    {
+        // The link row references both the convoy and the host who made it (#641).
+        var (host, hostName) = await NewRider();
+        var created = await host.PostAsJsonAsync("/api/convoys", new { name = "Sunday ride" });
+        created.EnsureSuccessStatusCode();
+        var convoy = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        (await host.PostAsJsonAsync($"/api/convoys/{convoy}/invite-link", new { })).StatusCode
+            .Should().Be(HttpStatusCode.Created);
+
+        var hostId = await IdOf(hostName);
+
+        var (admin, _) = await NewAdministrator();
+        (await admin.DeleteAsync($"/api/admin/accounts/{hostId}")).StatusCode
+            .Should().Be(HttpStatusCode.NoContent);
+
+        await using var db = postgres.CreateContext();
+        (await db.Users.AnyAsync(u => u.Id == hostId)).Should().BeFalse();
+        (await db.Set<ConvoyInvite>().AnyAsync(i => i.CreatedBy == hostId)).Should().BeFalse();
     }
 
     [Fact]

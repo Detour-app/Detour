@@ -39,6 +39,28 @@ public static class DetourLimits
     /// </summary>
     public const int MaxCircleMembers = 15;
 
+    // --- convoy invite links -------------------------------------------------------------
+
+    /// <summary>
+    /// Hard cap on an invite link's life. A link also dies with its convoy; this bounds one
+    /// pasted into a group chat for a convoy that someone forgot to leave.
+    /// </summary>
+    public static readonly TimeSpan ConvoyInviteLifetime = TimeSpan.FromHours(12);
+
+    /// <summary>
+    /// Riders a convoy takes in through its links, over all the links it has had. Friends
+    /// invited the ordinary way do not count. Fixed by the owner (#641); the host cannot raise it.
+    /// </summary>
+    public const int MaxConvoyGuests = 8;
+
+    /// <summary>Join attempts allowed per link per window — a whole meeting point at once.</summary>
+    public const int ConvoyJoinsPerToken = 30;
+
+    /// <summary>Join attempts allowed per address per window, whichever link they carry.</summary>
+    public const int ConvoyJoinsPerIp = 20;
+
+    public static readonly TimeSpan ConvoyJoinWindow = TimeSpan.FromMinutes(10);
+
     // --- shared routes ------------------------------------------------------------------
     /// <summary>Generous for a polyline and its stops, and nowhere near the request body cap.</summary>
     public const int MaxRoutePayloadBytes = 512 * 1024;

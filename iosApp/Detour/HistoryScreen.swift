@@ -1,12 +1,26 @@
 import SwiftUI
 import DetourShared
 
-/// Past trips, newest first, with the vehicle correction and delete that the
-/// sync server needs to hear about.
+/// The Logbook: past trips as month chapters, newest first, with the badges
+/// earned among them, built by the shared `Logbook` that Android renders from
+/// too. Keeps the vehicle correction and delete that the sync server needs to
+/// hear about.
+///
+/// No places yet: they come from matching trace segments to trips, which
+/// lives in Android's `HistoryScreen.kt`, not in `shared/`. Until it moves,
+/// iOS passes none, so titles fall back to the day and time, and the
+/// "new places" chip never shows.
 struct HistoryScreen: View {
 
     @State private var trips: [Trip] = []
+    @State private var titles: [KotlinLong: String] = [:]
+    @State private var milestones: [LogbookItemMilestone] = []
+    @State private var filter: LogbookFilter = .all
     @State private var editing: Trip?
+
+    /// Listed here rather than added to iosMain's `Enums`, which keeps this
+    /// change out of `shared/` (#623).
+    private static let filters: [LogbookFilter] = [.all, .moto, .car]
 
     var body: some View {
         NavigationStack {
@@ -18,28 +32,7 @@ struct HistoryScreen: View {
                         description: Text("Spin for a destination, or just start riding — Detour logs a drive on its own.")
                     )
                 } else {
-                    List {
-                        ForEach(trips, id: \.startTimeMs) { trip in
-                            NavigationLink {
-                                TripDetailScreen(trip: trip)
-                            } label: {
-                                TripRow(trip: trip)
-                            }
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    delete(trip)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                                Button {
-                                    editing = trip
-                                } label: {
-                                    Label("Vehicle", systemImage: "car")
-                                }
-                                .tint(.indigo)
-                            }
-                        }
-                    }
+                    timeline
                 }
             }
             .navigationTitle("Logbook")
@@ -57,8 +50,72 @@ struct HistoryScreen: View {
         }
     }
 
+    private var timeline: some View {
+        let months = Logbook.shared.build(
+            trips: trips,
+            filter: filter,
+            places: [:],
+            editedTitles: titles,
+            milestones: milestones
+        )
+        return List {
+            Picker("Vehicle", selection: $filter) {
+                ForEach(Self.filters, id: \.name) { f in
+                    Text(f.label).tag(f)
+                }
+            }
+            .pickerStyle(.segmented)
+            .listRowBackground(Color.clear)
+
+            if months.isEmpty {
+                Text(filter == .moto ? "No moto rides yet." : filter == .car ? "No car rides yet." : "No rides yet.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(months, id: \.key) { month in
+                Section {
+                    ForEach(month.entries) { entry in
+                        switch entry {
+                        case .ride(let ride):
+                            rideRow(ride)
+                        case .milestone(let milestone):
+                            MilestoneRow(milestone: milestone)
+                        }
+                    }
+                } header: {
+                    MonthHeader(month: month)
+                }
+            }
+        }
+    }
+
+    private func rideRow(_ ride: LogbookItemRide) -> some View {
+        NavigationLink {
+            TripDetailScreen(trip: ride.trip)
+        } label: {
+            RideRow(ride: ride)
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                delete(ride.trip)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            Button {
+                editing = ride.trip
+            } label: {
+                Label("Vehicle", systemImage: "car")
+            }
+            .tint(.indigo)
+        }
+    }
+
     private func reload() {
         trips = TripStore.shared.load()
+        titles = TripTitleStore.shared.load()
+        milestones = BadgeStore.shared.earned().compactMap { earned in
+            guard let def = earned.first, let at = earned.second else { return nil }
+            return LogbookItemMilestone(title: def.title, atMs: at.int64Value)
+        }
     }
 
     private func updateMode(_ trip: Trip, to mode: TravelMode) {
@@ -76,22 +133,99 @@ struct HistoryScreen: View {
     }
 }
 
-private struct TripRow: View {
-    let trip: Trip
+/// One row of a month: `LogbookItem` is a Kotlin sealed interface, which
+/// arrives in Swift as a protocol, so it's unwrapped once here rather than
+/// cast in every view.
+private enum LogbookEntry: Identifiable {
+    case ride(LogbookItemRide)
+    case milestone(LogbookItemMilestone)
+
+    /// A ride by its start time; a badge by when and what, since two badges
+    /// earned on the same trip share an instant.
+    var id: String {
+        switch self {
+        case .ride(let r): return "r\(r.trip.startTimeMs)"
+        case .milestone(let m): return "b\(m.atMs)\(m.title)"
+        }
+    }
+}
+
+private extension LogbookMonth {
+    /// yyyymm, the way `Logbook.monthOf` keys a month.
+    var key: Int32 { year * 100 + month }
+
+    var entries: [LogbookEntry] {
+        items.compactMap { item in
+            if let r = item as? LogbookItemRide { return .ride(r) }
+            if let m = item as? LogbookItemMilestone { return .milestone(m) }
+            return nil
+        }
+    }
+}
+
+/// "September 2026" over the month's ride count, distance and new places.
+private struct MonthHeader: View {
+    let month: LogbookMonth
+
+    private static let monthFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("MMMM yyyy")
+        return f
+    }()
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+            Text(summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .textCase(nil)
+    }
+
+    private var title: String {
+        let date = DateComponents(
+            calendar: Calendar.current, year: Int(month.year), month: Int(month.month), day: 1
+        ).date
+        return date.map { Self.monthFormat.string(from: $0) } ?? "\(month.year)-\(month.month)"
+    }
+
+    private var summary: String {
+        let rides = month.rides.count
+        var parts = [rides == 1 ? "1 ride" : "\(rides) rides", formatDistanceKm(month.meters)]
+        let newPlaces = Int(month.newPlaces)
+        if newPlaces > 0 { parts.append(newPlaces == 1 ? "1 new place" : "\(newPlaces) new places") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+private struct RideRow: View {
+    let ride: LogbookItemRide
+
+    var body: some View {
+        let trip = ride.trip
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Image(systemName: icon(for: trip.mode))
                     .foregroundStyle(.secondary)
                     .accessibilityLabel(trip.mode == .moto ? "Motorcycle" : "Car")
-                Text(formatDate(trip.startTimeMs))
+                Text(ride.title)
                     .font(.subheadline.weight(.medium))
                 Spacer()
                 Text(formatDistanceKm(trip.distanceMeters))
                     .font(.subheadline.monospacedDigit())
             }
+            if let chip = ride.chip {
+                Text(chip)
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.15), in: Capsule())
+            }
             HStack(spacing: 12) {
+                Text(formatDate(trip.startTimeMs))
                 Label(formatDurationHistory(trip.durationMs), systemImage: "clock")
                 Label(formatSpeedKmh(trip.topSpeedMps), systemImage: "speedometer")
                 if trip.maxLeanAngleDeg > 0 {
@@ -103,6 +237,17 @@ private struct TripRow: View {
             .labelStyle(.titleAndIcon)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// A badge earned, between the rides it was earned among.
+private struct MilestoneRow: View {
+    let milestone: LogbookItemMilestone
+
+    var body: some View {
+        Label(milestone.title, systemImage: "rosette")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
     }
 }
 
