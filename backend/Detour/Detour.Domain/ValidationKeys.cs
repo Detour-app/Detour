@@ -140,6 +140,50 @@ public static class ValidationKeys
                 .WithGuidParameter("id");
     }
 
+    public static class PlannedRide
+    {
+        private const string Base = "PlannedRide";
+
+        public static readonly ValidationKeyDefinition TitleRequired =
+            ValidationKeyDefinition.Create($"{Base}.TitleRequired");
+
+        public static readonly ValidationKeyDefinition TitleTooLong =
+            ValidationKeyDefinition.Create($"{Base}.TitleTooLong")
+                .WithIntParameter("maxLength");
+
+        public static readonly ValidationKeyDefinition MeetingLabelTooLong =
+            ValidationKeyDefinition.Create($"{Base}.MeetingLabelTooLong")
+                .WithIntParameter("maxLength");
+
+        public static readonly ValidationKeyDefinition DescriptionTooLong =
+            ValidationKeyDefinition.Create($"{Base}.DescriptionTooLong")
+                .WithIntParameter("maxLength");
+
+        public static readonly ValidationKeyDefinition RouteIdInvalid =
+            ValidationKeyDefinition.Create($"{Base}.RouteIdInvalid");
+
+        public static readonly ValidationKeyDefinition AnswerInvalid =
+            ValidationKeyDefinition.Create($"{Base}.AnswerInvalid");
+
+        /// <summary>
+        /// Also returned when the ride does not exist at all. "No such ride" and "not invited"
+        /// must be indistinguishable, or ride ids can be enumerated.
+        /// </summary>
+        public static readonly ValidationKeyDefinition NotFound =
+            ValidationKeyDefinition.Create($"{Base}.NotFound");
+
+        /// <summary>An invitee trying to edit, delete or invite. They can see the ride, so this
+        /// leaks nothing a 404 would hide.</summary>
+        public static readonly ValidationKeyDefinition NotTheOwner =
+            ValidationKeyDefinition.Create($"{Base}.NotTheOwner");
+
+        public static readonly ValidationKeyDefinition InviteeNotAFriendOrCircleMember =
+            ValidationKeyDefinition.Create($"{Base}.InviteeNotAFriendOrCircleMember");
+
+        public static readonly ValidationKeyDefinition NotInvited =
+            ValidationKeyDefinition.Create($"{Base}.NotInvited");
+    }
+
     public static class Group
     {
         private const string Base = "Group";
@@ -180,6 +224,37 @@ public static class ValidationKeys
 
         public static readonly ValidationKeyDefinition NotAConvoy =
             ValidationKeyDefinition.Create($"{Base}.NotAConvoy");
+
+        public static readonly ValidationKeyDefinition NotTheHost =
+            ValidationKeyDefinition.Create($"{Base}.NotTheHost");
+    }
+
+    public static class ConvoyInvite
+    {
+        private const string Base = "ConvoyInvite";
+
+        /// <summary>No link hashes to the token presented.</summary>
+        public static readonly ValidationKeyDefinition NotFound =
+            ValidationKeyDefinition.Create($"{Base}.NotFound");
+
+        /// <summary>The link existed but was revoked or ran past its expiry.</summary>
+        public static readonly ValidationKeyDefinition Expired =
+            ValidationKeyDefinition.Create($"{Base}.Expired");
+
+        /// <summary>The host removed this rider; the same link will not let them back in.</summary>
+        public static readonly ValidationKeyDefinition GuestRemoved =
+            ValidationKeyDefinition.Create($"{Base}.GuestRemoved");
+
+        /// <summary>The convoy already holds <see cref="DetourLimits.MaxConvoyGuests"/> link guests.</summary>
+        public static readonly ValidationKeyDefinition ConvoyFull =
+            ValidationKeyDefinition.Create($"{Base}.ConvoyFull")
+                .WithIntParameter("maxGuests");
+
+        public static readonly ValidationKeyDefinition GuestNotFound =
+            ValidationKeyDefinition.Create($"{Base}.GuestNotFound");
+
+        public static readonly ValidationKeyDefinition TooManyAttempts =
+            ValidationKeyDefinition.Create($"{Base}.TooManyAttempts");
     }
 
     public static class CirclePlace

@@ -11,6 +11,7 @@ import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.map.CameraAuthority
 import kotlinx.coroutines.Job
 
@@ -72,12 +73,25 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
 
     // --- camera ---------------------------------------------------------
     /** Follow/park/gesture, all three transitions dispatched through
-     *  [CameraAuthority.reduce] rather than written from ten sites. */
-    var camAuthority: CameraAuthority.State by mutableStateOf(CameraAuthority.State())
+     *  [CameraAuthority.reduce] rather than written from ten sites.
+     *
+     *  A seed that still holds candidates starts parked, the same park the
+     *  spin that produced them took (#427). Starting from a following camera
+     *  put the restored list on screen with the map back on the rider and no
+     *  pin in view, and MapScreen's restore framing would have been dragged
+     *  straight back by the frame loop. */
+    var camAuthority: CameraAuthority.State by mutableStateOf(
+        if (seed.candidates.isEmpty()) CameraAuthority.State()
+        else CameraAuthority.reduce(CameraAuthority.State(), CameraAuthority.Action.SpinStarted)
+    )
 
     // --- position and hazards ------------------------------------------
     var myLocation: LatLon? by mutableStateOf(null)
     var speedLimitFetchJob: Job? by mutableStateOf(null)
+    /** The camera banner's countdown (#549), written by MapHazardAlerts every
+     *  fix. Per entry, not retained: the first fix after a return rewrites it,
+     *  and a retained copy would show a camera passed while the map was away. */
+    var cameraCountdown: CameraWarner.Countdown? by mutableStateOf(null)
 
     // --- convoy and circles ---------------------------------------------
     var convoyName: String? by mutableStateOf(null)

@@ -46,6 +46,11 @@ also why the friends screen and the circles screen are two views of one
 relationship: you cannot be in a group with someone you are not friends with, so
 un-friending someone is not a partial withdrawal.
 
+**One exception: a convoy's invite link** (§4.1). The host of a convoy can hand
+out a link that lets a rider who is not their friend join *that convoy* as a
+guest. It never applies to a circle, never creates a friendship, and ends with
+the convoy.
+
 Neither ever exposes a member's trips, traces or map. A group shares live
 position, and for circles a last-known position and arrival events. That is all.
 
@@ -61,6 +66,8 @@ One entity, discriminated by kind, with policy carried as columns rather than as
 | `member_fixes` | one row per (group, member): lat, lon, accuracy, instant. Circles only. |
 | `circle_places` | a place shared into a circle by one member: identifier, name, radius |
 | `place_events` | arrival/departure records, newest-N per circle |
+| `convoy_invites` | a convoy's invite link: SHA-256 of the token (never the token), host, created, expires, revoked |
+| `convoy_guests` | a rider who joined through a link: link, rider, joined, removed |
 
 Two things carry the whole product distinction, and neither is an `if` in a
 handler:
@@ -101,6 +108,53 @@ per-kind rules have an obvious home.
 
 A group id that does not exist and a group you are not in produce the **same**
 answer, so ids cannot be enumerated.
+
+### 4.1 Convoy invite links
+
+The server half of joining a convoy without being friends (#641, part of #634).
+No app change and no App Links yet.
+
+| Path | Who | Answer |
+|---|---|---|
+| `POST /api/convoys/{id}/invite-link` | Host | `201 { token, expiresAtMs }`. Revokes any link still usable, so a convoy has at most one |
+| `DELETE /api/convoys/{id}/invite-link` | Host | `204`. Stops new joins; guests already in stay |
+| `GET /api/convoys/{id}/guests` | Host | `{ inviteExpiresAtMs, guests: [{ id, username, joinedAtMs }] }` — guests still in the convoy; `inviteExpiresAtMs` is null when no link is usable |
+| `DELETE /api/convoys/{id}/guests/{riderId}` | Host | `204`, and the rider's live sockets for the convoy drop at once. `404` for anyone who did not join by link, including the host |
+| `POST /api/convoys/join` `{ token }` | Any signed-in rider | `200` with the convoy, the caller an accepted member. `404` unknown token, `410` revoked or expired, `403` removed by the host, `400` the convoy already has 8 link guests, `429` too many attempts |
+
+The rules, and why each one is there:
+
+- **Host means the convoy's owner.** Any other member gets `403`; a non-member
+  gets the same `404` as for a convoy that does not exist (§9.4). A circle id
+  answers `404`: circles keep the friends-only rule.
+- **The token is 256 bits from `RandomNumberGenerator`**, base64url, returned
+  once. Only its SHA-256 is stored, as for API keys, so the table hands nothing
+  usable to whoever reads it. It travels in the request body rather than the
+  path, which keeps it out of access logs.
+- **Expiry is whichever comes first:** the convoy ending (the rows cascade with
+  the group — a convoy ends when its last member leaves) or 12 hours after
+  minting (`DetourLimits.ConvoyInviteLifetime`).
+- **A guest is an ordinary accepted `group_members` row**, so the relay, voice
+  and votes need no second path. The `convoy_guests` row is what lets the host
+  list who came in by link and what keeps a removed guest out: removal sets
+  `removed_at`, and the same link refuses that rider from then on. A newly
+  minted link would let them in — the host chose to share it again. A guest who
+  left on their own may rejoin with the same link.
+- **No friendship is created**, and the guest loses access when the convoy ends
+  because their membership goes with it.
+- **At most 8 link guests per convoy** (`DetourLimits.MaxConvoyGuests`, owner
+  decision on #641; the host cannot raise it). The count is over every link the
+  convoy has had, so minting a new link does not reset it, and only guests still
+  in the convoy count: one the host removed or who left frees the seat. Friends
+  invited the ordinary way are not guests and do not count. The 9th join answers
+  `400` with `ConvoyInvite.ConvoyFull`.
+- **Join attempts are capped per token and per address**
+  (`DetourLimits.ConvoyJoinsPerToken` / `ConvoyJoinsPerIp` per
+  `ConvoyJoinWindow`), on top of the global limiter, and refused attempts count.
+  The address is the connection address after the forwarded-headers rewrite,
+  the same rule the global limiter follows. The counters are in process memory:
+  a restart resets them, and a multi-instance deployment would count per
+  instance.
 
 > **Path naming, learned the hard way.** Do not name anything under `/route…`.
 > A public hostname sharing a tunnel with GraphHopper matches `/route` as a
@@ -174,6 +228,8 @@ channel to flood.
 | `location` | `lat`, `lon`, optional `accuracyM`, `headingDeg`, `speedKmh`, `ts` | **No `groupId`.** One fix is one fix; fanning it out to every group the sender shares with is the relay's job, not the phone's. Dropped entirely if the sender has paused sharing. In a circle it also overwrites the sender's stored last fix. |
 | `spin_offer` | `groupId`, `candidates[]` of `{lat, lon, distanceM?, durationS?, name?}` | **Convoy only.** 1–3 candidates. One invalid candidate voids the whole frame — a rider must never vote on a sheet missing an option their peers can see. |
 | `spin_vote` | `groupId`, `index` | **Convoy only.** Index 0–2; anything else is dropped rather than relayed as a vote for a candidate nobody offered. |
+| `break_request` | `groupId`, `lat`, `lon` | **Convoy only.** Any rider may ask for a break (owner decision, #632). Dropped without a valid position. The relay keeps none: how long one stays on screen is the clients' call. |
+| `regroup_pin` | `groupId`, then either `lat`, `lon`, optional `label` (≤ 80 chars) to set, or `clear: true` | **Convoy only, host only** — the convoy's owner (owner decision, #632). Anyone else's is dropped, not answered with `error`, because `error` is what a client closes its socket on. A set without a valid position, or with a longer label, is dropped rather than read as a clear. |
 
 Voice frames (`ptt_start`, `ptt_audio`, `ptt_end`) are accepted off the wire and
 dropped, exactly as an unknown type is — see §6.4.
@@ -192,13 +248,16 @@ shows up going the other way, in §6.3.
 | `left` | `user` |
 | `spin_offer` / `spin_vote` | the client's frame plus `groupId` and `user` |
 | `place_event` | `groupId`, `user`, `placeId`, `placeName`, `kind`, `ts` |
+| `break_request` | `groupId`, `user`, `lat`, `lon` |
+| `regroup_pin` | `groupId`, `user` (the host), `clear`; when `clear` is false also `lat`, `lon` and `label` if one was given |
 
 Position keys are abbreviated and nothing else is: a position goes out several
 times a minute per peer, multiplied by peers × riders, while every other frame
 is rare enough that clarity is free.
 
 **`u` on a peer inside `positions`, and `user` on `left`, `spin_offer`,
-`spin_vote` and `place_event`, all carry an account id — not a handle.** The
+`spin_vote`, `break_request`, `regroup_pin` and `place_event`, all carry an
+account id — not a handle.** The
 keys did not change when this landed; only the type behind them did (`u` was a
 username string, and is now a `Guid`). `positions` in particular carries no
 handle anywhere in the frame: a peer's display label comes from the group's
@@ -211,6 +270,15 @@ member arrive on the same stream at wildly different cadences — 20 seconds for
 fix that came over a socket, 300 for one posted over HTTP — and a single
 hardcoded staleness window either flickers circle members off the map between
 updates or leaves a dropped convoy rider frozen on it.
+
+**The relay remembers a convoy's latest `regroup_pin`, and nothing else.** A
+pin is a standing instruction, not an event, so a rider who joins or rejoins —
+back from a tunnel, or a fresh app start — is sent the current pin right after
+`joined`. A new pin replaces it, a clear drops it, and it is forgotten when the
+convoy ends (its last member leaves). It lives in memory only: a server restart
+loses it, and the host drops it again. A client drops its own copy on every
+reconnect and waits for the replay, so a pin moved or cleared while it was away
+can't survive the gap.
 
 **`place_event` is server-originated only.** A client cannot cause one by
 sending it, which is why there is no inbound counterpart. It is also why there is
@@ -315,6 +383,9 @@ would mean a stale build keeps broadcasting after the user believes they stopped
 4. **Existence and permission answer alike**, so ids cannot be enumerated.
 5. **Pause is server-enforced** (§8).
 6. **Voice and votes are gated on kind, server-side** (§6.5).
+7. **The invite link is the only door that skips friendship** (§4.1): convoy
+   only, host only, hashed, capped at 12 hours, revocable, rate-limited, and a
+   removed guest stays out.
 
 ## 10. Battery and network
 
