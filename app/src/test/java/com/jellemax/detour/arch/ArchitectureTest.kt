@@ -128,7 +128,7 @@ class ArchitectureTest {
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 150,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             // +3: #587 the three graph-dependent avoid options
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 108,
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 104,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#attempt" to 105,
         )
         val sizes = files.filter { it.rel.startsWith("shared/") }

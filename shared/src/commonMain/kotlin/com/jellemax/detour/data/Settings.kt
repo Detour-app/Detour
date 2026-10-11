@@ -123,6 +123,12 @@ object Settings {
     private val _avoidUnpaved = MutableStateFlow(false)
     val avoidUnpaved: StateFlow<Boolean> = _avoidUnpaved
 
+    /** The A→B curviness preset the navigation dock's slider sets (#652).
+     *  Saved rather than per route so the reroute mid-ride asks for the same
+     *  bends the rider set off on; masked like the three above. */
+    private val _curvyPreset = MutableStateFlow(CurvyPreset.FAST)
+    val curvyPreset: StateFlow<CurvyPreset> = _curvyPreset
+
     /** The avoid options as they stand now, for a routing request — minus any
      *  the routing server has not said it supports, so a choice made against
      *  one server never 400s every route on another. */
@@ -132,6 +138,7 @@ object Settings {
         avoidTolls = _avoidTolls.value,
         avoidFerries = _avoidFerries.value,
         avoidUnpaved = _avoidUnpaved.value,
+        curvy = _curvyPreset.value,
     ).supportedBy(RoutingSupport.known())
 
     /** Broadcast turn-by-turn state over BLE for an external display (e.g. a
@@ -374,11 +381,7 @@ object Settings {
             )
         }.getOrDefault(DecimalSeparator.SYSTEM)
         _autoDetectDrives.value = prefs.bool("auto_detect_drives", true)
-        _avoidHighways.value = prefs.bool("avoid_highways", false)
-        _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
-        _avoidTolls.value = prefs.bool("avoid_tolls", false)
-        _avoidFerries.value = prefs.bool("avoid_ferries", false)
-        _avoidUnpaved.value = prefs.bool("avoid_unpaved", false)
+        loadRoutePrefs()
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
         loadSpinPrefs()
         _shareFog.value = prefs.bool("share_fog", false)
@@ -610,6 +613,16 @@ object Settings {
         prefs.put("avoid_unpaved", value)
     }
 
+    fun setCurvyPreset(value: CurvyPreset) {
+        _curvyPreset.value = value
+        prefs.put("curvy_preset", value.name)
+    }
+
+    /** A stored preset name, or [CurvyPreset.FAST] for nothing stored or a
+     *  name this build doesn't know. */
+    internal fun decodeCurvyPreset(stored: String): CurvyPreset =
+        CurvyPreset.entries.firstOrNull { it.name == stored } ?: CurvyPreset.FAST
+
     fun setExternalDisplayEnabled(value: Boolean) {
         _externalDisplayEnabled.value = value
         prefs.put("external_display_enabled", value)
@@ -618,6 +631,17 @@ object Settings {
     fun setTripMode(value: TravelMode) {
         _tripMode.value = value
         prefs.put("trip_mode", value.name)
+    }
+
+    /** What [routePreferences] is built from. Out of [init] for the same
+     *  reason as [loadSpinPrefs]. */
+    private fun loadRoutePrefs() {
+        _avoidHighways.value = prefs.bool("avoid_highways", false)
+        _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
+        _avoidTolls.value = prefs.bool("avoid_tolls", false)
+        _avoidFerries.value = prefs.bool("avoid_ferries", false)
+        _avoidUnpaved.value = prefs.bool("avoid_unpaved", false)
+        _curvyPreset.value = decodeCurvyPreset(prefs.string("curvy_preset"))
     }
 
     /** The spin sheet's persisted choices: the mode and how its loop is sized.

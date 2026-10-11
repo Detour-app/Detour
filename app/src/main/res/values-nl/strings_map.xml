@@ -87,6 +87,13 @@
     <string name="nav_google_maps_round_trip">Google Maps (rondrit)</string>
     <string name="nav_other_app">Andere app</string>
     <string name="nav_go">Ga</string>
+    <string name="nav_curvy">Bochten</string>
+    <string name="nav_curvy_fast">Snel</string>
+    <string name="nav_curvy_balanced">Gemengd</string>
+    <string name="nav_curvy_twisty">Bochtig</string>
+    <string name="nav_curvy_cost">+%1$d min · +%2$s</string>
+    <string name="nav_curvy_comparing">Vergelijken met de snelste route…</string>
+    <string name="nav_curvy_unsupported">Bochtige routes: je routeserver kan dit nog niet</string>
 
     <!-- RouteEditorScreen.kt, RouteFillControls.kt -->
     <string name="route_editor_new">Nieuwe route</string>
