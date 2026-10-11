@@ -107,7 +107,8 @@ class ArchitectureTest {
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
             // +2: #549 camera banner and the island's gap under it
             // +16: #427 Back cancels candidates, restored candidates re-framed
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1436,
+            // +4: #645 traffic loop call and its comment, traffic banner, withTrafficDelay import
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1440,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1277,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)

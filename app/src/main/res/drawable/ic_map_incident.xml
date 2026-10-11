@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Traffic incident marker (#645): the European warning triangle - white
+     face, sign-red border - with a dark exclamation mark. Same 48-unit grid
+     at 36dp as ic_map_camera, rasterised at 2x by MapOverlays. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="36dp"
+    android:height="36dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- drop shadow -->
+    <path
+        android:fillColor="#33000000"
+        android:pathData="M24,7L44,42H4z" />
+    <!-- sign-red border -->
+    <path
+        android:fillColor="#FFD8382B"
+        android:pathData="M24,5L44,40H4z" />
+    <!-- white face -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M24,13L37,36H11z" />
+    <!-- exclamation mark -->
+    <path
+        android:fillColor="#FF1B2430"
+        android:pathData="M22.6,19h2.8l-0.5,9h-1.8z M24,30.2m-1.6,0a1.6,1.6 0 1,1 3.2,0a1.6,1.6 0 1,1 -3.2,0" />
+</vector>

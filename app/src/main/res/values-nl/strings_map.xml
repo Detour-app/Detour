@@ -139,4 +139,8 @@
     <string name="map_camera_banner_speed">Snelheidscamera</string>
     <string name="map_camera_banner_red_light">Roodlichtcamera</string>
     <string name="map_camera_banner_combined">Snelheids- en roodlichtcamera</string>
+    <!-- Traffic banner (#645): delay HERE puts on the route ahead, and a closure on it. -->
+    <string name="map_traffic_delay">+%1$d min file</string>
+    <string name="map_traffic_delay_label">op de route vooruit</string>
+    <string name="map_traffic_closed">Weg verderop afgesloten</string>
 </resources>

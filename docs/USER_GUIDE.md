@@ -224,6 +224,16 @@ is ahead and you're over the limit. Inside an average-speed section, the running
 average for that section is shown next to your live speed, since that is the
 number the camera pair actually judges.
 
+**Live traffic** (phone only, with your own HERE key — see
+[What leaves your device](#what-leaves-your-device)): while navigating, the next
+20 km of the route turns orange where traffic is slow, red where it is queuing
+and dark red where the road is closed; incidents on it get a warning triangle,
+closures a no-entry sign. A banner under the next maneuver says how many minutes
+traffic adds (from one minute up) or that the road ahead is closed, and the
+remaining time and arrival clock include that delay. The route itself still
+comes from GraphHopper — traffic never reroutes you. HERE is only asked while
+you navigate with the screen on, and at most once a minute per area.
+
 Navigation can avoid motorways or avoid narrow rural lanes — see
 [Settings reference](#settings-reference).
 
