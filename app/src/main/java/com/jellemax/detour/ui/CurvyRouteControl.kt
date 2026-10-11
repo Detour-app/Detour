@@ -74,7 +74,7 @@ internal fun CurvyRouteControl(
         try {
             preview = withContext(Dispatchers.IO) {
                 RoutingClient.curvyRouteVia(
-                    serverConfig, listOf(from, destination), mode.ghProfile, Settings.routePreferences(),
+                    serverConfig, listOf(from, destination), mode.ghProfile, Settings.navRoutePreferences(),
                 )
             }
         } catch (e: CancellationException) {

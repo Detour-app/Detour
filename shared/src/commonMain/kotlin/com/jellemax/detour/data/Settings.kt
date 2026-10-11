@@ -131,14 +131,22 @@ object Settings {
 
     /** The avoid options as they stand now, for a routing request — minus any
      *  the routing server has not said it supports, so a choice made against
-     *  one server never 400s every route on another. */
-    fun routePreferences() = RoutePreferences(
+     *  one server never 400s every route on another. Always the fastest
+     *  route: the curvy preset is the A→B dock's alone (see
+     *  [navRoutePreferences]), so it never bends an editor fill or a spin. */
+    fun routePreferences() = routePreferencesWith(CurvyPreset.FAST)
+
+    /** [routePreferences] plus [curvyPreset], for the A→B navigation route
+     *  the dock's slider sets: its preview, Start and every reroute after. */
+    fun navRoutePreferences() = routePreferencesWith(_curvyPreset.value)
+
+    private fun routePreferencesWith(curvy: CurvyPreset) = RoutePreferences(
         avoidHighways = _avoidHighways.value,
         avoidSmallRoads = _avoidSmallRoads.value,
         avoidTolls = _avoidTolls.value,
         avoidFerries = _avoidFerries.value,
         avoidUnpaved = _avoidUnpaved.value,
-        curvy = _curvyPreset.value,
+        curvy = curvy,
     ).supportedBy(RoutingSupport.known())
 
     /** Broadcast turn-by-turn state over BLE for an external display (e.g. a
