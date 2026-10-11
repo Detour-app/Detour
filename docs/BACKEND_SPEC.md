@@ -398,13 +398,24 @@ Client to server:
 | `location` | any | Position must be finite and in range; heading and speed are optional and silently dropped if out of range. Relayed to every other member of every group the sender shares with them. In a **circle** it also overwrites the sender's stored last fix. Dropped entirely if the sender has paused. Deliberately carries **no** group id — one fix is one fix, and fanning it out per group is the relay's job, not the phone's. |
 | `spin_offer` | **convoy only** | 1–3 candidates, each with a valid position and optional distance, duration and name. One invalid candidate voids the whole frame rather than silently relaying a shorter list. |
 | `spin_vote` | **convoy only** | Index 0–2. Anything else is dropped rather than relayed as a vote for a candidate that was never offered. |
+| `break_request` | **convoy only** | Any member. Position must be valid; relayed to every other member. Not stored. |
+| `regroup_pin` | **convoy only**, **host only** | Sent by anyone but the convoy's owner it is dropped, not answered with `error` (which closes the client's socket). A set needs a valid position and a label of at most 80 characters; `clear: true` removes the pin. |
 
-Server to client: `joined`, `error`, `positions`, `left`, `place_event`.
+Server to client: `joined`, `error`, `positions`, `left`, `place_event`, and the
+relayed `spin_offer`, `spin_vote`, `break_request` and `regroup_pin`.
+
+**`regroup_pin` is the one piece of convoy state the relay holds.** It keeps the
+latest pin per convoy in memory, sends it to a rider right after their
+`joined`, replaces it on a new pin, drops it on a clear, and forgets it when the
+convoy ends (its last member leaves). A pin is a standing instruction rather
+than an event: a rider back from a tunnel must still learn where to regroup. A
+server restart loses it.
 `place_event` is server-originated only — a client cannot cause one by sending
 it, which is why there is no inbound counterpart.
 
 Wherever one of these frames names a rider — a peer inside `positions`, or the
-subject of `left`, `spin_offer`, `spin_vote` and `place_event` — the field is an
+subject of `left`, `spin_offer`, `spin_vote`, `break_request`, `regroup_pin`
+and `place_event` — the field is an
 account id, never a handle. The JSON keys carrying it did not change when this
 moved (`u` on a peer, `user` everywhere else); only the type behind them did.
 

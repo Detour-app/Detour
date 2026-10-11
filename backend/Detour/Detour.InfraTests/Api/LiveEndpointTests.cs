@@ -3,8 +3,10 @@ using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Detour.Api.Live;
 using Detour.InfraTests.Database;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Detour.InfraTests.Api;
 
@@ -292,6 +294,210 @@ public class LiveEndpointTests(PostgresFixture postgres) : IAsyncLifetime
         // The highest-consequence rule in the convoy/circle merge, enforced on the wire and not
         // only in the domain: a circle must never gain convoy behaviour.
         await blakeSocket.ShouldStaySilent();
+    }
+
+    [Fact]
+    public async Task A_break_request_reaches_the_convoy_with_its_sender_and_position()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
+
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
+        await JoinAsync(alexSocket, convoy);
+        await JoinAsync(blakeSocket, convoy);
+
+        // Any rider may ask, not only the host (owner decision, #632).
+        await blakeSocket.SendAsync(new { type = "break_request", groupId = convoy, lat = 51.05, lon = 3.72 });
+
+        var request = await alexSocket.ReceiveAsync();
+        request.GetProperty("type").GetString().Should().Be("break_request");
+        request.GetProperty("groupId").GetGuid().Should().Be(convoy);
+        request.GetProperty("user").GetGuid().Should().Be(blake.UserId);
+        request.GetProperty("lat").GetDouble().Should().Be(51.05);
+        request.GetProperty("lon").GetDouble().Should().Be(3.72);
+
+        // The sender already knows it asked.
+        await blakeSocket.ShouldStaySilent();
+    }
+
+    [Fact]
+    public async Task A_break_request_without_a_valid_position_is_dropped()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
+
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
+        await JoinAsync(alexSocket, convoy);
+        await JoinAsync(blakeSocket, convoy);
+
+        await blakeSocket.SendAsync(new { type = "break_request", groupId = convoy, lat = 91.0, lon = 3.72 });
+        await blakeSocket.SendAsync(new { type = "break_request", groupId = convoy });
+
+        await alexSocket.ShouldStaySilent();
+    }
+
+    [Fact]
+    public async Task A_circle_refuses_break_requests_and_regroup_pins()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var circle = await CircleOf(alex, blake);
+
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
+        await JoinAsync(alexSocket, circle);
+        await JoinAsync(blakeSocket, circle);
+
+        // Alex owns the circle, so this is the kind gate refusing, not the host gate.
+        await alexSocket.SendAsync(new { type = "break_request", groupId = circle, lat = 51.0, lon = 3.7 });
+        await alexSocket.SendAsync(new { type = "regroup_pin", groupId = circle, lat = 51.0, lon = 3.7 });
+
+        await blakeSocket.ShouldStaySilent();
+    }
+
+    [Fact]
+    public async Task A_regroup_pin_from_the_host_reaches_the_convoy()
+    {
+        var host = await _factory.SignInAsync();
+        var rider = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(host, rider);
+
+        using var hostSocket = await ConnectAsync(host);
+        using var riderSocket = await ConnectAsync(rider);
+        await JoinAsync(hostSocket, convoy);
+        await JoinAsync(riderSocket, convoy);
+
+        await hostSocket.SendAsync(new
+        {
+            type = "regroup_pin", groupId = convoy, lat = 50.75, lon = 3.6, label = "  Shell Ronse  ",
+        });
+
+        var pin = await riderSocket.ReceiveAsync();
+        pin.GetProperty("type").GetString().Should().Be("regroup_pin");
+        pin.GetProperty("groupId").GetGuid().Should().Be(convoy);
+        pin.GetProperty("user").GetGuid().Should().Be(host.UserId);
+        pin.GetProperty("lat").GetDouble().Should().Be(50.75);
+        pin.GetProperty("lon").GetDouble().Should().Be(3.6);
+        pin.GetProperty("label").GetString().Should().Be("Shell Ronse");
+        pin.GetProperty("clear").GetBoolean().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_regroup_pin_from_a_member_who_is_not_the_host_is_refused()
+    {
+        var host = await _factory.SignInAsync();
+        var rider = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(host, rider);
+
+        using var hostSocket = await ConnectAsync(host);
+        using var riderSocket = await ConnectAsync(rider);
+        await JoinAsync(hostSocket, convoy);
+        await JoinAsync(riderSocket, convoy);
+
+        await riderSocket.SendAsync(new { type = "regroup_pin", groupId = convoy, lat = 50.75, lon = 3.6 });
+        await riderSocket.SendAsync(new { type = "regroup_pin", groupId = convoy, clear = true });
+
+        await hostSocket.ShouldStaySilent();
+
+        // Refused, and not remembered either: a rider joining now is told nothing.
+        using var late = await ConnectAsync(rider);
+        await JoinAsync(late, convoy);
+        await late.ShouldStaySilent();
+    }
+
+    [Fact]
+    public async Task A_rider_rejoining_is_told_the_latest_pin_and_nothing_once_it_is_cleared()
+    {
+        var host = await _factory.SignInAsync();
+        var rider = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(host, rider);
+
+        using var hostSocket = await ConnectAsync(host);
+        await JoinAsync(hostSocket, convoy);
+
+        // Each pin is read off a live socket before the next step, so the server has handled it:
+        // the host's frames and the rider's join arrive on different sockets, in no fixed order.
+        using (var live = await ConnectAsync(rider))
+        {
+            await JoinAsync(live, convoy);
+            await hostSocket.SendAsync(new { type = "regroup_pin", groupId = convoy, lat = 50.75, lon = 3.6, label = "First" });
+            await hostSocket.SendAsync(new { type = "regroup_pin", groupId = convoy, lat = 50.8, lon = 3.65, label = "Second" });
+            (await live.ReceiveAsync()).GetProperty("label").GetString().Should().Be("First");
+            (await live.ReceiveAsync()).GetProperty("label").GetString().Should().Be("Second");
+        }
+
+        // A new pin replaces the old one: the rider back from a tunnel is told one place, the
+        // newest, and not a history to pick from.
+        using (var back = await ConnectAsync(rider))
+        {
+            await JoinAsync(back, convoy);
+            var pin = await back.ReceiveAsync();
+            pin.GetProperty("label").GetString().Should().Be("Second");
+            pin.GetProperty("lat").GetDouble().Should().Be(50.8);
+            await back.ShouldStaySilent();
+        }
+
+        using (var live = await ConnectAsync(rider))
+        {
+            await JoinAsync(live, convoy);
+            (await live.ReceiveAsync()).GetProperty("label").GetString().Should().Be("Second");
+            await hostSocket.SendAsync(new { type = "regroup_pin", groupId = convoy, clear = true });
+            (await live.ReceiveAsync()).GetProperty("clear").GetBoolean().Should().BeTrue();
+        }
+
+        using var again = await ConnectAsync(rider);
+        await JoinAsync(again, convoy);
+        await again.ShouldStaySilent();
+    }
+
+    [Fact]
+    public async Task A_cleared_pin_reaches_the_convoy_as_a_clear_with_no_position()
+    {
+        var host = await _factory.SignInAsync();
+        var rider = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(host, rider);
+
+        using var hostSocket = await ConnectAsync(host);
+        using var riderSocket = await ConnectAsync(rider);
+        await JoinAsync(hostSocket, convoy);
+        await JoinAsync(riderSocket, convoy);
+
+        await hostSocket.SendAsync(new { type = "regroup_pin", groupId = convoy, clear = true });
+
+        var clear = await riderSocket.ReceiveAsync();
+        clear.GetProperty("type").GetString().Should().Be("regroup_pin");
+        clear.GetProperty("clear").GetBoolean().Should().BeTrue();
+        clear.TryGetProperty("lat", out _).Should().BeFalse();
+        clear.TryGetProperty("lon", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task The_pin_is_forgotten_when_the_convoy_ends()
+    {
+        var host = await _factory.SignInAsync();
+        var rider = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(host, rider);
+
+        using var hostSocket = await ConnectAsync(host);
+        using var riderSocket = await ConnectAsync(rider);
+        await JoinAsync(hostSocket, convoy);
+        await JoinAsync(riderSocket, convoy);
+
+        await hostSocket.SendAsync(new { type = "regroup_pin", groupId = convoy, lat = 50.75, lon = 3.6 });
+        (await riderSocket.ReceiveAsync()).GetProperty("type").GetString().Should().Be("regroup_pin");
+
+        var relay = _factory.Services.GetRequiredService<LiveRelay>();
+        relay.RegroupPinFor(convoy).Should().NotBeNull();
+
+        (await rider.DeleteAsync($"/api/groups/{convoy}/membership")).EnsureSuccessStatusCode();
+        relay.RegroupPinFor(convoy).Should().NotBeNull("the convoy still has its host");
+
+        (await host.DeleteAsync($"/api/groups/{convoy}/membership")).EnsureSuccessStatusCode();
+        relay.RegroupPinFor(convoy).Should().BeNull();
     }
 
     [Fact]

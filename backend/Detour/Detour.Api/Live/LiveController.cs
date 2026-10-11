@@ -216,6 +216,14 @@ public class LiveController(
                 await HandleVoteAsync(scope.ServiceProvider, connection, root, cancellationToken);
                 break;
 
+            case LiveFrameTypes.BreakRequest:
+                await HandleBreakRequestAsync(scope.ServiceProvider, connection, root, cancellationToken);
+                break;
+
+            case LiveFrameTypes.RegroupPin:
+                await HandleRegroupPinAsync(scope.ServiceProvider, connection, root, cancellationToken);
+                break;
+
                 // Voice (ptt_start / ptt_audio / ptt_end) is deliberately unhandled: the frames are
                 // accepted off the wire and dropped, exactly as any unknown type is, so a client that
                 // still sends them stays connected and everything else keeps working.
@@ -244,6 +252,12 @@ public class LiveController(
 
         connection.Join(groupId);
         connection.Enqueue(new LiveMessage(new JoinedFrame(groupId)));
+
+        // A pin is a standing instruction, not an event: a rider joining late, or back from a
+        // tunnel, has to learn where the convoy is regrouping without waiting for the host to drop
+        // it again.
+        if (relay.RegroupPinFor(groupId) is { } pin)
+            connection.Enqueue(new LiveMessage(pin));
     }
 
     private static async Task HandleLocationAsync(
@@ -282,7 +296,8 @@ public class LiveController(
         JsonElement frame,
         CancellationToken cancellationToken)
     {
-        var group = await RequireVotingGroupAsync(services, connection, frame, cancellationToken);
+        var group = await RequireGroupAsync(
+            services, connection, frame, kind => kind.AllowsDestinationVote, cancellationToken);
         if (group is null)
             return;
 
@@ -319,7 +334,8 @@ public class LiveController(
         JsonElement frame,
         CancellationToken cancellationToken)
     {
-        var group = await RequireVotingGroupAsync(services, connection, frame, cancellationToken);
+        var group = await RequireGroupAsync(
+            services, connection, frame, kind => kind.AllowsDestinationVote, cancellationToken);
         if (group is null)
             return;
 
@@ -336,15 +352,66 @@ public class LiveController(
             new DestinationVoteFrame(group.Id, connection.UserId, index));
     }
 
-    /// <summary>
-    /// Resolves the group a voting frame names, or null if it is not one this rider may vote in.
-    /// Re-checked per frame rather than trusted from join time: a membership can be revoked while
-    /// a socket is open, and the join set alone would keep relaying until the sweep caught up.
-    /// </summary>
-    private static async Task<Group?> RequireVotingGroupAsync(
+    private async Task HandleBreakRequestAsync(
         IServiceProvider services,
         LiveConnection connection,
         JsonElement frame,
+        CancellationToken cancellationToken)
+    {
+        var group = await RequireGroupAsync(
+            services, connection, frame, kind => kind.AllowsBreakAndRegroup, cancellationToken);
+        if (group is null)
+            return;
+
+        if (!TryReadDouble(frame, "lat", out var latitude)
+            || !TryReadDouble(frame, "lon", out var longitude)
+            || !GeoPoint.IsValid(latitude, longitude))
+            return;
+
+        relay.PublishToGroup(
+            await AcceptedMemberIdsAsync(services, group.Id, connection.UserId, cancellationToken),
+            group.Id,
+            new BreakRequestFrame(group.Id, connection.UserId, latitude, longitude));
+    }
+
+    private async Task HandleRegroupPinAsync(
+        IServiceProvider services,
+        LiveConnection connection,
+        JsonElement frame,
+        CancellationToken cancellationToken)
+    {
+        var group = await RequireGroupAsync(
+            services, connection, frame, kind => kind.AllowsBreakAndRegroup, cancellationToken);
+
+        // Host only (owner decision, #632). Refused by dropping, like every other frame a rider may
+        // not send: an `error` frame is what a client closes its socket on, and a member tapping
+        // the wrong button must not lose the ride.
+        if (group is null || group.OwnerId != connection.UserId)
+            return;
+
+        var pin = ReadRegroupPin(frame, group.Id, connection.UserId);
+        if (pin is null)
+            return;
+
+        relay.SetRegroupPin(pin);
+        relay.PublishToGroup(
+            await AcceptedMemberIdsAsync(services, group.Id, connection.UserId, cancellationToken),
+            group.Id,
+            pin);
+    }
+
+    /// <summary>
+    /// Resolves the group a convoy-scoped frame names, or null if it is not one this rider may send
+    /// that frame to — <paramref name="allows"/> is the kind's gate for it (§6.5 of
+    /// <c>docs/CIRCLES_AND_CONVOYS.md</c>). Re-checked per frame rather than trusted from join
+    /// time: a membership can be revoked while a socket is open, and the join set alone would keep
+    /// relaying until the sweep caught up.
+    /// </summary>
+    private static async Task<Group?> RequireGroupAsync(
+        IServiceProvider services,
+        LiveConnection connection,
+        JsonElement frame,
+        Func<GroupKind, bool> allows,
         CancellationToken cancellationToken)
     {
         if (!TryReadGuid(frame, "groupId", out var groupId) || !connection.IsJoinedTo(groupId))
@@ -354,7 +421,7 @@ public class LiveController(
         var group = await groups.GetWithMembersAsync(groupId, cancellationToken);
 
         if (group is null
-            || !group.Kind.AllowsDestinationVote
+            || !allows(group.Kind)
             || !group.IsAcceptedMember(connection.UserId))
             return null;
 
@@ -394,6 +461,31 @@ public class LiveController(
             TryReadDouble(element, "distanceM", out var distance) ? distance : null,
             TryReadDouble(element, "durationS", out var duration) ? duration : null,
             name);
+    }
+
+    /// <summary>
+    /// A set needs a valid position and at most a short label; a clear needs nothing else. Anything
+    /// in between is dropped rather than guessed at — relaying a pin with no usable position would
+    /// leave every rider routing somewhere different.
+    /// </summary>
+    private static RegroupPinFrame? ReadRegroupPin(JsonElement frame, Guid groupId, Guid hostId)
+    {
+        if (frame.TryGetProperty("clear", out var clear) && clear.ValueKind == JsonValueKind.True)
+            return new RegroupPinFrame(groupId, hostId, null, null, null, Clear: true);
+
+        if (!TryReadDouble(frame, "lat", out var latitude)
+            || !TryReadDouble(frame, "lon", out var longitude)
+            || !GeoPoint.IsValid(latitude, longitude))
+            return null;
+
+        string? label = null;
+        if (TryReadString(frame, "label", out var raw) && raw.Trim().Length > 0)
+            label = raw.Trim();
+
+        if (label is not null && label.Length > DetourLimits.RegroupPinLabelMaxLength)
+            return null;
+
+        return new RegroupPinFrame(groupId, hostId, latitude, longitude, label, Clear: false);
     }
 
     private static bool TryReadGuid(JsonElement element, string name, out Guid value)
