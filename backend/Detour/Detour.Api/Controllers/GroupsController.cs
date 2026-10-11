@@ -195,8 +195,9 @@ public class ConvoysController(
     [EndpointDescription(
         "Adds the caller as a guest for the convoy's lifetime, without a friendship. The token "
         + "travels in the body so it stays out of access logs. Attempts are capped per token and "
-        + "per address.")]
+        + "per address, and a convoy takes at most 8 riders by link.")]
     [ProducesResponseType<GroupResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status410Gone)]

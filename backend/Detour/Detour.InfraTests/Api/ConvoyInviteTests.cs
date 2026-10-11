@@ -246,6 +246,34 @@ public class ConvoyInviteTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_convoy_takes_at_most_eight_guests_and_a_removal_frees_a_seat()
+    {
+        var host = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+
+        var guests = new List<SignedInClient>();
+        for (var i = 0; i < DetourLimits.MaxConvoyGuests; i++)
+        {
+            var guest = await _factory.SignInAsync();
+            (await Join(guest, invite)).EnsureSuccessStatusCode();
+            guests.Add(guest);
+        }
+
+        var ninth = await _factory.SignInAsync();
+        (await Join(ninth, invite)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ConvoyIds(ninth)).Should().NotContain(convoy);
+
+        // A fresh link does not reset the count: the cap is per convoy, not per link.
+        var second = await CreateLink(host, convoy);
+        (await Join(ninth, second)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        (await host.DeleteAsync($"/api/convoys/{convoy}/guests/{guests[0].UserId}")).EnsureSuccessStatusCode();
+        (await Join(ninth, second)).EnsureSuccessStatusCode();
+        (await ConvoyIds(ninth)).Should().Contain(convoy);
+    }
+
+    [Fact]
     public async Task Repeated_join_attempts_on_one_link_trip_the_limit()
     {
         var host = await _factory.SignInAsync();

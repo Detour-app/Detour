@@ -120,7 +120,7 @@ No app change and no App Links yet.
 | `DELETE /api/convoys/{id}/invite-link` | Host | `204`. Stops new joins; guests already in stay |
 | `GET /api/convoys/{id}/guests` | Host | `{ inviteExpiresAtMs, guests: [{ id, username, joinedAtMs }] }` — guests still in the convoy; `inviteExpiresAtMs` is null when no link is usable |
 | `DELETE /api/convoys/{id}/guests/{riderId}` | Host | `204`, and the rider's live sockets for the convoy drop at once. `404` for anyone who did not join by link, including the host |
-| `POST /api/convoys/join` `{ token }` | Any signed-in rider | `200` with the convoy, the caller an accepted member. `404` unknown token, `410` revoked or expired, `403` removed by the host, `429` too many attempts |
+| `POST /api/convoys/join` `{ token }` | Any signed-in rider | `200` with the convoy, the caller an accepted member. `404` unknown token, `410` revoked or expired, `403` removed by the host, `400` the convoy already has 8 link guests, `429` too many attempts |
 
 The rules, and why each one is there:
 
@@ -142,6 +142,12 @@ The rules, and why each one is there:
   left on their own may rejoin with the same link.
 - **No friendship is created**, and the guest loses access when the convoy ends
   because their membership goes with it.
+- **At most 8 link guests per convoy** (`DetourLimits.MaxConvoyGuests`, owner
+  decision on #641; the host cannot raise it). The count is over every link the
+  convoy has had, so minting a new link does not reset it, and only guests still
+  in the convoy count: one the host removed or who left frees the seat. Friends
+  invited the ordinary way are not guests and do not count. The 9th join answers
+  `400` with `ConvoyInvite.ConvoyFull`.
 - **Join attempts are capped per token and per address**
   (`DetourLimits.ConvoyJoinsPerToken` / `ConvoyJoinsPerIp` per
   `ConvoyJoinWindow`), on top of the global limiter, and refused attempts count.

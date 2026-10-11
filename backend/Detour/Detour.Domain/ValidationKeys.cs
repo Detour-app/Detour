@@ -201,6 +201,11 @@ public static class ValidationKeys
         public static readonly ValidationKeyDefinition GuestRemoved =
             ValidationKeyDefinition.Create($"{Base}.GuestRemoved");
 
+        /// <summary>The convoy already holds <see cref="DetourLimits.MaxConvoyGuests"/> link guests.</summary>
+        public static readonly ValidationKeyDefinition ConvoyFull =
+            ValidationKeyDefinition.Create($"{Base}.ConvoyFull")
+                .WithIntParameter("maxGuests");
+
         public static readonly ValidationKeyDefinition GuestNotFound =
             ValidationKeyDefinition.Create($"{Base}.GuestNotFound");
 

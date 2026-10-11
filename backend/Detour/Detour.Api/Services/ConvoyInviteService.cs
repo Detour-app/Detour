@@ -86,13 +86,7 @@ public class ConvoyInviteService(
 
         // Only guests still in the convoy. One who left on their own is not someone the host
         // can see on the map, so listing them would offer a removal that changes nothing visible.
-        var guests = all
-            .SelectMany(i => i.Guests)
-            .Where(g => !g.IsRemoved && group.IsAcceptedMember(g.UserId))
-            .GroupBy(g => g.UserId)
-            .Select(byUser => byUser.MaxBy(g => g.JoinedAt)!)
-            .OrderBy(g => g.JoinedAt)
-            .ToList();
+        var guests = CurrentGuests(all, group).OrderBy(g => g.JoinedAt).ToList();
 
         var usernames = (await users.GetManyAsync([.. guests.Select(g => g.UserId)], cancellationToken))
             .ToDictionary(u => u.Id, u => u.Username);
@@ -161,6 +155,11 @@ public class ConvoyInviteService(
         // record, and not worth refusing just because the link has since expired.
         if (!group.IsAcceptedMember(caller.Id))
         {
+            var guestsIn = CurrentGuests(await invites.GetForGroupAsync(group.Id, cancellationToken), group)
+                .Count();
+            if (guestsIn >= DetourLimits.MaxConvoyGuests)
+                return Result.Error(ValidationKeys.ConvoyInvite.ConvoyFull, DetourLimits.MaxConvoyGuests);
+
             var (admitted, _) = invite.Admit(caller.Id, time.GetUtcNow());
             if (admitted.IsFailure)
                 return admitted;
@@ -175,6 +174,17 @@ public class ConvoyInviteService(
             .ToDictionary(u => u.Id, u => u.Username);
         return GroupResponseMapper.Map(group, caller.Id, usernames);
     }
+
+    /// <summary>
+    /// Link guests still in the convoy, one row per rider (their latest join): neither removed
+    /// by the host nor gone on their own. What the host sees, and what the guest cap counts.
+    /// </summary>
+    private static IEnumerable<ConvoyGuest> CurrentGuests(IEnumerable<ConvoyInvite> invites, Group group) =>
+        invites
+            .SelectMany(i => i.Guests)
+            .Where(g => !g.IsRemoved && group.IsAcceptedMember(g.UserId))
+            .GroupBy(g => g.UserId)
+            .Select(byUser => byUser.MaxBy(g => g.JoinedAt)!);
 
     /// <summary>
     /// The host gate. Anyone who is not an accepted member of a convoy gets the same

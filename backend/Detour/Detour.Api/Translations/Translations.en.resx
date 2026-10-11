@@ -167,6 +167,9 @@
   <data name="ConvoyInvite.GuestRemoved" xml:space="preserve">
     <value>The host removed you from this convoy.</value>
   </data>
+  <data name="ConvoyInvite.ConvoyFull" xml:space="preserve">
+    <value>This convoy already has {0} riders who joined by link.</value>
+  </data>
   <data name="ConvoyInvite.GuestNotFound" xml:space="preserve">
     <value>That rider did not join through an invite link.</value>
   </data>
