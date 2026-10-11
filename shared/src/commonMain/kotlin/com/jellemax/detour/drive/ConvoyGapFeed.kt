@@ -1,5 +1,6 @@
 package com.jellemax.detour.drive
 
+import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RiderId
 
@@ -36,7 +37,21 @@ object ConvoyGapFeed {
     )
 
     /** Who is in the convoy, as this device knows it. [hostId] is the lead. */
-    data class Roster(val members: Set<RiderId>, val hostId: RiderId, val selfId: RiderId)
+    data class Roster(val members: Set<RiderId>, val hostId: RiderId, val selfId: RiderId) {
+        companion object {
+            /**
+             * The roster of [convoy] seen from [selfId]: its accepted members, led by
+             * its host ([Group.ownerId]). Null while the host is unknown — a server
+             * that predates the field — since self-as-lead would call a tail rider
+             * stopped whenever the front waits for them.
+             */
+            fun of(convoy: Group, selfId: RiderId): Roster? {
+                val hostId = convoy.ownerId ?: return null
+                val members = convoy.members.filter { it.status == "accepted" }.map { it.id }.toSet()
+                return Roster(members, hostId, selfId)
+            }
+        }
+    }
 
     data class Step(val state: State, val events: List<ConvoyGapDetector.Event>)
 

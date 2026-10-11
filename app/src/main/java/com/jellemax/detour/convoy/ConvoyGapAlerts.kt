@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /** How often the convoy is re-judged. Signal loss is the one alert no frame
@@ -39,9 +41,8 @@ private const val TICK_MS = 1_000L
  * while the map is not on screen is still judged — and judged against frames
  * stamped when they arrived, not when somebody next looked.
  *
- * The lead is the convoy's host ([com.jellemax.detour.data.Group.ownerId]); a
- * server that doesn't report one gets no alerts, since self-as-lead would call
- * a tail rider stopped whenever the front waits for them. The route is this
+ * Who rides and who leads is [ConvoyGapFeed.Roster.of]'s call; a convoy whose
+ * host is unknown gets no alerts. The route is this
  * device's own while it navigates: the host's isn't on the wire, and without
  * one nobody can be behind, though stopped and lost signal still work.
  */
@@ -60,15 +61,19 @@ object ConvoyGapAlerts {
 
     private const val SPOKEN_BUFFER = 8
 
-    /** Judges whichever convoy [convoyId] names, restarting from nothing on
-     *  every change of convoy. Called once, by [ConvoyLiveClient]. */
+    /** Judges whichever convoy [convoyId] names while [connected], restarting
+     *  from nothing on every change of convoy and every reconnect. The relay
+     *  keeps [convoyId] across a dropped socket, and with no frames arriving
+     *  every other rider would read as a lost signal; the drop is this device's,
+     *  not theirs. Called once, by [ConvoyLiveClient]. */
     internal fun watch(
         scope: CoroutineScope,
         convoyId: StateFlow<String?>,
+        connected: StateFlow<Boolean>,
         peers: StateFlow<Map<RiderId, FriendPosition>>,
     ) {
         scope.launch {
-            convoyId.collectLatest { id ->
+            combine(convoyId, connected) { id, live -> id.takeIf { live } }.distinctUntilChanged().collectLatest { id ->
                 _lines.value = emptyList()
                 if (id == null) return@collectLatest
                 var state = ConvoyGapFeed.State()
@@ -86,14 +91,13 @@ object ConvoyGapAlerts {
         peers: Map<RiderId, FriendPosition>,
     ): ConvoyGapFeed.State {
         val convoy = ConvoysStore.state.value.convoys.firstOrNull { it.id == convoyId }
-        val hostId = convoy?.ownerId
-        if (hostId == null) {
+        val selfId = Account.riderId.value
+        val roster = convoy?.let { ConvoyGapFeed.Roster.of(it, selfId) }
+        if (convoy == null || roster == null) {
             _lines.value = emptyList()
             return state
         }
-        val members = convoy.members.filter { it.status == "accepted" }
-        val selfId = Account.riderId.value
-        val roster = ConvoyGapFeed.Roster(members.map { it.id }.toSet(), hostId, selfId)
+        val members = convoy.members
         val own = TripTrackingService.lastFix.value?.let {
             ConvoyGapDetector.Fix(selfId, LatLon(it.lat, it.lon), it.speedMps * 3.6, it.timeMs)
         }

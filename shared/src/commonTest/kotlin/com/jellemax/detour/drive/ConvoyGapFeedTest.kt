@@ -1,11 +1,14 @@
 package com.jellemax.detour.drive
 
+import com.jellemax.detour.data.Group
+import com.jellemax.detour.data.GroupMember
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.drive.ConvoyGapDetector.Event
 import com.jellemax.detour.drive.ConvoyGapDetector.Fix
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Characterises [ConvoyGapFeed]: frames are judged on the receiving clock,
@@ -94,5 +97,32 @@ class ConvoyGapFeedTest {
             )
         }
         assertEquals(listOf<Pair<Int, Event>>(20 to Event.Stopped(sam)), events)
+    }
+
+    private fun convoy(ownerId: RiderId?) = Group(
+        id = "c1",
+        name = "Sunday loop",
+        kind = "convoy",
+        status = "accepted",
+        members = listOf(
+            GroupMember(host, "host", "accepted", sharing = true),
+            GroupMember(sam, "sam", "accepted", sharing = true),
+            GroupMember(me, "me", "accepted", sharing = true),
+            GroupMember(stranger, "stranger", "invited", sharing = false),
+        ),
+        ownerId = ownerId,
+    )
+
+    @Test
+    fun `the roster is the accepted members, led by the host`() {
+        assertEquals(
+            ConvoyGapFeed.Roster(setOf(host, sam, me), hostId = host, selfId = me),
+            ConvoyGapFeed.Roster.of(convoy(ownerId = host), selfId = me),
+        )
+    }
+
+    @Test
+    fun `a convoy whose host is unknown has no roster`() {
+        assertNull(ConvoyGapFeed.Roster.of(convoy(ownerId = null), selfId = me))
     }
 }

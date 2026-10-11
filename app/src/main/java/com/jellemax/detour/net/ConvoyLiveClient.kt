@@ -173,7 +173,7 @@ object ConvoyLiveClient {
         ConvoysStore.watchPeers(scope, relay.peers)
         // Same scope, same reason: a rider falling behind while nobody has the
         // map open must still have been judged when somebody does look (#647).
-        ConvoyGapAlerts.watch(scope, relay.convoyId, relay.peers)
+        ConvoyGapAlerts.watch(scope, relay.convoyId, relay.connected, relay.peers)
     }
 
     /** Effective live-relay URL - see [OkHttpRelaySocket.liveUrl], which
