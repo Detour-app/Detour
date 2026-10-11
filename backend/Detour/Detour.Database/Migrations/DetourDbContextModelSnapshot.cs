@@ -378,6 +378,89 @@ namespace Detour.Database.Migrations
                     b.ToTable("friendships", "detour");
                 });
 
+            modelBuilder.Entity("Detour.Domain.Groups.ConvoyGuest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("InviteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invite_id");
+
+                    b.Property<DateTimeOffset>("JoinedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("joined_at");
+
+                    b.Property<DateTimeOffset?>("RemovedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("removed_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_convoy_guests");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_convoy_guests_user_id");
+
+                    b.HasIndex("InviteId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_convoy_guests_invite_id_user_id");
+
+                    b.ToTable("convoy_guests", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Groups.ConvoyInvite", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("group_id");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.HasKey("Id")
+                        .HasName("pk_convoy_invites");
+
+                    b.HasIndex("CreatedBy")
+                        .HasDatabaseName("ix_convoy_invites_created_by");
+
+                    b.HasIndex("GroupId")
+                        .HasDatabaseName("ix_convoy_invites_group_id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_convoy_invites_token_hash");
+
+                    b.ToTable("convoy_invites", "detour");
+                });
+
             modelBuilder.Entity("Detour.Domain.Groups.Group", b =>
                 {
                     b.Property<Guid>("Id")
@@ -576,6 +659,102 @@ namespace Detour.Database.Migrations
                         .HasDatabaseName("ix_saved_places_user_id_client_place_id");
 
                     b.ToTable("saved_places", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRide", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long?>("ClientRouteId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("client_route_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("MeetingLabel")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("meeting_label");
+
+                    b.Property<double>("MeetingLatitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("meeting_latitude");
+
+                    b.Property<double>("MeetingLongitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("meeting_longitude");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<DateTimeOffset>("StartsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("starts_at");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id")
+                        .HasName("pk_planned_rides");
+
+                    b.HasIndex("OwnerId")
+                        .HasDatabaseName("ix_planned_rides_owner_id");
+
+                    b.ToTable("planned_rides", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRideRsvp", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Answer")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("answer");
+
+                    b.Property<DateTimeOffset?>("AnsweredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("answered_at");
+
+                    b.Property<DateTimeOffset>("InvitedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("invited_at");
+
+                    b.Property<Guid>("RideId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ride_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_planned_ride_rsvps");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_planned_ride_rsvps_user_id");
+
+                    b.HasIndex("RideId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_planned_ride_rsvps_ride_id_user_id");
+
+                    b.ToTable("planned_ride_rsvps", "detour");
                 });
 
             modelBuilder.Entity("Detour.Domain.Pois.Poi", b =>
@@ -1112,6 +1291,40 @@ namespace Detour.Database.Migrations
                         .HasConstraintName("fk_friendships_users_low_user_id");
                 });
 
+            modelBuilder.Entity("Detour.Domain.Groups.ConvoyGuest", b =>
+                {
+                    b.HasOne("Detour.Domain.Groups.ConvoyInvite", null)
+                        .WithMany("Guests")
+                        .HasForeignKey("InviteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_convoy_guests_convoy_invites_invite_id");
+
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_convoy_guests_users_user_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Groups.ConvoyInvite", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_convoy_invites_users_created_by");
+
+                    b.HasOne("Detour.Domain.Groups.Group", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_convoy_invites_groups_group_id");
+                });
+
             modelBuilder.Entity("Detour.Domain.Groups.Group", b =>
                 {
                     b.HasOne("Detour.Domain.Users.User", null)
@@ -1174,6 +1387,33 @@ namespace Detour.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_saved_places_users_user_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRide", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_planned_rides_users_owner_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRideRsvp", b =>
+                {
+                    b.HasOne("Detour.Domain.PlannedRides.PlannedRide", null)
+                        .WithMany("Rsvps")
+                        .HasForeignKey("RideId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_planned_ride_rsvps_planned_rides_ride_id");
+
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_planned_ride_rsvps_users_user_id");
                 });
 
             modelBuilder.Entity("Detour.Domain.Routes.SharedRoute", b =>
@@ -1292,9 +1532,19 @@ namespace Detour.Database.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Detour.Domain.Groups.ConvoyInvite", b =>
+                {
+                    b.Navigation("Guests");
+                });
+
             modelBuilder.Entity("Detour.Domain.Groups.Group", b =>
                 {
                     b.Navigation("Members");
+                });
+
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRide", b =>
+                {
+                    b.Navigation("Rsvps");
                 });
 #pragma warning restore 612, 618
         }

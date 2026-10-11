@@ -126,3 +126,21 @@ public static class GroupResponseMapper
         return new GroupResponse(group.Id, group.Kind.Wire(), group.Name, callerStatus, members);
     }
 }
+
+public record JoinConvoyBody([Required] string Token);
+
+/// <summary>
+/// The plaintext token is in this response and nowhere else, ever: only its hash is stored.
+/// The app builds the shareable link around it.
+/// </summary>
+public record ConvoyInviteResponse([Required] string Token, [Required] long ExpiresAtMs);
+
+public record ConvoyGuestResponse(
+    [Required] Guid Id,
+    [Required] string Username,
+    [Required] long JoinedAtMs);
+
+/// <summary><c>inviteExpiresAtMs</c> is null when no link is currently usable.</summary>
+public record ConvoyGuestsResponse(
+    long? InviteExpiresAtMs,
+    [Required] IReadOnlyList<ConvoyGuestResponse> Guests);

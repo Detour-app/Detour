@@ -46,6 +46,11 @@ also why the friends screen and the circles screen are two views of one
 relationship: you cannot be in a group with someone you are not friends with, so
 un-friending someone is not a partial withdrawal.
 
+**One exception: a convoy's invite link** (§4.1). The host of a convoy can hand
+out a link that lets a rider who is not their friend join *that convoy* as a
+guest. It never applies to a circle, never creates a friendship, and ends with
+the convoy.
+
 Neither ever exposes a member's trips, traces or map. A group shares live
 position, and for circles a last-known position and arrival events. That is all.
 
@@ -61,6 +66,8 @@ One entity, discriminated by kind, with policy carried as columns rather than as
 | `member_fixes` | one row per (group, member): lat, lon, accuracy, instant. Circles only. |
 | `circle_places` | a place shared into a circle by one member: identifier, name, radius |
 | `place_events` | arrival/departure records, newest-N per circle |
+| `convoy_invites` | a convoy's invite link: SHA-256 of the token (never the token), host, created, expires, revoked |
+| `convoy_guests` | a rider who joined through a link: link, rider, joined, removed |
 
 Two things carry the whole product distinction, and neither is an `if` in a
 handler:
@@ -101,6 +108,53 @@ per-kind rules have an obvious home.
 
 A group id that does not exist and a group you are not in produce the **same**
 answer, so ids cannot be enumerated.
+
+### 4.1 Convoy invite links
+
+The server half of joining a convoy without being friends (#641, part of #634).
+No app change and no App Links yet.
+
+| Path | Who | Answer |
+|---|---|---|
+| `POST /api/convoys/{id}/invite-link` | Host | `201 { token, expiresAtMs }`. Revokes any link still usable, so a convoy has at most one |
+| `DELETE /api/convoys/{id}/invite-link` | Host | `204`. Stops new joins; guests already in stay |
+| `GET /api/convoys/{id}/guests` | Host | `{ inviteExpiresAtMs, guests: [{ id, username, joinedAtMs }] }` — guests still in the convoy; `inviteExpiresAtMs` is null when no link is usable |
+| `DELETE /api/convoys/{id}/guests/{riderId}` | Host | `204`, and the rider's live sockets for the convoy drop at once. `404` for anyone who did not join by link, including the host |
+| `POST /api/convoys/join` `{ token }` | Any signed-in rider | `200` with the convoy, the caller an accepted member. `404` unknown token, `410` revoked or expired, `403` removed by the host, `400` the convoy already has 8 link guests, `429` too many attempts |
+
+The rules, and why each one is there:
+
+- **Host means the convoy's owner.** Any other member gets `403`; a non-member
+  gets the same `404` as for a convoy that does not exist (§9.4). A circle id
+  answers `404`: circles keep the friends-only rule.
+- **The token is 256 bits from `RandomNumberGenerator`**, base64url, returned
+  once. Only its SHA-256 is stored, as for API keys, so the table hands nothing
+  usable to whoever reads it. It travels in the request body rather than the
+  path, which keeps it out of access logs.
+- **Expiry is whichever comes first:** the convoy ending (the rows cascade with
+  the group — a convoy ends when its last member leaves) or 12 hours after
+  minting (`DetourLimits.ConvoyInviteLifetime`).
+- **A guest is an ordinary accepted `group_members` row**, so the relay, voice
+  and votes need no second path. The `convoy_guests` row is what lets the host
+  list who came in by link and what keeps a removed guest out: removal sets
+  `removed_at`, and the same link refuses that rider from then on. A newly
+  minted link would let them in — the host chose to share it again. A guest who
+  left on their own may rejoin with the same link.
+- **No friendship is created**, and the guest loses access when the convoy ends
+  because their membership goes with it.
+- **At most 8 link guests per convoy** (`DetourLimits.MaxConvoyGuests`, owner
+  decision on #641; the host cannot raise it). The count is over every link the
+  convoy has had, so minting a new link does not reset it, and only guests still
+  in the convoy count: one the host removed or who left frees the seat. Friends
+  invited the ordinary way are not guests and do not count. The 9th join answers
+  `400` with `ConvoyInvite.ConvoyFull`.
+- **Join attempts are capped per token and per address**
+  (`DetourLimits.ConvoyJoinsPerToken` / `ConvoyJoinsPerIp` per
+  `ConvoyJoinWindow`), on top of the global limiter, and refused attempts count.
+  The address is the connection address after the forwarded-headers rewrite,
+  the same rule the global limiter follows. The counters are in process memory:
+  a restart resets them, and a multi-instance deployment would count per
+  instance.
 
 > **Path naming, learned the hard way.** Do not name anything under `/route…`.
 > A public hostname sharing a tunnel with GraphHopper matches `/route` as a
@@ -315,6 +369,9 @@ would mean a stale build keeps broadcasting after the user believes they stopped
 4. **Existence and permission answer alike**, so ids cannot be enumerated.
 5. **Pause is server-enforced** (§8).
 6. **Voice and votes are gated on kind, server-side** (§6.5).
+7. **The invite link is the only door that skips friendship** (§4.1): convoy
+   only, host only, hashed, capped at 12 hours, revocable, rate-limited, and a
+   removed guest stays out.
 
 ## 10. Battery and network
 
