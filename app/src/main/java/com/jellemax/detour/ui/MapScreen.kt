@@ -898,6 +898,8 @@ fun MapScreen(
 
     // The camera chime and the trajectcontrole section, in MapHazardAlerts.kt.
     MapHazardAlerts(s = s, retained = retained, announceAloud = { announceAloud(it) })
+    // Convoy gap alerts speak past announceAloud's convoy gate (MapConvoyGap.kt).
+    MapConvoyGapVoice(speak = { navVoice.speak(it) })
 
     // Each fix only moves the targets; nothing touches the map here. This is
     // what lets the camera loop below run uninterrupted — the old code drove
@@ -1192,6 +1194,7 @@ fun MapScreen(
                     NavigationBanner(navState, Modifier.fillMaxWidth())
                 }
                 s.cameraCountdown?.let { CameraBanner(it, navigating = s.navigating) }
+                ConvoyGapBanner()
                 // Speed, the posted limit and the trajectcontrole average, in
                 // one island at the top-left — isHome.html's left:14/top:44,
                 // widened so the average keeps its slot.
