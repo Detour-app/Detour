@@ -74,6 +74,28 @@ public sealed class Group : Entity, INamedEntity
         return member;
     }
 
+    /// <summary>
+    /// Admits a rider through an invite link, already accepted. The friendship chain
+    /// <see cref="Invite"/> relies on is replaced by the host having handed out the link, so
+    /// this is a convoy-only power: a circle is long-lived and keeps the friends-only rule.
+    /// </summary>
+    public Result<GroupMember> AdmitGuest(Guid userId)
+    {
+        if (Kind != GroupKind.Convoy)
+            return Result.Error(ValidationKeys.Group.NotAConvoy);
+
+        var existing = FindMember(userId);
+        if (existing is not null)
+        {
+            var accepted = existing.Accept();
+            return accepted.IsFailure ? accepted : existing;
+        }
+
+        var member = GroupMember.CreateGuest(Id, userId);
+        _members.Add(member);
+        return member;
+    }
+
     public GroupMember? FindMember(Guid userId) => _members.FirstOrDefault(m => m.UserId == userId);
 
     public bool IsAcceptedMember(Guid userId) => FindMember(userId)?.IsAccepted == true;

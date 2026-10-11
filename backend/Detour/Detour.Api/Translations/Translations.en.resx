@@ -185,6 +185,27 @@
   <data name="Group.NotAConvoy" xml:space="preserve">
     <value>That is not a convoy.</value>
   </data>
+  <data name="Group.NotTheHost" xml:space="preserve">
+    <value>Only the convoy's host can do that.</value>
+  </data>
+  <data name="ConvoyInvite.NotFound" xml:space="preserve">
+    <value>That invite link is not valid.</value>
+  </data>
+  <data name="ConvoyInvite.Expired" xml:space="preserve">
+    <value>That invite link has expired. Ask the host for a new one.</value>
+  </data>
+  <data name="ConvoyInvite.GuestRemoved" xml:space="preserve">
+    <value>The host removed you from this convoy.</value>
+  </data>
+  <data name="ConvoyInvite.ConvoyFull" xml:space="preserve">
+    <value>This convoy already has {0} riders who joined by link.</value>
+  </data>
+  <data name="ConvoyInvite.GuestNotFound" xml:space="preserve">
+    <value>That rider did not join through an invite link.</value>
+  </data>
+  <data name="ConvoyInvite.TooManyAttempts" xml:space="preserve">
+    <value>Too many attempts to join. Try again in a few minutes.</value>
+  </data>
   <data name="CirclePlace.PlaceIdRequired" xml:space="preserve">
     <value>A place needs an identifier.</value>
   </data>
