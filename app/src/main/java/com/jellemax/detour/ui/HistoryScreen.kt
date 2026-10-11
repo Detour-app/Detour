@@ -60,7 +60,6 @@ import com.jellemax.detour.R
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SyncClient
-import com.jellemax.detour.data.Perf
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
@@ -80,137 +79,18 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.saveable.rememberSaveable
-import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.Logbook
 import com.jellemax.detour.data.LogbookFilter
+import com.jellemax.detour.data.LogbookData
 import com.jellemax.detour.data.LogbookItem
 import com.jellemax.detour.data.LogbookMonth
 import com.jellemax.detour.data.LogbookYear
-import com.jellemax.detour.data.Municipality
-import com.jellemax.detour.data.MunicipalityStore
-import com.jellemax.detour.data.PlaceVisit
-import com.jellemax.detour.data.TripInsights
 import com.jellemax.detour.data.TripTitleStore
+import com.jellemax.detour.data.TripTraces
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-/** Every trip's trace, thumbnail-sized, plus the towns it entered — one walk of
- *  the trace store for the whole Logbook. */
-private data class TripTraces(val thumbnails: Map<Long, List<LatLon>>, val visits: List<Pair<Trip, List<Municipality>>>)
-
-/** One decoded trace line: its points plus the timestamp window they span. */
-internal data class TraceSegment(
-    val points: List<TraceStore.TracePoint>,
-    val startMs: Long,
-    val endMs: Long,
-)
-
-/** Reads the raw trace lines through [TraceStore.parsePoints] rather than
- *  [TraceStore.loadAll], which drops the per-point timestamp — the one thing
- *  this screen needs to match a trace back to the trip that was running when it
- *  was recorded, and the one thing a GPX export can't be built without. */
-private fun readTraceSegments(): List<TraceSegment> {
-    // Parse is cached in TraceStore.loadAllPoints (keyed on its write version),
-    // so a second history open / trip detail / GPX export in the same session
-    // reuses it instead of re-reading the whole of traces.jsonl. Building the
-    // [startMs, endMs] window per line is cheap and stays here.
-    val t = Perf.start()
-    val segments = TraceStore.loadAllPoints().mapNotNull { points ->
-        var start = Long.MAX_VALUE
-        var end = Long.MIN_VALUE
-        for (p in points) {
-            if (p.timeMs < 0) continue // written before points carried a time
-            if (p.timeMs < start) start = p.timeMs
-            if (p.timeMs > end) end = p.timeMs
-        }
-        if (start == Long.MAX_VALUE) null else TraceSegment(points, start, end)
-    }
-    Perf.end(t, "HistoryScreen.readTraceSegments") {
-        listOf("segments" to segments.size, "points" to segments.sumOf { it.points.size })
-    }
-    return segments
-}
-
-/** Slack added on both ends of a trip's window when matching it to trace
- *  lines, to cover the tracker's own startup lag between the trip actually
- *  starting and the first point landing in the buffer. */
-private const val TRIP_MATCH_SLACK_MS = 10_000L
-
-/** Every point recorded during [trip], stitched back together from however
- *  many trace lines it was split across. The tracker doesn't write one line
- *  per trip — it flushes its point buffer to [TraceStore] every 200 points,
- *  on a >500 m GPS gap, and on a STILL activity transition, so a single ride
- *  routinely spans several lines (200 points at the ~25 m decimation
- *  interval is only ~5 km, which is where every longer ride used to stop
- *  being drawn). A trip is therefore matched by
- *  *overlap* rather than by a single line's start falling inside its window:
- *  any segment whose [startMs, endMs] range overlaps the trip's window (with
- *  [TRIP_MATCH_SLACK_MS] slack on both ends) can hold some of the trip's
- *  points. Because the buffer isn't flushed when a trip begins either, the
- *  line that opens a trip can also carry idle points recorded before it — so
- *  once the overlapping segments are pooled and sorted, every point is
- *  re-checked against the trip's own window to trim those leading (and any
- *  trailing) points out. Finally, flushTrace(keepLast = true) repeats the
- *  boundary point as the first point of the next line, so an exact duplicate
- *  of the immediately preceding point (same time and coordinates) is dropped
- *  to avoid a seam in the reassembled trace. Shared by [matchThumbnails] and
- *  [loadTripPoints] so the two never disagree on which points belong to
- *  which trip. */
-internal fun matchTripPoints(segments: List<TraceSegment>, trip: Trip): List<TraceStore.TracePoint> {
-    val from = trip.startTimeMs - TRIP_MATCH_SLACK_MS
-    val to = trip.endTimeMs + TRIP_MATCH_SLACK_MS
-    val pooled = segments
-        .filter { it.startMs <= to && it.endMs >= from }
-        .sortedBy { it.startMs }
-        .flatMap { it.points }
-        .filter { it.timeMs in from..to }
-    val result = ArrayList<TraceStore.TracePoint>(pooled.size)
-    for (p in pooled) {
-        val prev = result.lastOrNull()
-        if (prev != null && prev.timeMs == p.timeMs && prev.at == p.at) continue
-        result.add(p)
-    }
-    return result
-}
-
-private fun matchTraces(trips: List<Trip>, municipalities: List<Municipality>): TripTraces {
-    val segments = readTraceSegments()
-    val thumbnails = HashMap<Long, List<LatLon>>()
-    val visits = ArrayList<Pair<Trip, List<Municipality>>>(trips.size)
-    for (trip in trips) {
-        val points = matchTripPoints(segments, trip).map { it.at }
-        if (points.isEmpty()) continue
-        visits += trip to TripInsights.visitedInOrder(points, municipalities)
-        // Cap the point count a thumbnail actually needs — a multi-hour ride
-        // can carry thousands of points, all wasted on a thumbnail canvas.
-        thumbnails[trip.startTimeMs] = if (points.size > 200) {
-            val step = points.size / 200
-            points.filterIndexed { i, _ -> i % step == 0 }
-        } else points
-    }
-    return TripTraces(thumbnails, visits)
-}
-
-/** Everything the Logbook renders from, loaded together off the main thread. */
-private data class LogbookData(
-    val trips: List<Trip>,
-    val thumbnails: Map<Long, List<LatLon>>,
-    val places: Map<Long, List<PlaceVisit>>,
-    val titles: Map<Long, String>,
-    val milestones: List<LogbookItem.Milestone>,
-)
-
-private fun loadLogbook(): LogbookData {
-    val trips = TripStore.loadStrict()
-    val traces = matchTraces(trips, MunicipalityStore.load())
-    return LogbookData(
-        trips = trips,
-        thumbnails = traces.thumbnails,
-        places = Logbook.placesByTrip(traces.visits),
-        titles = TripTitleStore.load(),
-        milestones = BadgeStore.earned().map { (def, at) -> LogbookItem.Milestone(def.title, at) },
-    )
-}
+private fun loadLogbook(): LogbookData = TripTraces.loadLogbook(TripStore.loadStrict())
 
 /** The full (undecimated) polyline driven during [trip], for [TripDetailScreen]
  *  — unlike the thumbnail map this isn't capped to 200 points, so it's loaded
@@ -224,7 +104,7 @@ fun loadTripTrace(trip: Trip): List<LatLon> =
  *  without times is just a shape, and every tool that would receive one wants
  *  to know when it was ridden. */
 fun loadTripPoints(trip: Trip): List<TraceStore.TracePoint> =
-    matchTripPoints(readTraceSegments(), trip)
+    TripTraces.loadTripPoints(trip)
 
 private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
 private val rideDateFormat = SimpleDateFormat("EEE d MMM · HH:mm", Locale.getDefault())
