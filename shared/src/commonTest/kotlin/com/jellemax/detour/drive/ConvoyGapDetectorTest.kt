@@ -135,6 +135,33 @@ class ConvoyGapDetectorTest {
     }
 
     @Test
+    fun aSilentRiderAheadDoesNotClearARiderWhoIsStillBehind() {
+        // The tail is 1 km back and alerts. The lead then goes quiet (a tunnel):
+        // with nobody live ahead, the tail must stay behind rather than be
+        // reported as rejoined, and must not alert a second time when the lead's
+        // frames come back.
+        var state = ConvoyGapDetector.State()
+        val events = mutableListOf<Event>()
+        fun at(second: Int, leadToo: Boolean) {
+            val now = t0 + second * 1_000L
+            val fixes = listOfNotNull(
+                if (leadToo) fix(lead, 2_000.0 + second, 3.6, now) else null,
+                fix(tail, 1_000.0 + second, 3.6, now),
+            )
+            val step = ConvoyGapDetector.step(state, fixes, lead, route, now)
+            state = step.state
+            events += step.events
+        }
+        at(0, leadToo = true)
+        for (second in 1..45) at(second, leadToo = false)
+        at(46, leadToo = true)
+        assertEquals(
+            listOf(Event.FellBehind(tail), Event.SignalLost(lead), Event.Rejoined(lead)),
+            events,
+        )
+    }
+
+    @Test
     fun repeatedAndLateFramesDoNotDuplicateEvents() {
         val speeds = List(30) { 50.0 to 50.0 } +
             List(120) { 50.0 to 30.0 } +

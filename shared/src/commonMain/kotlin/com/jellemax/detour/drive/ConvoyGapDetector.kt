@@ -117,7 +117,7 @@ object ConvoyGapDetector {
         val leadMovingSince = live[leadId]?.movingSince
         val events = mutableListOf<Event>()
         val next = riders.mapValues { (id, rider) ->
-            val updated = evaluate(rider, id == leadId, live.values, leadMovingSince, nowMs)
+            val updated = evaluate(rider, id == leadId, riders.values, leadMovingSince, nowMs)
             eventsBetween(id, rider, updated, events)
             updated
         }
@@ -163,7 +163,7 @@ object ConvoyGapDetector {
     private fun evaluate(
         rider: Rider,
         isLead: Boolean,
-        live: Collection<Rider>,
+        all: Collection<Rider>,
         leadMovingSince: Long?,
         nowMs: Long,
     ): Rider {
@@ -176,18 +176,23 @@ object ConvoyGapDetector {
             leadMovingSince == null -> false
             else -> nowMs - max(stoppedSince, leadMovingSince) >= STOPPED_MS
         }
-        return rider.copy(behind = isBehind(rider, live), stopped = stopped, signalLost = false)
+        return rider.copy(behind = isBehind(rider, all, nowMs), stopped = stopped, signalLost = false)
     }
 
-    private fun isBehind(rider: Rider, live: Collection<Rider>): Boolean {
+    private fun isBehind(rider: Rider, all: Collection<Rider>, nowMs: Long): Boolean {
         // No history means no route: nothing to be behind along.
         val here = rider.history.lastOrNull() ?: return false
-        val ahead = live
+        // The nearest rider ahead among everyone, silent ones included. Picking
+        // from the live riders only would let the next rider back stand in as
+        // the anchor, or no anchor at all clear an alert that is still true.
+        val ahead = all
             .mapNotNull { other -> other.history.lastOrNull()?.let { other to it.alongM } }
             .filter { (_, along) -> along > here.alongM }
             .minByOrNull { (_, along) -> along }
             ?.first
             ?: return false
+        // A silent anchor says nothing about the gap: keep what was decided.
+        if (nowMs - ahead.last.tsMs >= SIGNAL_LOST_MS) return rider.behind
         val gapM = ahead.history.last().alongM - here.alongM
         val scale = if (rider.behind) REJOIN_FRACTION else 1.0
         if (gapM >= BEHIND_METERS * scale) return true
