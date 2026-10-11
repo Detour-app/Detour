@@ -197,6 +197,16 @@ class CirclesStateWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+class PlannedRidesStateWatcher internal constructor(
+    private val flow: StateFlow<PlannedRidesState>,
+) : Watcher() {
+    var value: PlannedRidesState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 // --- ConvoyRelay's own flows ---------------------------------------------
 //
 // One subclass per element type, same rule as everything above - added for
@@ -353,12 +363,13 @@ object StoreFlows {
  *
  * One watcher per store rather than one per field: each distinct element type
  * costs a subclass above (see this file's header), and a coarse state object
- * keeps that at three classes instead of a dozen.
+ * keeps that at one class per store instead of a dozen per store.
  */
 object FeatureFlows {
     fun friends() = FriendsStateWatcher(FriendsStore.state)
     fun convoys() = ConvoysStateWatcher(ConvoysStore.state)
     fun circles() = CirclesStateWatcher(CirclesStore.state)
+    fun plannedRides() = PlannedRidesStateWatcher(PlannedRidesStore.state)
 }
 
 /**
