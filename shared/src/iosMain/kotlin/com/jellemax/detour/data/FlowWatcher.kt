@@ -1,8 +1,10 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.BreakRequest
 import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.drive.GroupSpin
 import com.jellemax.detour.drive.IncomingAudioChunk
+import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.drive.SectionAverageTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -266,6 +268,28 @@ class SpinVotesWatcher internal constructor(
 
     override suspend fun collect(onChange: () -> Unit) =
         flow.collect { value = it.mapKeys { e -> e.key.value }; onChange() }
+}
+
+/** Backs [ConvoyRelay.breakRequests], unwrapped to `Map<String,
+ *  BreakRequest>` for Swift for the same reason as [FriendPositionsWatcher]. */
+class BreakRequestsWatcher internal constructor(
+    private val flow: StateFlow<Map<RiderId, BreakRequest>>,
+) : Watcher() {
+    var value: Map<String, BreakRequest> = flow.value.mapKeys { it.key.value }
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it.mapKeys { e -> e.key.value }; onChange() }
+}
+
+class RegroupPinWatcher internal constructor(
+    private val flow: StateFlow<RegroupPin?>,
+) : Watcher() {
+    var value: RegroupPin? = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
 }
 
 class OptionalStringWatcher internal constructor(

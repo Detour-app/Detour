@@ -148,7 +148,16 @@ public class GroupService(
         // Read the kind's own policy rather than re-testing what it is. Getting this wrong
         // evaporates someone's circle the moment they are the last one left in it.
         if (group.ShouldBeDeletedWhenEmpty)
+        {
             groups.Delete(group);
+
+            // The convoy has ended; its meeting point must not outlive it in the relay.
+            postCommit.Schedule(() =>
+            {
+                liveRelay.ClearRegroupPin(groupId);
+                return Task.CompletedTask;
+            });
+        }
 
         // Spec §11 wants this instant, not eventual. The periodic sweep would catch it within
         // seconds anyway, but a rider who has just left must stop receiving the group's traffic
