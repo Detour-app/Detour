@@ -4,7 +4,8 @@ import android.content.res.Resources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.jellemax.detour.R
-import com.jellemax.detour.drive.HardEventDetector
+import com.jellemax.detour.drive.EventStrength
+import com.jellemax.detour.drive.TripHighlightRules
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -84,25 +85,15 @@ data class TripDetailExtras(
     val places: List<PlaceVisit>,
 )
 
-private fun isCorner(e: RidingEvent) =
-    e.kind == RidingEventKind.HARD_CORNER_LEAN || e.kind == RidingEventKind.HARD_CORNER_TURN
-
 /** An event's strength in words: m/s² and °/s mean nothing to most riders.
- *  A lean angle is the one figure riders already read, so it stays a number. */
-private fun eventValue(res: Resources, e: RidingEvent): String {
-    val threshold = when (e.kind) {
-        RidingEventKind.HARD_BRAKE -> HardEventDetector.HARD_BRAKE_MPS2
-        RidingEventKind.HARD_ACCEL -> HardEventDetector.HARD_ACCEL_MPS2
-        RidingEventKind.HARD_CORNER_TURN -> HardEventDetector.HARD_CORNER_DEG_PER_SEC
-        RidingEventKind.HARD_CORNER_LEAN ->
-            return leanSide(res, e.magnitude)
-    }
-    val very = abs(e.magnitude) >= abs(threshold) * VERY_HARD_FACTOR
-    return when (e.kind) {
-        RidingEventKind.HARD_CORNER_TURN ->
-            res.getString(if (very) R.string.deepdive_very_sharp else R.string.deepdive_sharp)
-        else -> res.getString(if (very) R.string.deepdive_very_hard else R.string.deepdive_hard)
-    }
+ *  A lean angle is the one figure riders already read, so it stays a number.
+ *  The rule is [TripHighlightRules]; this only picks the words. */
+private fun eventValue(res: Resources, e: RidingEvent): String = when (TripHighlightRules.strength(e)) {
+    EventStrength.LEAN -> leanSide(res, e.magnitude)
+    EventStrength.VERY_SHARP -> res.getString(R.string.deepdive_very_sharp)
+    EventStrength.SHARP -> res.getString(R.string.deepdive_sharp)
+    EventStrength.VERY_HARD -> res.getString(R.string.deepdive_very_hard)
+    EventStrength.HARD -> res.getString(R.string.deepdive_hard)
 }
 
 /** "32° left" / "32° right" for a signed lean (negative is left). */
@@ -110,14 +101,11 @@ private fun leanSide(res: Resources, deg: Double): String = res.getString(
     if (deg < 0) R.string.deepdive_lean_left else R.string.deepdive_lean_right, formatLeanAngle(abs(deg)),
 )
 
-/** How far past its detection threshold an event has to go to read as "very". */
-private const val VERY_HARD_FACTOR = 1.5
-
 /** Deepest lean, top speed, hardest corner, hardest braking and the best
  *  stretch — whichever of them this trip actually recorded. Places lead the
  *  story view, so top speed is listed, never headlined (#428, #431).
- *  In app/, not commonMain, because every value is built with app-side
- *  formatters; moving it to shared goes with iOS parity (#470). */
+ *  Which moments qualify is [TripHighlightRules.picks], shared with iOS; the
+ *  labels and values are built here with app-side formatters. */
 fun tripHighlights(
     res: Resources,
     trip: Trip,
@@ -134,22 +122,23 @@ fun tripHighlights(
             COLOR_BEST_STRETCH, stretch[stretch.size / 2], stretch,
         )
     }
-    m.maxLean?.takeIf { trip.mode.tracksLean && it.value != 0.0 }?.let {
+    val picks = TripHighlightRules.picks(m, trip.mode.tracksLean)
+    picks.lean?.let {
         out += TripHighlight(
             "lean", res.getString(R.string.deepdive_deepest_lean), leanSide(res, it.value), COLOR_LEAN, it.at,
         )
     }
-    m.events.filter(::isCorner).maxByOrNull { abs(it.magnitude) }?.let {
+    picks.corner?.let {
         out += TripHighlight(
             "corner", res.getString(R.string.deepdive_sharpest_corner), eventValue(res, it), COLOR_CORNER, it.at,
         )
     }
-    m.events.filter { it.kind == RidingEventKind.HARD_BRAKE }.minByOrNull { it.magnitude }?.let {
+    picks.brake?.let {
         out += TripHighlight(
             "brake", res.getString(R.string.deepdive_hardest_braking), eventValue(res, it), COLOR_BRAKE, it.at,
         )
     }
-    m.topSpeed?.let {
+    picks.topSpeed?.let {
         out += TripHighlight(
             "speed", res.getString(R.string.deepdive_top_speed), formatSpeedKmh(it.value), COLOR_TOP_SPEED, it.at,
         )

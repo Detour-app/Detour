@@ -112,26 +112,23 @@ struct TripDetailScreen: View {
     }
 
     /// Where the trip's peaks and hardest events happened, from the moments the
-    /// recorder pinned live — the decimated trace can't place them. Same picks
-    /// and order as Android's `tripHighlights`, less the best stretch, which is
-    /// a line rather than a pin. Empty for a trip recorded on iOS until its
-    /// recorder writes moments (#625).
+    /// recorder pinned live — the decimated trace can't place them. Which moments
+    /// qualify is `TripHighlightRules`, shared with Android's `tripHighlights`,
+    /// less the best stretch, which is a line rather than a pin. Empty for a trip
+    /// recorded on iOS until its recorder writes moments (#625).
     private var highlights: [TripHighlight] {
-        let m = trip.moments
+        let picks = TripHighlightRules.shared.picks(moments: trip.moments, tracksLean: trip.mode.tracksLean)
         var out: [TripHighlight] = []
-        if trip.mode.tracksLean, let lean = m.maxLean, lean.value != 0 {
+        if let lean = picks.lean {
             out.append(TripHighlight(label: "Deepest lean", value: leanSide(lean.value), at: lean.at))
         }
-        let corners = m.events.filter { $0.kind == .hardCornerLean || $0.kind == .hardCornerTurn }
-        if let corner = corners.max(by: { abs($0.magnitude) < abs($1.magnitude) }) {
+        if let corner = picks.corner {
             out.append(TripHighlight(label: "Sharpest corner", value: eventValue(corner), at: corner.at))
         }
-        // Braking is negative, so the hardest is the smallest.
-        let brakes = m.events.filter { $0.kind == .hardBrake }
-        if let brake = brakes.min(by: { $0.magnitude < $1.magnitude }) {
+        if let brake = picks.brake {
             out.append(TripHighlight(label: "Hardest braking", value: eventValue(brake), at: brake.at))
         }
-        if let top = m.topSpeed {
+        if let top = picks.topSpeed {
             out.append(TripHighlight(label: "Top speed", value: formatSpeedKmh(top.value), at: top.at))
         }
         return out
@@ -286,9 +283,6 @@ private struct TripNumbers {
     }
 }
 
-/// How far past its detection threshold an event has to go to read as "very".
-private let veryHardFactor = 1.5
-
 /// "32° left" / "32° right" for a signed lean (negative is left).
 private func leanSide(_ deg: Double) -> String {
     "\(formatLeanAngle(abs(deg))) \(deg < 0 ? "left" : "right")"
@@ -296,16 +290,13 @@ private func leanSide(_ deg: Double) -> String {
 
 /// An event's strength in words: m/s² and °/s mean nothing to most riders.
 /// A lean angle is the one figure riders already read, so it stays a number.
+/// The rule is `TripHighlightRules.strength`; this only picks the words.
 private func eventValue(_ e: RidingEvent) -> String {
-    let detector = HardEventDetector.shared
-    let threshold: Double
-    switch e.kind {
-    case .hardBrake: threshold = detector.HARD_BRAKE_MPS2
-    case .hardAccel: threshold = detector.HARD_ACCEL_MPS2
-    case .hardCornerTurn: threshold = detector.HARD_CORNER_DEG_PER_SEC
-    default: return leanSide(e.magnitude)
+    switch TripHighlightRules.shared.strength(e: e) {
+    case .lean: return leanSide(e.magnitude)
+    case .verySharp: return "very sharp"
+    case .sharp: return "sharp"
+    case .veryHard: return "very hard"
+    case .hard: return "hard"
     }
-    let very = abs(e.magnitude) >= abs(threshold) * veryHardFactor
-    if e.kind == .hardCornerTurn { return very ? "very sharp" : "sharp" }
-    return very ? "very hard" : "hard"
 }
