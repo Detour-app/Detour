@@ -39,7 +39,8 @@ namespace Detour.Database.Migrations
                         column: x => x.created_by,
                         principalSchema: "detour",
                         principalTable: "users",
-                        principalColumn: "id");
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(

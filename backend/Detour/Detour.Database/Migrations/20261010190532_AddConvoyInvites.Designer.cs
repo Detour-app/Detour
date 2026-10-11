@@ -1220,7 +1220,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("CreatedBy")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_convoy_invites_users_created_by");
 

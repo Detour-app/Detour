@@ -197,10 +197,12 @@ public class ConvoyInviteConfiguration : IEntityTypeConfiguration<ConvoyInvite>
             .HasForeignKey(i => i.GroupId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Deleting the account that made a link takes the link with it, as every table
+        // referencing an account cascades (AdminController.DeleteAccount relies on it).
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(i => i.CreatedBy)
-            .OnDelete(DeleteBehavior.NoAction);
+            .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasMany(i => i.Guests)
             .WithOne()
