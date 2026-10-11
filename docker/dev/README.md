@@ -76,6 +76,11 @@ docker compose -f docker/dev/docker-compose.yml down graphhopper
 docker volume rm detour-dev_graphhopper-data
 ```
 
+The same applies to `graph.encoded_values`: a volume built before `curvature`
+was added (#650) has no curvy presets until it is dropped and rebuilt. The
+presets themselves are request-time rules, documented in
+[`docker/prod/README.md`](../prod/README.md#curvy-routing-presets).
+
 The profile **names** are load-bearing: the app sends `car` and `moto` as the
 `profile` query parameter, from `TravelMode.ghProfile`. Renaming either leaves
 every routing request 400ing, which surfaces in the app as a null route rather

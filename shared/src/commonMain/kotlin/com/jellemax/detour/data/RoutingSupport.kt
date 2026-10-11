@@ -16,6 +16,7 @@ object RoutingEncodedValue {
     val TOLL = "toll"
     val SURFACE = "surface"
     val ROAD_ENVIRONMENT = "road_environment"
+    val CURVATURE = "curvature"
 }
 
 /**
@@ -67,6 +68,13 @@ object RoutingSupport {
 
     /** Whether [known] includes [value]; unknown reads as false. */
     fun supports(value: String): Boolean = has(known(), value)
+
+    /**
+     * Whether the configured server's graph can take a [CurvyPreset] (#635).
+     * False also means "never asked": a phone or car screen shows the option
+     * disabled with its reason rather than sending a rule that 400s.
+     */
+    fun curvyRoutingSupported(): Boolean = supports(RoutingEncodedValue.CURVATURE)
 
     internal fun has(values: Set<String>?, value: String): Boolean = values?.contains(value) == true
 

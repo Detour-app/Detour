@@ -179,9 +179,10 @@ created for you" above.
 
 ### Rebuilding the routing graph
 
-This release adds `toll` to `graph.encoded_values` in
-`config/graphhopper/config.yml` (#586), so the app's avoid-tolls, -unpaved and
--ferries rules have something to read. GraphHopper fixes its encoded values when
+`graph.encoded_values` in `config/graphhopper/config.yml` has grown twice:
+`toll` (#586), so the app's avoid-tolls, -unpaved and -ferries rules have
+something to read, and `curvature` (#650), for the curvy A→B presets below. A
+graph built before either is missing it. GraphHopper fixes its encoded values when
 it builds the graph, so an existing `graphhopper-data` volume does not gain one
 by restarting (and GraphHopper may refuse to load a graph whose values differ
 from the config) — drop the volume and let the next `up` build it again:
@@ -199,12 +200,55 @@ region table above (~25 min and ~10 GB for `benelux`). Routing is down until
 `/health` comes up. The OSM extract in `osm-data` is kept, so nothing is
 downloaded again.
 
-While GraphHopper is still serving a graph without `toll`, routing works as
-before. The app can read GraphHopper's `/info` for the values the graph has, and
-the avoid toggles (#587) treat a missing one as unsupported rather than sending a
-rule that would fail. With the `proxy` layer, `/info` is
-forwarded from this release on; behind an older `detour.conf.template` it 404s
-and the app reads that as unsupported too.
+While GraphHopper is still serving a graph without `toll` or `curvature`,
+routing works as before. The app can read GraphHopper's `/info` for the values
+the graph has, and the avoid toggles (#587) and curvy presets treat a missing one
+as unsupported rather than sending a rule that would fail. With the `proxy`
+layer, `/info` is forwarded from this release on; behind an older
+`detour.conf.template` it 404s and the app reads that as unsupported too.
+
+### Curvy routing presets
+
+The app's curvy A→B slider (#635) has three stops — fast, balanced, twisty —
+and each is a set of GraphHopper custom-model priority rules on the `moto`
+profile, in [`config/graphhopper/presets/`](config/graphhopper/presets/):
+
+| Preset | Rules (`multiply_by`, all ≤ 1) |
+| --- | --- |
+| [`fast.json`](config/graphhopper/presets/fast.json) | none — the plain `moto` route |
+| [`balanced.json`](config/graphhopper/presets/balanced.json) | motorway/trunk ×0.5, straight (`curvature >= 0.98`) ×0.7 |
+| [`twisty.json`](config/graphhopper/presets/twisty.json) | motorway/trunk ×0.1, straight ×0.4, nearly straight (`0.9 <= curvature < 0.98`) ×0.7 |
+
+Twisty's motorway and straight numbers are GraphHopper 11's own
+`motorcycle.json` and `curvature.json`; the rest are untuned starting points.
+
+They are **request-time** rules, not server profiles: nothing mounts these files
+into the container, and adding one changes no route by itself. The app sends
+the preset with every curvy request, as `POST /route` with `profile: moto`,
+`"ch.disable": true` and the file's contents as `custom_model` (merged after any
+avoid rules). GraphHopper applies them on top of `car.json` + `moto.json`, and
+the files are what the app's `CurvyPreset` sends — keep the two in step. Fast is
+the normal `GET /route`, so it still uses the contraction hierarchy. To try one
+by hand:
+
+```bash
+jq -n --slurpfile m config/graphhopper/presets/twisty.json \
+  '{profile: "moto", "ch.disable": true, points: [[4.70, 50.88], [5.57, 50.63]],
+    custom_model: $m[0]}' \
+  | curl -s -X POST -H 'Content-Type: application/json' -d @- \
+      http://127.0.0.1:7510/route | jq '.paths[0] | {distance, time}'
+```
+
+What the server needs: `curvature` in `graph.encoded_values` (a rebuild, see
+above), plus `road_class`, which was already there. `curvature` is GraphHopper's
+beeline-over-road-length per edge, stored in 0.05 steps from 0.25 to 1.0, where
+1.0 is dead straight. The app checks `/info` for it and falls back to fast
+when it is missing, through the same gate as the avoid toggles.
+
+`ch.disable` means a curvy request runs without the contraction hierarchy
+(flexible mode), so it costs the server far more CPU and time than a fast one,
+and the app makes a second, fast request alongside it for the detour-cost line.
+No landmark preparation (`profiles_lm`) is configured to speed that up.
 
 ## Backups
 

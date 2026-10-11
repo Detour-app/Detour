@@ -1,0 +1,6 @@
+{
+  "priority": [
+    { "if": "road_class == MOTORWAY || road_class == TRUNK", "multiply_by": 0.5 },
+    { "if": "curvature >= 0.98", "multiply_by": 0.7 }
+  ]
+}

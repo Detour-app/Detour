@@ -1,6 +1,8 @@
 package com.jellemax.detour.data
 
 import com.jellemax.detour.data.RoutingServer.routingBase
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -143,6 +145,54 @@ internal fun roundTripQuery(
         (headingDeg?.let { "&heading=${it.toInt()}" } ?: "") +
         "&points_encoded=false&details=max_speed&details=roundabout"
 
+/** One `/route` request: a GET when [body] is null, else a POST of [body]. */
+internal data class RouteRequest(val url: String, val body: String?)
+
+/**
+ * The request [RoutingClient.routeVia] sends, split out so the body is
+ * testable without a MockEngine — the reason [roundTripQuery] is. Any priority
+ * rule ([RoutePreferences.rulesFor]) switches to a POST with a custom model,
+ * which needs flexible routing — hence `ch.disable`. A [heading] does the
+ * same: GraphHopper only honours `heading` outside CH.
+ */
+internal fun routeViaRequest(
+    base: String,
+    points: List<LatLon>,
+    profile: String,
+    preferences: RoutePreferences,
+    heading: HeadingHint?,
+): RouteRequest {
+    val rules = preferences.rulesFor(profile)
+    if (rules.isEmpty()) {
+        val query = buildString {
+            append(base)
+            append("/route?profile=").append(profile)
+            for (p in points) append("&point=${p.lat},${p.lon}")
+            append("&points_encoded=false&details=max_speed&details=roundabout")
+            if (heading != null) {
+                append("&ch.disable=true")
+                append(headingQuery(heading))
+            }
+        }
+        return RouteRequest(query, null)
+    }
+    val body = buildJsonObject {
+        put("profile", profile)
+        putJsonArray("points") {
+            for (p in points) addJsonArray { add(p.lon); add(p.lat) }
+        }
+        put("points_encoded", false)
+        putJsonArray("details") { add("max_speed"); add("roundabout") }
+        put("ch.disable", true)
+        if (heading != null) {
+            putJsonArray("heading") { add(headingDegInt(heading.deg)) }
+            put("heading_penalty", heading.penaltySec)
+        }
+        putJsonObject("custom_model") { put("priority", rules) }
+    }
+    return RouteRequest(base + "/route", body.string())
+}
+
 /**
  * Client for a self-hosted GraphHopper instance. Configured by the user in
  * the app; the URL lives only in app-private preferences, never in the
@@ -249,10 +299,8 @@ object RoutingClient {
 
     /**
      * Turn-by-turn route through an ordered list of stops (a saved multi-point
-     * route, or the plain two-point case via [route]). Any [preferences]
-     * option that is on switches to a POST with a custom model, which needs flexible
-     * routing — hence `ch.disable`. A [heading] does the same: GraphHopper
-     * only honours `heading` outside CH.
+     * route, or the plain two-point case via [route]). What it sends is
+     * [routeViaRequest].
      */
     @Throws(Exception::class)
     suspend fun routeVia(
@@ -263,35 +311,43 @@ object RoutingClient {
         heading: HeadingHint? = null,
     ): RouteResult {
         if (points.size < 2) throw IOException("routeVia needs at least two points")
-        val rules = preferences.priorityRules()
-        if (rules.isEmpty()) {
-            val query = buildString {
-                append(requireRoutingBase(config))
-                append("/route?profile=").append(profile)
-                for (p in points) append("&point=${p.lat},${p.lon}")
-                append("&points_encoded=false&details=max_speed&details=roundabout")
-                if (heading != null) {
-                    append("&ch.disable=true")
-                    append(headingQuery(heading))
-                }
+        val request = routeViaRequest(requireRoutingBase(config), points, profile, preferences, heading)
+        return fetchRoute(request.url, request.body)
+    }
+
+    /**
+     * [routeVia] with what its curvy preset cost (#635): the route as asked,
+     * plus [DetourCost] against the fastest route with the same avoid options
+     * and [Curviness.forecastScore]. The fastest route is a second request,
+     * made alongside the first and only when a preset is actually in effect —
+     * a car profile, [CurvyPreset.FAST], or a preset the caller's preferences
+     * didn't keep has nothing to compare against.
+     *
+     * A fastest route that fails leaves [CurvyRoute.detourCost] null rather
+     * than failing a route the rider can still ride.
+     */
+    @Throws(Exception::class)
+    suspend fun curvyRouteVia(
+        config: ServerConfig,
+        points: List<LatLon>,
+        profile: String,
+        preferences: RoutePreferences = RoutePreferences(),
+        heading: HeadingHint? = null,
+    ): CurvyRoute = coroutineScope {
+        val compare = preferences.curvy != CurvyPreset.FAST && profile == TravelMode.MOTO.ghProfile
+        val fastest = if (!compare) null else async {
+            try {
+                routeVia(config, points, profile, preferences.copy(curvy = CurvyPreset.FAST), heading)
+            } catch (e: IOException) {
+                null
             }
-            return fetchRoute(query)
         }
-        val body = buildJsonObject {
-            put("profile", profile)
-            putJsonArray("points") {
-                for (p in points) addJsonArray { add(p.lon); add(p.lat) }
-            }
-            put("points_encoded", false)
-            putJsonArray("details") { add("max_speed"); add("roundabout") }
-            put("ch.disable", true)
-            if (heading != null) {
-                putJsonArray("heading") { add(headingDegInt(heading.deg)) }
-                put("heading_penalty", heading.penaltySec)
-            }
-            putJsonObject("custom_model") { put("priority", rules) }
-        }
-        return fetchRoute(requireRoutingBase(config) + "/route", body.string())
+        val route = routeVia(config, points, profile, preferences, heading)
+        CurvyRoute(
+            route = route,
+            detourCost = fastest?.await()?.let { DetourCost.between(route, it) },
+            curviness = Curviness.forecastScore(route),
+        )
     }
 
     private suspend fun fetchRoute(

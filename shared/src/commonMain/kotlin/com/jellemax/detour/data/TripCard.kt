@@ -30,7 +30,7 @@ data class CardData(
 
 /**
  * Builds a [CardData] from a trip's reassembled trace. This is geometry only
- * — callers pass in whatever `loadTripTrace`/`matchTripPoints` already
+ * — callers pass in whatever `loadTripTrace`/`TripTraces.matchTripPoints` already
  * produced; this function does no I/O and knows nothing about TraceStore.
  */
 object TripCardGeometry {
