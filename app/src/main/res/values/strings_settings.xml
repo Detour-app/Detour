@@ -239,4 +239,18 @@
     <string name="settings_licence_lufop">Additional speed cameras — data from lufop.net, Open Database License (ODbL).</string>
     <string name="settings_no_app_to_open">No app to open %1$s</string>
     <string name="settings_view_licence">View licence</string>
+
+    <!-- HERE traffic key (#644) -->
+    <string name="settings_traffic_title">HERE traffic</string>
+    <string name="settings_traffic_summary">Live traffic on your route, with your own free HERE key.</string>
+    <string name="settings_traffic_detail">Create a free account at developer.here.com, make an API key for a project with the Traffic API, and paste it here. HERE\'s free plan covers a limited number of requests a month and may ask for a card at sign-up; check their pricing page for the current numbers. The app calls HERE directly with your key, so HERE sees your IP address, your key and the area around your route. The key stays on this phone: it is not synced, backed up or exported.</string>
+    <string name="settings_traffic_key">HERE API key</string>
+    <string name="settings_traffic_test">Test key</string>
+    <string name="settings_traffic_remove">Remove key</string>
+    <string name="settings_traffic_testing">Testing…</string>
+    <string name="settings_traffic_ok">Key works. Traffic is on.</string>
+    <string name="settings_traffic_on">Key saved. Traffic is on.</string>
+    <string name="settings_traffic_bad_key">HERE refused this key. Check it was copied whole and that its project has the Traffic API.</string>
+    <string name="settings_traffic_quota">This key\'s allocation is used up, or HERE is limiting it. Try again later.</string>
+    <string name="settings_traffic_unreachable">Couldn\'t reach HERE. Check your connection and try again.</string>
 </resources>

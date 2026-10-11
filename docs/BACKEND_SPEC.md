@@ -549,6 +549,22 @@ for what breaks in the app without them.
 | Routing engine (GraphHopper) | Curvy motorcycle round trips, plus car routes, from an offline map extract |
 | Geocoder (Photon) | Address and place search, self-hosted so it is fast, private and not rate-limited |
 
+What the app requires of the routing engine, since a self-hoster's GraphHopper
+is configured outside this backend:
+
+- Profiles named `car` and `moto`; the app sends the name as `profile`.
+- Encoded values for the request-time rules the app sends, read from `/info`
+  before any rule goes out: `toll`, `surface` and `road_environment` for the
+  avoid options (#586), and `road_class` plus `curvature` for the curvy A→B
+  presets (#650). A missing value turns the option off in the app rather than
+  failing the route.
+- Curvy presets (fast, balanced, twisty) are custom-model priority rules sent
+  as `custom_model` in `POST /route` with `profile: moto` and
+  `"ch.disable": true`; fast sends no rules and stays a plain `GET /route`. The
+  rules and how to try them by hand are in
+  [`docker/prod/README.md`](../docker/prod/README.md#curvy-routing-presets) and
+  [`docker/prod/config/graphhopper/presets/`](../docker/prod/config/graphhopper/presets/).
+
 Also deliberately absent, and a **new** decision rather than a port if it is ever
 added: mobile push notifications. No device tokens, no vendor push service
 anywhere in the system.

@@ -236,4 +236,18 @@
     <string name="settings_licence_lufop">Extra flitspalen — data van lufop.net, Open Database License (ODbL).</string>
     <string name="settings_no_app_to_open">Geen app om %1$s te openen</string>
     <string name="settings_view_licence">Licentie bekijken</string>
+
+    <!-- HERE traffic key (#644) -->
+    <string name="settings_traffic_title">HERE-verkeer</string>
+    <string name="settings_traffic_summary">Live verkeer op je route, met je eigen gratis HERE-sleutel.</string>
+    <string name="settings_traffic_detail">Maak een gratis account aan op developer.here.com, maak een API-sleutel voor een project met de Traffic API en plak die hier. Het gratis plan van HERE dekt een beperkt aantal verzoeken per maand en kan bij het aanmelden om een betaalkaart vragen; kijk op hun prijspagina voor de actuele aantallen. De app vraagt HERE rechtstreeks met jouw sleutel, dus HERE ziet je IP-adres, je sleutel en het gebied rond je route. De sleutel blijft op deze telefoon: hij wordt niet gesynchroniseerd, geback-upt of geëxporteerd.</string>
+    <string name="settings_traffic_key">HERE API-sleutel</string>
+    <string name="settings_traffic_test">Sleutel testen</string>
+    <string name="settings_traffic_remove">Sleutel verwijderen</string>
+    <string name="settings_traffic_testing">Bezig met testen…</string>
+    <string name="settings_traffic_ok">Sleutel werkt. Verkeer staat aan.</string>
+    <string name="settings_traffic_on">Sleutel opgeslagen. Verkeer staat aan.</string>
+    <string name="settings_traffic_bad_key">HERE weigert deze sleutel. Controleer of hij volledig is gekopieerd en of het project de Traffic API heeft.</string>
+    <string name="settings_traffic_quota">Het tegoed van deze sleutel is op, of HERE beperkt hem. Probeer het later opnieuw.</string>
+    <string name="settings_traffic_unreachable">HERE is niet bereikbaar. Controleer je verbinding en probeer het opnieuw.</string>
 </resources>
