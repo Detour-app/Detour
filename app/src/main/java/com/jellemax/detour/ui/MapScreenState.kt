@@ -72,8 +72,17 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
 
     // --- camera ---------------------------------------------------------
     /** Follow/park/gesture, all three transitions dispatched through
-     *  [CameraAuthority.reduce] rather than written from ten sites. */
-    var camAuthority: CameraAuthority.State by mutableStateOf(CameraAuthority.State())
+     *  [CameraAuthority.reduce] rather than written from ten sites.
+     *
+     *  A seed that still holds candidates starts parked, the same park the
+     *  spin that produced them took (#427). Starting from a following camera
+     *  put the restored list on screen with the map back on the rider and no
+     *  pin in view, and MapScreen's restore framing would have been dragged
+     *  straight back by the frame loop. */
+    var camAuthority: CameraAuthority.State by mutableStateOf(
+        if (seed.candidates.isEmpty()) CameraAuthority.State()
+        else CameraAuthority.reduce(CameraAuthority.State(), CameraAuthority.Action.SpinStarted)
+    )
 
     // --- position and hazards ------------------------------------------
     var myLocation: LatLon? by mutableStateOf(null)

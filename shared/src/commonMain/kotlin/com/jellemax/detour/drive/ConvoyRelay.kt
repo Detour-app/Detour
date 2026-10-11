@@ -257,6 +257,14 @@ class ConvoyRelay {
     private val _spinVotes = MutableStateFlow<Map<RiderId, Int>>(emptyMap())
     val spinVotes: StateFlow<Map<RiderId, Int>> = _spinVotes.asStateFlow()
 
+    private val breakRegroup = ConvoyBreakRegroup()
+
+    /** Each rider's latest break request in this convoy - see [ConvoyBreakRegroup]. */
+    val breakRequests: StateFlow<Map<RiderId, BreakRequest>> = breakRegroup.breakRequests
+
+    /** The host's current meeting point for this convoy, or null. */
+    val regroupPin: StateFlow<RegroupPin?> = breakRegroup.regroupPin
+
     private val _audioChunks = MutableSharedFlow<IncomingAudioChunk>(
         extraBufferCapacity = 32,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -416,10 +424,7 @@ class ConvoyRelay {
         if (previous == null || previous == current) return
         _convoyId.value = null
         _notifyingCircleIds.value = emptySet()
-        _peers.value = emptyMap()
-        _talking.value = emptySet()
-        _spinOffer.value = null
-        _spinVotes.value = emptyMap()
+        clearConvoyDisplayState()
     }
 
     /**
@@ -475,10 +480,7 @@ class ConvoyRelay {
         // correct on its own - see discardMembershipIfSessionChanged's doc.
         discardMembershipIfSessionChanged()
         _stopped.value = false
-        _peers.value = emptyMap()
-        _talking.value = emptySet()
-        _spinOffer.value = null
-        _spinVotes.value = emptyMap()
+        clearConvoyDisplayState()
         _lastError.value = null
         _connected.value = false
 
@@ -564,6 +566,7 @@ class ConvoyRelay {
                 // merely convenient; see the task report for the full case.
                 _spinOffer.value = null
                 _spinVotes.value = emptyMap()
+                breakRegroup.forgetPinUntilRejoined()
                 failures = if (everJoined) 0 else failures + 1
                 sleepUnlessStopped(backoffDelayMs(MIN_BACKOFF_MS, MAX_BACKOFF_MS, failures))
             }
@@ -635,10 +638,7 @@ class ConvoyRelay {
     internal fun clearMembershipForSessionChange() {
         _convoyId.value = null
         _notifyingCircleIds.value = emptySet()
-        _peers.value = emptyMap()
-        _talking.value = emptySet()
-        _spinOffer.value = null
-        _spinVotes.value = emptyMap()
+        clearConvoyDisplayState()
         membershipEpoch = Auth.sessionEpoch.value
         stop()
     }
@@ -681,10 +681,7 @@ class ConvoyRelay {
         if (_convoyId.value == groupId) return
         val hadConvoy = _convoyId.value != null
         _convoyId.value = groupId
-        _peers.value = emptyMap()
-        _talking.value = emptySet()
-        _spinOffer.value = null
-        _spinVotes.value = emptyMap()
+        clearConvoyDisplayState()
         when {
             !shouldStayConnected() -> currentSocket?.close()
             // Leaving, or switching away from, a convoy is a removal -
@@ -916,7 +913,19 @@ class ConvoyRelay {
                 _spinVotes.value = emptyMap()
             }
             is RelayEvent.SpinVote -> _spinVotes.update { it + (event.riderId to event.index) }
+            is RelayEvent.BreakRequested -> breakRegroup.record(event.request)
+            is RelayEvent.RegroupPinChanged -> breakRegroup.showPin(event.pin)
         }
+    }
+
+    /** The convoy-scoped display state every leave, switch, session change
+     *  and fresh [run] starts over from. */
+    private fun clearConvoyDisplayState() {
+        _peers.value = emptyMap()
+        _talking.value = emptySet()
+        _spinOffer.value = null
+        _spinVotes.value = emptyMap()
+        breakRegroup.clear()
     }
 
     /**
@@ -1035,6 +1044,32 @@ class ConvoyRelay {
     fun clearSpinOffer() {
         _spinOffer.value = null
         _spinVotes.value = emptyMap()
+    }
+
+    /** Asks the convoy for a break from [location], recording [myId]'s own
+     *  request locally - the relay does not echo it, same as [sendSpinOffer].
+     *  Outside a convoy there is no one to ask, so nothing happens. */
+    fun sendBreakRequest(myId: RiderId, location: LatLon, nowMs: Long) {
+        val groupId = _convoyId.value ?: return
+        if (myId.value.isNotBlank()) breakRegroup.record(BreakRequest(myId, location, receivedAtMs = nowMs))
+        send(RelayProtocol.buildBreakRequest(groupId, location))
+    }
+
+    /** Drops a meeting point for the convoy and shows it locally. Host only:
+     *  the relay drops anyone else's, so a caller offering this to a member
+     *  would show them a pin nobody else sees. */
+    fun sendRegroupPin(myId: RiderId, location: LatLon, label: String?) {
+        val groupId = _convoyId.value ?: return
+        val shown = label?.trim()?.take(RelayProtocol.REGROUP_PIN_LABEL_MAX)?.ifBlank { null }
+        breakRegroup.showPin(RegroupPin(location, shown, setBy = myId))
+        send(RelayProtocol.buildRegroupPin(groupId, location, label))
+    }
+
+    /** Clears the meeting point for everyone. Host only, as [sendRegroupPin]. */
+    fun sendRegroupPinClear() {
+        val groupId = _convoyId.value ?: return
+        breakRegroup.showPin(null)
+        send(RelayProtocol.buildRegroupPinClear(groupId))
     }
 
     /**
