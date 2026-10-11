@@ -27,7 +27,7 @@ private fun avoidSummary(avoid: RoutePreferences): String {
 }
 
 /**
- * Pure map from the six settings the root summarises to the strings it shows.
+ * Pure map from the seven settings the root summarises to the strings it shows.
  *
  * [themeName] arrives as the enum's own name rather than the enum, so `:shared`
  * needs no dependency on `Settings.Theme`, which lives on the app side.
@@ -35,6 +35,11 @@ private fun avoidSummary(avoid: RoutePreferences): String {
  * [avoid] is what routing will actually use —
  * [com.jellemax.detour.data.Settings.routePreferences] — so
  * an option the server can't honour isn't listed as on.
+ *
+ * [trafficOn] is whether a HERE key is stored — which only happens once it has
+ * passed its test (#644) — so "traffic on" is never shown for a key that failed.
+ * Off says nothing: a rider with no key sees no traffic anywhere but the
+ * Navigation spoke's own section (#637).
  *
  * The OBD2 row's subtitle is a constant and stays at the call site: a field that
  * never varies is a field with nothing to assert.
@@ -46,11 +51,12 @@ fun settingsHubStateFrom(
     fogRadiusMeters: Double,
     externalDisplayEnabled: Boolean,
     authUsername: String,
+    trafficOn: Boolean,
 ): SettingsHubState = SettingsHubState(
     appearanceSubtitle = themeName.lowercase()
         .replaceFirstChar { it.uppercase() } + " theme",
     trackingSubtitle = "Auto-detect drives: " + onOff(autoDetectDrives),
-    navigationSubtitle = avoidSummary(avoid),
+    navigationSubtitle = avoidSummary(avoid) + if (trafficOn) " · traffic on" else "",
     // Truncating, matching the slider's own whole-metre steps.
     fogSubtitle = "${fogRadiusMeters.toInt()} m reveal radius",
     displaysSubtitle = "External display: " + onOff(externalDisplayEnabled),

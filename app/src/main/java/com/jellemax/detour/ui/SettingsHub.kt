@@ -76,6 +76,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
     val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
     val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
     val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
+    val hereTrafficKey by Settings.hereTrafficKey.collectAsStateWithLifecycle()
     val manualCheck by UpdateChecker.lastManualCheck.collectAsStateWithLifecycle()
     // Collected, not read once: the transfer belongs to UpdateDownloadService
     // and keeps reporting while the rider is elsewhere, so the row has to
@@ -90,6 +91,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
         fogRadiusMeters = fogRadius.toDouble(),
         externalDisplayEnabled = externalDisplayEnabled,
         authUsername = authUsername,
+        trafficOn = hereTrafficKey.isNotEmpty(),
     )
 
     SettingsScaffold(stringResource(R.string.settings_title), onBack, spacing = 10.dp) {

@@ -13,9 +13,10 @@ class SettingsHubStateTest {
         fogRadiusMeters: Double = 250.0,
         externalDisplayEnabled: Boolean = false,
         authUsername: String = "",
+        trafficOn: Boolean = false,
     ) = settingsHubStateFrom(
         themeName, autoDetectDrives, avoid,
-        fogRadiusMeters, externalDisplayEnabled, authUsername,
+        fogRadiusMeters, externalDisplayEnabled, authUsername, trafficOn,
     )
 
     @Test
@@ -46,6 +47,16 @@ class SettingsHubStateTest {
                     avoidTolls = true, avoidFerries = true, avoidUnpaved = true,
                 ),
             ).navigationSubtitle,
+        )
+    }
+
+    @Test
+    fun `navigation subtitle says traffic is on only when a key is stored`() {
+        assertEquals("Avoid: nothing · traffic on", state(trafficOn = true).navigationSubtitle)
+        assertEquals("Avoid: nothing", state(trafficOn = false).navigationSubtitle)
+        assertEquals(
+            "Avoid: tolls · traffic on",
+            state(avoid = RoutePreferences(avoidTolls = true), trafficOn = true).navigationSubtitle,
         )
     }
 
