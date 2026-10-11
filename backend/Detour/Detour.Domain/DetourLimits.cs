@@ -39,6 +39,28 @@ public static class DetourLimits
     /// </summary>
     public const int MaxCircleMembers = 15;
 
+    // --- convoy invite links -------------------------------------------------------------
+
+    /// <summary>
+    /// Hard cap on an invite link's life. A link also dies with its convoy; this bounds one
+    /// pasted into a group chat for a convoy that someone forgot to leave.
+    /// </summary>
+    public static readonly TimeSpan ConvoyInviteLifetime = TimeSpan.FromHours(12);
+
+    /// <summary>
+    /// Riders a convoy takes in through its links, over all the links it has had. Friends
+    /// invited the ordinary way do not count. Fixed by the owner (#641); the host cannot raise it.
+    /// </summary>
+    public const int MaxConvoyGuests = 8;
+
+    /// <summary>Join attempts allowed per link per window — a whole meeting point at once.</summary>
+    public const int ConvoyJoinsPerToken = 30;
+
+    /// <summary>Join attempts allowed per address per window, whichever link they carry.</summary>
+    public const int ConvoyJoinsPerIp = 20;
+
+    public static readonly TimeSpan ConvoyJoinWindow = TimeSpan.FromMinutes(10);
+
     // --- shared routes ------------------------------------------------------------------
     /// <summary>Generous for a polyline and its stops, and nowhere near the request body cap.</summary>
     public const int MaxRoutePayloadBytes = 512 * 1024;
@@ -53,6 +75,12 @@ public static class DetourLimits
     public const int MaxSharedRoutesPerPair = 50;
 
     public const int RouteInboxLimit = 100;
+
+    // --- planned rides ------------------------------------------------------------------
+    public const int PlannedRideTitleMaxLength = 80;
+
+    /// <summary>Room for "bring rain gear, fuel stop at km 60" — not a ride report.</summary>
+    public const int PlannedRideDescriptionMaxLength = 2000;
 
     // --- circle places ------------------------------------------------------------------
     /// <summary>A name, a point and a radius — far smaller than a route's polyline.</summary>
@@ -92,6 +120,9 @@ public static class DetourLimits
     public const int MaxDestinationCandidates = 3;
 
     public const int DestinationNameMaxLength = 80;
+
+    /// <summary>A regroup pin's label is a place name, read off a banner at a glance.</summary>
+    public const int RegroupPinLabelMaxLength = 80;
 
     // --- dashboard ----------------------------------------------------------------------
     public const int MaxDashboardRides = 500;

@@ -6,19 +6,21 @@ namespace Detour.Domain.Tests;
 public class GroupKindTests
 {
     [Fact]
-    public void Circle_never_allows_voice_or_destination_votes()
+    public void Circle_never_allows_voice_destination_votes_or_regroup()
     {
         // The single highest-consequence rule in the convoy/circle merge: a circle must never
         // gain always-on voice between people who signed up for a dot on a map.
         GroupKind.Circle.AllowsVoice.Should().BeFalse();
         GroupKind.Circle.AllowsDestinationVote.Should().BeFalse();
+        GroupKind.Circle.AllowsBreakAndRegroup.Should().BeFalse();
     }
 
     [Fact]
-    public void Convoy_allows_voice_and_destination_votes()
+    public void Convoy_allows_voice_destination_votes_and_break_and_regroup()
     {
         GroupKind.Convoy.AllowsVoice.Should().BeTrue();
         GroupKind.Convoy.AllowsDestinationVote.Should().BeTrue();
+        GroupKind.Convoy.AllowsBreakAndRegroup.Should().BeTrue();
     }
 
     [Fact]

@@ -6,6 +6,7 @@ import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.jsonObjectOf
 import com.jellemax.detour.data.objects
 import com.jellemax.detour.data.optArray
+import com.jellemax.detour.data.optBoolean
 import com.jellemax.detour.data.optDouble
 import com.jellemax.detour.data.optInt
 import com.jellemax.detour.data.optLong
@@ -85,6 +86,23 @@ data class SpinCandidate(
 data class GroupSpin(val candidates: List<SpinCandidate>, val fromMe: Boolean)
 
 /**
+ * A convoy rider asking everyone to stop (#632), and where they were when
+ * they asked. Any rider may send one. [receivedAtMs] is this device's clock
+ * on arrival, not the sender's - the frame carries no time of its own, for
+ * the same clock-skew reason [FriendPosition.expiresAtMs] is anchored to
+ * arrival - so a screen can say how long ago someone asked.
+ */
+data class BreakRequest(val riderId: RiderId, val location: LatLon, val receivedAtMs: Long)
+
+/**
+ * The convoy's meeting point, dropped by the host (#632; only the host may
+ * set or clear one, which the relay enforces). [label] is the place's name
+ * if the host gave one - untrusted text, capped at
+ * [RelayProtocol.REGROUP_PIN_LABEL_MAX] on the way in.
+ */
+data class RegroupPin(val location: LatLon, val label: String?, val setBy: RiderId)
+
+/**
  * One inbound convoy-relay frame, decoded. Every frame the relay can send
  * that either app acts on has a subtype here; anything else - an `error`
  * frame, a future frame type an older client has never heard of - decodes to
@@ -129,6 +147,14 @@ sealed class RelayEvent {
     /** [riderId] voted for the candidate at [index] (0-2) of whatever
      *  [SpinOffer] is currently on the table. */
     data class SpinVote(val riderId: RiderId, val index: Int) : RelayEvent()
+
+    /** A rider asked the convoy for a break - see [BreakRequest]. */
+    data class BreakRequested(val request: BreakRequest) : RelayEvent()
+
+    /** The host dropped a new meeting point, or cleared it ([pin] null).
+     *  Also what the relay replays right after a `joined`, so a rider back
+     *  from a dropped connection learns a pin set while it was away. */
+    data class RegroupPinChanged(val pin: RegroupPin?) : RelayEvent()
 }
 
 /**
@@ -159,6 +185,11 @@ object RelayProtocol {
      *  is display text rendered directly in a rider card. */
     const val VEHICLE_NAME_MAX = 40
 
+    /** Matches the relay's own `RegroupPinLabelMaxLength`. Capped on receive
+     *  too, for the same reason as [VEHICLE_NAME_MAX]: the label is rendered
+     *  straight into a banner. */
+    const val REGROUP_PIN_LABEL_MAX = 80
+
     // --- decoding ---------------------------------------------------------
 
     /** Decodes one inbound frame, or `null` when [text] isn't JSON at all, is
@@ -183,6 +214,8 @@ object RelayProtocol {
             "place_event" -> placeEventFromRelayFrame(obj)?.let { RelayEvent.PlaceEventReceived(it) }
             "spin_offer" -> decodeSpinOffer(obj)
             "spin_vote" -> decodeSpinVote(obj)
+            "break_request" -> decodeBreakRequest(obj, nowMs)
+            "regroup_pin" -> decodeRegroupPin(obj)
             else -> null
         }
     }
@@ -250,6 +283,32 @@ object RelayProtocol {
         val index = obj.optInt("index", -1)
         if (user.isBlank() || index !in 0..2) return null
         return RelayEvent.SpinVote(RiderId(user), index)
+    }
+
+    private fun decodeBreakRequest(obj: JsonObject, nowMs: Long): RelayEvent.BreakRequested? {
+        val user = obj.optString("user")
+        val lat = obj.optDouble("lat")
+        val lon = obj.optDouble("lon")
+        if (user.isBlank() || lat.isNaN() || lon.isNaN()) return null
+        return RelayEvent.BreakRequested(BreakRequest(RiderId(user), LatLon(lat, lon), receivedAtMs = nowMs))
+    }
+
+    private fun decodeRegroupPin(obj: JsonObject): RelayEvent.RegroupPinChanged? {
+        val user = obj.optString("user")
+        if (user.isBlank()) return null
+        // A clear is its own flag rather than a missing position, so a
+        // malformed set can never be mistaken for one and wipe the pin.
+        if (obj.optBoolean("clear")) return RelayEvent.RegroupPinChanged(null)
+        val lat = obj.optDouble("lat")
+        val lon = obj.optDouble("lon")
+        if (lat.isNaN() || lon.isNaN()) return null
+        return RelayEvent.RegroupPinChanged(
+            RegroupPin(
+                location = LatLon(lat, lon),
+                label = obj.optString("label").trim().take(REGROUP_PIN_LABEL_MAX).ifBlank { null },
+                setBy = RiderId(user),
+            ),
+        )
     }
 
     // --- building -----------------------------------------------------------
@@ -321,6 +380,30 @@ object RelayProtocol {
     fun buildSpinVote(groupId: String, index: Int): String = buildJsonObject {
         put("type", "spin_vote")
         put("index", index)
+        put("groupId", groupId)
+    }.string()
+
+    fun buildBreakRequest(groupId: String, location: LatLon): String = buildJsonObject {
+        put("type", "break_request")
+        put("lat", location.lat)
+        put("lon", location.lon)
+        put("groupId", groupId)
+    }.string()
+
+    /** Sets the convoy's meeting point. The relay drops it unless this
+     *  device's rider is the convoy's host. [label] is omitted when blank,
+     *  not sent empty. */
+    fun buildRegroupPin(groupId: String, location: LatLon, label: String?): String = buildJsonObject {
+        put("type", "regroup_pin")
+        put("lat", location.lat)
+        put("lon", location.lon)
+        label?.trim()?.take(REGROUP_PIN_LABEL_MAX)?.ifBlank { null }?.let { put("label", it) }
+        put("groupId", groupId)
+    }.string()
+
+    fun buildRegroupPinClear(groupId: String): String = buildJsonObject {
+        put("type", "regroup_pin")
+        put("clear", true)
         put("groupId", groupId)
     }.string()
 }
