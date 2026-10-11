@@ -1,6 +1,7 @@
 using Detour.Api.Contracts;
 using Detour.Domain;
 using Detour.Domain.Friendships;
+using Detour.Domain.PlannedRides;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
 using Detour.Domain.Users;
@@ -37,7 +38,8 @@ public class FriendshipService(
     IUserRepository users,
     IBadgeAwardRepository badges,
     ITraceRepository traces,
-    ISharedRouteRepository sharedRoutes) : IFriendshipService
+    ISharedRouteRepository sharedRoutes,
+    IPlannedRideRepository plannedRides) : IFriendshipService
 {
     public async Task<FriendsResponse> ListAsync(Guid userId, CancellationToken cancellationToken)
     {
@@ -184,6 +186,10 @@ public class FriendshipService(
         // A shared route is places you have been, so losing the friendship takes it back — in
         // both directions, not only what you received.
         await sharedRoutes.DeleteBetweenAsync(caller.Id, targetId, cancellationToken);
+
+        // The same rule for planned rides: each side's invitation to the other's rides goes.
+        // Rides themselves stay — they belong to their owner, not to the friendship.
+        await plannedRides.DeleteRsvpsBetweenAsync(caller.Id, targetId, cancellationToken);
 
         return Result.Ok();
     }
