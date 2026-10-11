@@ -57,6 +57,7 @@ private const val SRC_CAMERAS_REDLIGHT = "mr-cameras-redlight"
 private const val SRC_CAMERAS_SECTION = "mr-cameras-section"
 private const val SRC_FRIENDS = "mr-friends"
 private const val SRC_CIRCLE_MEMBERS = "mr-circle-members"
+private const val SRC_CONVOY_MARKS = "mr-convoy-marks"
 private const val IMG_DEST = "mr-img-dest"
 private const val IMG_POSITION = "mr-img-position"
 private const val IMG_CAMERA = "mr-img-camera"
@@ -80,6 +81,8 @@ const val LAYER_CIRCLE_MEMBERS = "mr-circle-members"
 // laid out in one bucket, so the *whole* layer, markers included, silently
 // disappears. That is what hid every convoy peer and circle member on the map
 // while the label-free layers (position, destination, cameras) drew fine.
+private const val CONVOY_MARK_BREAK = "break"
+private const val CONVOY_MARK_REGROUP = "regroup"
 private val GLYPH_FONT = arrayOf("Noto Sans Regular")
 // The own-position marker is rasterised at this multiple of its intrinsic size
 // and scaled back down by iconSize. A vector drawn 1:1 into a bitmap is only
@@ -161,7 +164,7 @@ class MapOverlays(
         }
         listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_ROUTE_DRIVEN, SRC_ROUTE_TAIL,
             SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_CAMERAS_SECTION, SRC_CAMERAS_REDLIGHT,
-            SRC_FRIENDS, SRC_CIRCLE_MEMBERS)
+            SRC_FRIENDS, SRC_CIRCLE_MEMBERS, SRC_CONVOY_MARKS)
             .forEach { style.addSource(GeoJsonSource(it)) }
 
         // Whatever the user picked in Settings > Route line; the default,
@@ -260,6 +263,23 @@ class MapOverlays(
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
             PropertyFactory.textField(Expression.get("label")), PropertyFactory.textFont(GLYPH_FONT),
             PropertyFactory.textSize(11f), PropertyFactory.textOffset(arrayOf(0f, 1.6f)),
+            PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("#000000"),
+            PropertyFactory.textHaloWidth(1.2f),
+            PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true)))
+        // Convoy break requests and the host's regroup pin (#649): a ringed
+        // disc, orange for a break and green for the meeting point, labelled
+        // with who asked or where. Above the riders, because a request is
+        // usually sitting right on its sender's own marker.
+        style.addLayer(CircleLayer("mr-convoy-marks-dot", SRC_CONVOY_MARKS).withProperties(
+            PropertyFactory.circleRadius(10f),
+            PropertyFactory.circleColor(Expression.match(Expression.get("kind"),
+                Expression.literal("#2E7D32"),
+                Expression.stop(CONVOY_MARK_BREAK, Expression.literal("#FB8C00")))),
+            PropertyFactory.circleStrokeColor("#FFFFFF"),
+            PropertyFactory.circleStrokeWidth(2.5f)))
+        style.addLayer(SymbolLayer("mr-convoy-marks-label", SRC_CONVOY_MARKS).withProperties(
+            PropertyFactory.textField(Expression.get("label")), PropertyFactory.textFont(GLYPH_FONT),
+            PropertyFactory.textSize(12f), PropertyFactory.textOffset(arrayOf(0f, 1.6f)),
             PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("#000000"),
             PropertyFactory.textHaloWidth(1.2f),
             PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true)))
@@ -503,6 +523,20 @@ class MapOverlays(
                     addStringProperty("label", "${f.username} · $ageLabel")
                 }
             }))
+    }
+
+    /** Replace the convoy's break-request markers and regroup pin (#649), each
+     *  as a position and the label to draw under it. Pushed by
+     *  [MapBreakRegroup] whenever either changes, on the relay's rhythm. */
+    fun setConvoyMarks(breaks: List<Pair<LatLon, String>>, regroup: Pair<LatLon, String>?) {
+        fun mark(at: LatLon, kind: String, label: String) =
+            Feature.fromGeometry(Point.fromLngLat(at.lon, at.lat)).apply {
+                addStringProperty("kind", kind)
+                addStringProperty("label", label)
+            }
+        setData(SRC_CONVOY_MARKS, FeatureCollection.fromFeatures(
+            breaks.map { (at, label) -> mark(at, CONVOY_MARK_BREAK, label) } +
+                listOfNotNull(regroup?.let { (at, label) -> mark(at, CONVOY_MARK_REGROUP, label) })))
     }
 
     /** Swap the artwork under the own-position marker. Cheap enough to call on

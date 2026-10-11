@@ -139,4 +139,18 @@
     <string name="map_camera_banner_speed">Snelheidscamera</string>
     <string name="map_camera_banner_red_light">Roodlichtcamera</string>
     <string name="map_camera_banner_combined">Snelheids- en roodlichtcamera</string>
+    <!-- Convoy pauze en hergroeperen (#649). -->
+    <string name="map_break_please">Pauze</string>
+    <string name="map_break_pill">%1$s wil pauze</string>
+    <string name="map_break_pill_mine">Je vroeg om pauze</string>
+    <string name="map_break_marker">Pauze · %1$s</string>
+    <string name="map_break_you">Jij</string>
+    <string name="map_regroup_here">Verzamel</string>
+    <string name="map_regroup_point">Verzamelpunt</string>
+    <string name="map_regroup_at">Verzamelen bij %1$s</string>
+    <string name="map_regroup_you_are_here">Je bent er</string>
+    <string name="map_regroup_arrived">Er al: %1$s</string>
+    <string name="map_regroup_on_the_way">Onderweg: %1$s</string>
+    <string name="map_regroup_route">Route</string>
+    <string name="map_regroup_clear">Wissen</string>
 </resources>
