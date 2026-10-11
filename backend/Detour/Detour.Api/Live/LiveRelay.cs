@@ -41,6 +41,12 @@ public interface ILiveRelay
     /// connection.
     /// </summary>
     Task EvictAsync(Guid userId, Guid groupId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Forgets a convoy's regroup pin. Called when the convoy ends, so a new convoy can never be
+    /// told to meet at a place a finished one picked.
+    /// </summary>
+    void ClearRegroupPin(Guid groupId);
 }
 
 public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
@@ -51,6 +57,13 @@ public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
     /// makes that the only possible outcome instead of a rule to remember.
     /// </summary>
     private readonly ConcurrentDictionary<Guid, LiveConnection> _connections = new();
+
+    /// <summary>
+    /// The latest regroup pin per convoy — the one piece of convoy state the relay holds. In memory
+    /// on purpose: a pin is only worth anything to riders who are riding now, and a restart losing
+    /// it costs the host one tap.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, RegroupPinFrame> _regroupPins = new();
 
     public IReadOnlyCollection<Guid> ConnectedUserIds => [.. _connections.Keys];
 
@@ -171,6 +184,24 @@ public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
         _ = CloseQuietlyAsync(connection, "membership revoked");
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Records <paramref name="pin"/> as its convoy's current meeting point, replacing whatever was
+    /// there, or forgets it for a clear. The caller has already checked the sender is the host.
+    /// </summary>
+    internal void SetRegroupPin(RegroupPinFrame pin)
+    {
+        if (pin.Clear)
+            _regroupPins.TryRemove(pin.GroupId, out _);
+        else
+            _regroupPins[pin.GroupId] = pin;
+    }
+
+    /// <summary>The pin a rider joining <paramref name="groupId"/> should be told about, if any.</summary>
+    internal RegroupPinFrame? RegroupPinFor(Guid groupId) =>
+        _regroupPins.TryGetValue(groupId, out var pin) ? pin : null;
+
+    public void ClearRegroupPin(Guid groupId) => _regroupPins.TryRemove(groupId, out _);
 
     private async Task CloseQuietlyAsync(LiveConnection connection, string reason)
     {

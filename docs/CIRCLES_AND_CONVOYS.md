@@ -174,6 +174,8 @@ channel to flood.
 | `location` | `lat`, `lon`, optional `accuracyM`, `headingDeg`, `speedKmh`, `ts` | **No `groupId`.** One fix is one fix; fanning it out to every group the sender shares with is the relay's job, not the phone's. Dropped entirely if the sender has paused sharing. In a circle it also overwrites the sender's stored last fix. |
 | `spin_offer` | `groupId`, `candidates[]` of `{lat, lon, distanceM?, durationS?, name?}` | **Convoy only.** 1–3 candidates. One invalid candidate voids the whole frame — a rider must never vote on a sheet missing an option their peers can see. |
 | `spin_vote` | `groupId`, `index` | **Convoy only.** Index 0–2; anything else is dropped rather than relayed as a vote for a candidate nobody offered. |
+| `break_request` | `groupId`, `lat`, `lon` | **Convoy only.** Any rider may ask for a break (owner decision, #632). Dropped without a valid position. The relay keeps none: how long one stays on screen is the clients' call. |
+| `regroup_pin` | `groupId`, then either `lat`, `lon`, optional `label` (≤ 80 chars) to set, or `clear: true` | **Convoy only, host only** — the convoy's owner (owner decision, #632). Anyone else's is dropped, not answered with `error`, because `error` is what a client closes its socket on. A set without a valid position, or with a longer label, is dropped rather than read as a clear. |
 
 Voice frames (`ptt_start`, `ptt_audio`, `ptt_end`) are accepted off the wire and
 dropped, exactly as an unknown type is — see §6.4.
@@ -192,13 +194,16 @@ shows up going the other way, in §6.3.
 | `left` | `user` |
 | `spin_offer` / `spin_vote` | the client's frame plus `groupId` and `user` |
 | `place_event` | `groupId`, `user`, `placeId`, `placeName`, `kind`, `ts` |
+| `break_request` | `groupId`, `user`, `lat`, `lon` |
+| `regroup_pin` | `groupId`, `user` (the host), `clear`; when `clear` is false also `lat`, `lon` and `label` if one was given |
 
 Position keys are abbreviated and nothing else is: a position goes out several
 times a minute per peer, multiplied by peers × riders, while every other frame
 is rare enough that clarity is free.
 
 **`u` on a peer inside `positions`, and `user` on `left`, `spin_offer`,
-`spin_vote` and `place_event`, all carry an account id — not a handle.** The
+`spin_vote`, `break_request`, `regroup_pin` and `place_event`, all carry an
+account id — not a handle.** The
 keys did not change when this landed; only the type behind them did (`u` was a
 username string, and is now a `Guid`). `positions` in particular carries no
 handle anywhere in the frame: a peer's display label comes from the group's
@@ -211,6 +216,15 @@ member arrive on the same stream at wildly different cadences — 20 seconds for
 fix that came over a socket, 300 for one posted over HTTP — and a single
 hardcoded staleness window either flickers circle members off the map between
 updates or leaves a dropped convoy rider frozen on it.
+
+**The relay remembers a convoy's latest `regroup_pin`, and nothing else.** A
+pin is a standing instruction, not an event, so a rider who joins or rejoins —
+back from a tunnel, or a fresh app start — is sent the current pin right after
+`joined`. A new pin replaces it, a clear drops it, and it is forgotten when the
+convoy ends (its last member leaves). It lives in memory only: a server restart
+loses it, and the host drops it again. A client drops its own copy on every
+reconnect and waits for the replay, so a pin moved or cleared while it was away
+can't survive the gap.
 
 **`place_event` is server-originated only.** A client cannot cause one by
 sending it, which is why there is no inbound counterpart. It is also why there is
