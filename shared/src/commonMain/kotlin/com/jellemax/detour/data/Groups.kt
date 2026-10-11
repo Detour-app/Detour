@@ -35,6 +35,10 @@ data class Group(
     /** This device's own membership status in the group: "invited" or "accepted". */
     val status: String,
     val members: List<GroupMember>,
+    /** The account that created the group: for a convoy, the host — the only rider the
+     *  relay takes a regroup pin from. Null from a server that predates the field (#676),
+     *  which a caller treats as "host unknown", not as "nobody is host". */
+    val ownerId: RiderId? = null,
 )
 
 /**
@@ -121,5 +125,6 @@ internal fun groupFromJson(o: JsonObject, kind: String): Group {
         kind = kind,
         status = o.optString("status"),
         members = members,
+        ownerId = o.optString("ownerId").takeIf { it.isNotEmpty() }?.let(::RiderId),
     )
 }

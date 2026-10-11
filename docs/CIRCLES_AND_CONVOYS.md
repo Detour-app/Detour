@@ -95,7 +95,7 @@ per-kind rules have an obvious home.
 
 | Path | Notes |
 |---|---|
-| `POST`/`GET` `/api/convoys` · `/api/circles` | Create, list. Kind comes from the path. |
+| `POST`/`GET` `/api/convoys` · `/api/circles` | Create, list. Kind comes from the path. Each group carries `ownerId` — for a convoy, the host — so a client can hide host-only actions from everyone else (#676) |
 | `POST /api/groups/{id}/invitations` | Membership *and* friendship required |
 | `POST /api/groups/{id}/invitations/respond` | Accept or decline |
 | `DELETE /api/groups/{id}/membership` | Leave; drops live sockets and the leaver's places and last fix |

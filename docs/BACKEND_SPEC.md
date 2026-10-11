@@ -289,8 +289,10 @@ Convoys and circles are the same entity distinguished by kind. Shared behaviour:
 - **Leave** removes the membership, deletes the leaver's shared places and last
   known position for that group, and drops any live connection they still hold on
   it, immediately.
-- **List** returns the caller's groups of one kind, each with its members and
-  their statuses. Each member carries both their account id and their handle —
+- **List** returns the caller's groups of one kind, each with its owner's
+  account id (`ownerId`; for a convoy, the host) and its members and their
+  statuses. Every member sees the owner, not only the owner, so a client can
+  offer host-only actions to the host alone. Each member carries both their account id and their handle —
   the only one of this group of payloads that does, which is what lets
   positions, places and presence events below name a rider by id alone and
   leave the display label to be resolved from here. (The friends list in
