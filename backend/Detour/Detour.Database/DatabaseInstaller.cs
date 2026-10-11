@@ -7,6 +7,7 @@ using Detour.Domain.Circles;
 using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
 using Detour.Domain.Notifications;
+using Detour.Domain.PlannedRides;
 using Detour.Domain.Places;
 using Detour.Domain.Pois;
 using Detour.Domain.Roads;
@@ -56,6 +57,7 @@ public static class DatabaseInstaller
         services.AddScoped<ITripTitleRepository, TripTitleRepository>();
         services.AddScoped<IFriendshipRepository, FriendshipRepository>();
         services.AddScoped<ISharedRouteRepository, SharedRouteRepository>();
+        services.AddScoped<IPlannedRideRepository, PlannedRideRepository>();
         services.AddScoped<IGroupRepository, GroupRepository>();
         services.AddScoped<IConvoyInviteRepository, ConvoyInviteRepository>();
         services.AddScoped<IMemberFixRepository, MemberFixRepository>();

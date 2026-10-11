@@ -7,6 +7,7 @@ public static class ServiceInstaller
         services.AddScoped<ISyncService, SyncService>();
         services.AddScoped<IFriendshipService, FriendshipService>();
         services.AddScoped<IRouteSharingService, RouteSharingService>();
+        services.AddScoped<IPlannedRideService, PlannedRideService>();
         services.AddScoped<IGroupService, GroupService>();
         services.AddScoped<IConvoyInviteService, ConvoyInviteService>();
         services.AddSingleton<ConvoyJoinThrottle>();

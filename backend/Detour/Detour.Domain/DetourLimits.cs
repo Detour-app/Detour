@@ -76,6 +76,12 @@ public static class DetourLimits
 
     public const int RouteInboxLimit = 100;
 
+    // --- planned rides ------------------------------------------------------------------
+    public const int PlannedRideTitleMaxLength = 80;
+
+    /// <summary>Room for "bring rain gear, fuel stop at km 60" — not a ride report.</summary>
+    public const int PlannedRideDescriptionMaxLength = 2000;
+
     // --- circle places ------------------------------------------------------------------
     /// <summary>A name, a point and a radius — far smaller than a route's polyline.</summary>
     public const int MaxPlacePayloadBytes = 64 * 1024;

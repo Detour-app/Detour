@@ -14,11 +14,13 @@ import kotlinx.serialization.json.put
  * the sample that set the deepest lean is usually not in it, and nothing
  * read back from `traces.jsonl` can put a pin where it happened.
  *
- * A trip saved before this existed, or recorded on iOS, decodes as the empty
- * default: every peak null and both lists empty. Unlike the zero defaults on
- * [DrivingStats], that is distinguishable from "recorded and found nothing"
- * only for the peaks — an empty [events] list reads the same either way, so
- * check it against the counts in [DrivingStats] before calling a trip calm.
+ * A trip saved before this existed decodes as the empty default: every peak
+ * null and both lists empty. Unlike the zero defaults on [DrivingStats], that
+ * is distinguishable from "recorded and found nothing" only for the peaks — an
+ * empty [events] list reads the same either way, so check it against the
+ * counts in [DrivingStats] before calling a trip calm. An iOS-recorded trip
+ * never has [maxG]: that recorder's g still includes gravity
+ * (`Trip.gForceGravityFree`).
  */
 data class TripMoments(
     /** [TripPeak.value] in m/s. Same speed that set [Trip.topSpeedMps]. */

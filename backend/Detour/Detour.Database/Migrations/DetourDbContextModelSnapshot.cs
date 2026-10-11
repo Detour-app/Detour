@@ -661,6 +661,102 @@ namespace Detour.Database.Migrations
                     b.ToTable("saved_places", "detour");
                 });
 
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRide", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long?>("ClientRouteId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("client_route_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("MeetingLabel")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("meeting_label");
+
+                    b.Property<double>("MeetingLatitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("meeting_latitude");
+
+                    b.Property<double>("MeetingLongitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("meeting_longitude");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<DateTimeOffset>("StartsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("starts_at");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id")
+                        .HasName("pk_planned_rides");
+
+                    b.HasIndex("OwnerId")
+                        .HasDatabaseName("ix_planned_rides_owner_id");
+
+                    b.ToTable("planned_rides", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRideRsvp", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Answer")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("answer");
+
+                    b.Property<DateTimeOffset?>("AnsweredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("answered_at");
+
+                    b.Property<DateTimeOffset>("InvitedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("invited_at");
+
+                    b.Property<Guid>("RideId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ride_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_planned_ride_rsvps");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_planned_ride_rsvps_user_id");
+
+                    b.HasIndex("RideId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_planned_ride_rsvps_ride_id_user_id");
+
+                    b.ToTable("planned_ride_rsvps", "detour");
+                });
+
             modelBuilder.Entity("Detour.Domain.Pois.Poi", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1293,6 +1389,33 @@ namespace Detour.Database.Migrations
                         .HasConstraintName("fk_saved_places_users_user_id");
                 });
 
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRide", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_planned_rides_users_owner_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRideRsvp", b =>
+                {
+                    b.HasOne("Detour.Domain.PlannedRides.PlannedRide", null)
+                        .WithMany("Rsvps")
+                        .HasForeignKey("RideId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_planned_ride_rsvps_planned_rides_ride_id");
+
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_planned_ride_rsvps_users_user_id");
+                });
+
             modelBuilder.Entity("Detour.Domain.Routes.SharedRoute", b =>
                 {
                     b.HasOne("Detour.Domain.Users.User", null)
@@ -1417,6 +1540,11 @@ namespace Detour.Database.Migrations
             modelBuilder.Entity("Detour.Domain.Groups.Group", b =>
                 {
                     b.Navigation("Members");
+                });
+
+            modelBuilder.Entity("Detour.Domain.PlannedRides.PlannedRide", b =>
+                {
+                    b.Navigation("Rsvps");
                 });
 #pragma warning restore 612, 618
         }
