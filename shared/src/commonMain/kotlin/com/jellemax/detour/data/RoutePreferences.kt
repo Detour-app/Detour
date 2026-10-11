@@ -22,6 +22,10 @@ import kotlinx.serialization.json.put
  * track/path rule on purpose: that one reads `road_class` and works on every
  * graph, this one reads `surface` and also catches a gravel road that is
  * classed as a real road.
+ *
+ * [curvy] is the A→B curviness preset (#635). It reads `curvature`, so it too
+ * passes [supportedBy], and it only shapes a `moto` route: [rulesFor] leaves
+ * it out of every other profile and round trips never ask for it.
  */
 data class RoutePreferences(
     val avoidHighways: Boolean = false,
@@ -29,11 +33,12 @@ data class RoutePreferences(
     val avoidTolls: Boolean = false,
     val avoidFerries: Boolean = false,
     val avoidUnpaved: Boolean = false,
+    val curvy: CurvyPreset = CurvyPreset.FAST,
 ) {
     /**
      * These preferences with every option the server can't honour switched
      * off. [encodedValues] is what [RoutingSupport] last heard the graph has;
-     * null — never asked, or a different server since — drops all three, since
+     * null — never asked, or a different server since — drops all four, since
      * a rule on a missing encoded value is an HTTP 400, not a worse route.
      */
     internal fun supportedBy(encodedValues: Set<String>?): RoutePreferences = copy(
@@ -41,12 +46,25 @@ data class RoutePreferences(
         avoidFerries = avoidFerries &&
             RoutingSupport.has(encodedValues, RoutingEncodedValue.ROAD_ENVIRONMENT),
         avoidUnpaved = avoidUnpaved && RoutingSupport.has(encodedValues, RoutingEncodedValue.SURFACE),
+        curvy = curvy.takeIf { RoutingSupport.has(encodedValues, RoutingEncodedValue.CURVATURE) }
+            ?: CurvyPreset.FAST,
     )
 
     /**
-     * GraphHopper custom-model priority rules for these preferences, or an
-     * empty array when none is on. Multipliers, never zero: a house sits on a
-     * residential street and the destination itself may be down a lane, so
+     * Every priority rule an A→B request on [profile] carries: the avoid
+     * options, then [curvy]'s on `moto` only. A car route is the same request
+     * it was before curvy routing existed, whatever the preset says.
+     */
+    internal fun rulesFor(profile: String): JsonArray {
+        val avoid = priorityRules()
+        if (profile != TravelMode.MOTO.ghProfile) return avoid
+        return JsonArray(avoid + curvy.priorityRules())
+    }
+
+    /**
+     * GraphHopper custom-model priority rules for the avoid options, or an
+     * empty array when none is on. [curvy] is not among them; see [rulesFor].
+     * Multipliers, never zero: a house sits on a residential street and the destination itself may be down a lane, so
      * these roads have to stay usable — just expensive enough that a route
      * only takes them when there is no reasonable alternative.
      */

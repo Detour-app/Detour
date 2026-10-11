@@ -1,8 +1,10 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.BreakRequest
 import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.drive.GroupSpin
 import com.jellemax.detour.drive.IncomingAudioChunk
+import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.drive.SectionAverageTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -197,6 +199,16 @@ class CirclesStateWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+class PlannedRidesStateWatcher internal constructor(
+    private val flow: StateFlow<PlannedRidesState>,
+) : Watcher() {
+    var value: PlannedRidesState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 // --- ConvoyRelay's own flows ---------------------------------------------
 //
 // One subclass per element type, same rule as everything above - added for
@@ -256,6 +268,28 @@ class SpinVotesWatcher internal constructor(
 
     override suspend fun collect(onChange: () -> Unit) =
         flow.collect { value = it.mapKeys { e -> e.key.value }; onChange() }
+}
+
+/** Backs [ConvoyRelay.breakRequests], unwrapped to `Map<String,
+ *  BreakRequest>` for Swift for the same reason as [FriendPositionsWatcher]. */
+class BreakRequestsWatcher internal constructor(
+    private val flow: StateFlow<Map<RiderId, BreakRequest>>,
+) : Watcher() {
+    var value: Map<String, BreakRequest> = flow.value.mapKeys { it.key.value }
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it.mapKeys { e -> e.key.value }; onChange() }
+}
+
+class RegroupPinWatcher internal constructor(
+    private val flow: StateFlow<RegroupPin?>,
+) : Watcher() {
+    var value: RegroupPin? = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
 }
 
 class OptionalStringWatcher internal constructor(
@@ -353,12 +387,13 @@ object StoreFlows {
  *
  * One watcher per store rather than one per field: each distinct element type
  * costs a subclass above (see this file's header), and a coarse state object
- * keeps that at three classes instead of a dozen.
+ * keeps that at one class per store instead of a dozen per store.
  */
 object FeatureFlows {
     fun friends() = FriendsStateWatcher(FriendsStore.state)
     fun convoys() = ConvoysStateWatcher(ConvoysStore.state)
     fun circles() = CirclesStateWatcher(CirclesStore.state)
+    fun plannedRides() = PlannedRidesStateWatcher(PlannedRidesStore.state)
 }
 
 /**
