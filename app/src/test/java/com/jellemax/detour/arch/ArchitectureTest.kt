@@ -110,7 +110,8 @@ class ArchitectureTest {
             "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1436,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1277,
-            "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1211,
+            // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
+            "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1006,
         )
         assertUnderLimit(1000, pinned, files.associate { it.rel to it.text.count { c -> c == '\n' } })
@@ -124,7 +125,7 @@ class ArchitectureTest {
     fun `shared functions stay under 100 lines - section 8`() {
         val pinned = mapOf(
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#sync" to 157,
-            "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 152,
+            "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 150,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             // +3: #587 the three graph-dependent avoid options
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 108,

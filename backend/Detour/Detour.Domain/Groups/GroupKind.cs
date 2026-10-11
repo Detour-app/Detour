@@ -27,6 +27,12 @@ public abstract class GroupKind : SmartEnum<GroupKind>
     /// <summary>Shared destination offers and votes — a convoy deciding where to ride together.</summary>
     public abstract bool AllowsDestinationVote { get; }
 
+    /// <summary>
+    /// Break requests and the host's regroup pin — a convoy stopping together. A circle has no
+    /// ride to stop.
+    /// </summary>
+    public abstract bool AllowsBreakAndRegroup { get; }
+
     /// <summary>Pausing is per person per circle. A convoy connection <em>is</em> sharing.</summary>
     public abstract bool SupportsPause { get; }
 
@@ -42,6 +48,7 @@ public abstract class GroupKind : SmartEnum<GroupKind>
         public override bool DropWhenEmpty => true;
         public override bool AllowsVoice => true;
         public override bool AllowsDestinationVote => true;
+        public override bool AllowsBreakAndRegroup => true;
         public override bool SupportsPause => false;
         public override bool PersistsLastFix => false;
         public override int? MaxMembers => null;
@@ -53,6 +60,7 @@ public abstract class GroupKind : SmartEnum<GroupKind>
         public override bool DropWhenEmpty => false;
         public override bool AllowsVoice => false;
         public override bool AllowsDestinationVote => false;
+        public override bool AllowsBreakAndRegroup => false;
         public override bool SupportsPause => true;
         public override bool PersistsLastFix => true;
         public override int? MaxMembers => DetourLimits.MaxCircleMembers;

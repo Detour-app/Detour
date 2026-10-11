@@ -121,6 +121,9 @@ public static class DetourLimits
 
     public const int DestinationNameMaxLength = 80;
 
+    /// <summary>A regroup pin's label is a place name, read off a banner at a glance.</summary>
+    public const int RegroupPinLabelMaxLength = 80;
+
     // --- dashboard ----------------------------------------------------------------------
     public const int MaxDashboardRides = 500;
     public const int MaxTraceThinning = 50;
