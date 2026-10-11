@@ -20,6 +20,7 @@ import com.jellemax.detour.data.Settings
 internal fun NavigationSpoke() {
     NavigationSection()
     CameraWarningsSection()
+    TrafficKeySection()
 }
 
 /** Camera-warning settings (#496). The rule that reads them is

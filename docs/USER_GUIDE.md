@@ -590,6 +590,15 @@ instance only when yours is unreachable, and only if you leave "Fall back to
 public search" turned on; turn it off to keep search on your own hardware even
 when your instance is down.
 
+**Live traffic sends your route's area to HERE, with your own key.** Traffic is
+off until you paste a HERE API key into Settings → Navigation → HERE traffic and
+it passes **Test key**. From then on Detour asks HERE directly — never through
+your Detour server — so HERE sees your IP address, your key (which ties the
+requests to your HERE account) and the area along the route you are navigating.
+The test itself asks about a fixed spot in Brussels, not where you are. The key
+is kept in the phone's secure storage and is not synced, backed up or exported;
+**Remove key** turns traffic off again.
+
 **Android backup copies your trips to Google Drive.** Detour opts in to
 Android's automatic backup, so if backup is on for your phone, your trips and
 their full GPS traces (which show where rides start and end — usually home and

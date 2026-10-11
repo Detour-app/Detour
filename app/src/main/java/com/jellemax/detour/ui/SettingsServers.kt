@@ -550,7 +550,7 @@ private fun ConfigFileSection(modifier: Modifier = Modifier) {
  * thing between a rider and the field they came to fill in.
  */
 @Composable
-private fun LearnMore(summary: String, detail: String, warning: String? = null) {
+internal fun LearnMore(summary: String, detail: String, warning: String? = null) {
     var open by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(

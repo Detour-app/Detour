@@ -32,7 +32,7 @@
 <body>
 
 <h1>Privacy Policy — Detour</h1>
-<p class="updated">Last updated: 26 September 2026</p>
+<p class="updated">Last updated: 11 October 2026</p>
 
 <p>Detour is an Android app that picks a random road destination within a radius
 you choose, routes you to it, and records the ride. This policy explains what
@@ -110,12 +110,20 @@ is listed below is sent:</p>
   <li><strong>Routing</strong> — if you configure a GraphHopper routing server,
       your start and destination coordinates are sent to it. No routing server
       is configured by default.</li>
+  <li><strong>Live traffic (HERE)</strong> — only if you enter your own HERE
+      API key in Settings &rarr; Navigation. The app then sends requests
+      directly to <a href="https://www.here.com/">HERE</a> with your key: one
+      to test it when you tap Test key, and later the areas along a route you
+      are navigating. HERE sees your IP address, your key (which identifies
+      your HERE account) and those areas, under HERE's own privacy policy.
+      The key stays on your phone: it is not synced, backed up or exported.
+      With no key, nothing is sent to HERE.</li>
   <li><strong>Handing off navigation</strong> — if you choose to open a
       destination in Google Maps, Waze or another app, the destination
       coordinates are passed to that app, which is then governed by its own
       privacy policy.</li>
 </ul>
-<p>These requests carry no account identifier and no device identifier beyond
+<p>Apart from the HERE key above, these requests carry no account identifier and no device identifier beyond
 what any HTTPS request necessarily exposes to the server handling it (such as
 your IP address). Their operators are independent of Detour and handle those
 requests under their own policies.</p>
