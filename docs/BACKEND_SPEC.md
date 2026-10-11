@@ -56,7 +56,7 @@ change must keep that property.
    keep broadcasting after the user believes they stopped.
 7. **A route can only be shared with an accepted friend**, and ending a
    friendship deletes every route shared between those two people in either
-   direction.
+   direction. The same goes for invitations to each other's planned rides.
 8. **A place shared into a circle is revoked when its owner leaves that circle.**
 9. **Administrators see account metadata and row counts only.** The rules are not
    relaxed for them, and the guarantee is that no such capability exists —
@@ -76,6 +76,7 @@ change must keep that property.
 | **Badge** | An achievement identifier plus the instant it was first earned. |
 | **Friendship** | A symmetric relationship between two riders, either pending (one side must accept) or accepted. |
 | **Shared route** | A planned route one rider sent to a friend. Opaque, replaces an earlier copy of the same route. |
+| **Planned ride** | A ride one rider plans ahead: title, start time, meeting point, optionally their own saved-route id and a note. Visible to its owner and the riders they invited, nobody else. Each invitee holds one invitation carrying their answer. |
 | **Group** | One entity with two *kinds*: a **convoy** (a live ride together, ephemeral) and a **circle** (a standing "who's where" map, persistent). Membership is the access gate for every live feature. |
 | **Circle place** | A named point with a radius, owned by one member, shared into one circle. |
 | **Arrival/departure event** | A record that a member entered or left a circle place. Detected on the device; the service records and fans out. |
@@ -176,7 +177,8 @@ places and ride titles.
   attempts keep being refused instead of quietly creating a new pending
   request each time.
 - **Remove** ends the friendship and, in the same operation, deletes every route
-  shared between the two people **in either direction**. This is also how a
+  shared between the two people **in either direction**, and each one's
+  invitation to the other's planned rides ([§8.1](#81-planned-rides)). This is also how a
   decline is undone — only the rider who declined can call it on that pair,
   after which the other rider can request again normally.
 - **List** returns one set of riders, each carrying their account id, their handle and
@@ -220,6 +222,58 @@ places and ride titles.
   authenticated sender, never read out of the stored payload.
 - **Delete** removes one shared route if the caller is *either* side of it — the
   recipient dropping it, or the sender un-sharing it.
+
+### 8.1 Planned rides
+
+A ride planned ahead (#633), so friends can say whether they are coming before
+anyone starts a convoy.
+
+- **Create** makes the caller the owner. A ride has a title, a start instant, a
+  meeting point (position and an optional label), optionally the owner's own
+  saved-route identifier — opaque here, meaningless outside the owner's device;
+  invitees get the route itself through a share ([§8](#8-shared-routes)) — and an
+  optional description. Nobody is invited yet.
+- **There is no time-window rule.** The start instant is what invitees are told,
+  not a gate: the owner may start the ride whenever they like, and past rides are
+  still listed and readable.
+- **Edit** replaces every field and keeps the invitations and their answers.
+  **Delete** removes the ride and every invitation with it. Both are owner only.
+- **Invite** (owner only) takes riders, circles, or both. Each rider must be an
+  accepted friend of the owner or an accepted member of a circle the owner is an
+  accepted member of; a circle expands to its accepted members at that moment,
+  and someone joining the circle later is not added to a ride already planned.
+  Relationships are re-checked on every invite. One rider who may not be invited
+  refuses the **whole** request, rather than inviting some and leaving the client
+  to work out which. Inviting someone already asked keeps their answer.
+- An invitation starts **pending**. The invitee answers **going**, **maybe** or
+  **declined**, and can change the answer until the ride is deleted. Declining
+  keeps the invitation, so the owner sees who said no. The owner holds no
+  invitation to their own ride and has nothing to answer.
+- **List** returns rides the caller owns or is invited to, soonest start first,
+  each with the owner, every invitee and their answer, and the caller's own
+  answer (none for the owner).
+- **Visibility.** A rider who neither owns nor is invited to a ride gets the
+  same not-found for every operation on it as for an id that does not exist, so
+  ride ids cannot be probed. An invitee who tries to edit, delete or invite is
+  refused as forbidden — they can already see the ride, so that leaks nothing.
+- Unfriending removes the invitation each side holds to the other's rides
+  ([§6](#6-friends)); the rides stay with their owner. Leaving a circle does not
+  remove an invitation already sent through it.
+- Reminders before the start are not part of this slice.
+
+| Operation | Request | Refusals |
+|---|---|---|
+| Create | `POST /api/planned-rides` | 400 invalid field |
+| List | `GET /api/planned-rides` | — |
+| Read | `GET /api/planned-rides/{id}` | 404 |
+| Edit | `PUT /api/planned-rides/{id}` | 400, 403 invitee, 404 |
+| Delete | `DELETE /api/planned-rides/{id}` | 403 invitee, 404 |
+| Invite | `POST /api/planned-rides/{id}/invitations` with `riderIds` and/or `circleIds` | 400 not a friend or circle member / not in that circle, 403 invitee, 404 |
+| Answer | `PUT /api/planned-rides/{id}/rsvp` with `answer` | 400 bad answer or caller is the owner, 404 |
+
+Instants on the wire are epoch milliseconds (`startsAtMs`, `createdAtMs`), and
+answers are lower-case (`pending`, `going`, `maybe`, `declined`). The OpenAPI
+document carries the full body shapes.
 
 ## 9. Groups: convoys and circles
 
@@ -805,6 +859,9 @@ as `/api/speedlimits`, `/api/roads` and `/api/municipality`, for the same reason
 | Shared routes per (recipient, sender) | 50 |
 | Route inbox page | 100 newest |
 | Route stops | ≥ 2 |
+| Planned ride title | 1–80 characters |
+| Planned ride meeting-point label | ≤ 60 characters |
+| Planned ride description | ≤ 2 000 characters |
 | Circle place payload | 64 KB |
 | Circle place radius | > 0 m and ≤ 50 000 m |
 | Circle places per (circle, owner) | 50 |
