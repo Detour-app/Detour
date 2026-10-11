@@ -15,8 +15,8 @@ class SettingsHubStateTest {
         authUsername: String = "",
         trafficOn: Boolean = false,
     ) = settingsHubStateFrom(
-        themeName, autoDetectDrives, avoid,
-        fogRadiusMeters, externalDisplayEnabled, authUsername, trafficOn,
+        themeName, autoDetectDrives, NavigationSummary(avoid, trafficOn),
+        fogRadiusMeters, externalDisplayEnabled, authUsername,
     )
 
     @Test

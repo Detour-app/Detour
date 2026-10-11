@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
+import com.jellemax.detour.presentation.NavigationSummary
 import com.jellemax.detour.presentation.settingsHubStateFrom
 import com.jellemax.detour.update.InstalledNotes
 import com.jellemax.detour.update.UpdateAction
@@ -87,11 +88,10 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
     val hub = settingsHubStateFrom(
         themeName = theme.name,
         autoDetectDrives = autoDetect,
-        avoid = avoid,
+        navigation = NavigationSummary(avoid, trafficOn = hereTrafficKey.isNotEmpty()),
         fogRadiusMeters = fogRadius.toDouble(),
         externalDisplayEnabled = externalDisplayEnabled,
         authUsername = authUsername,
-        trafficOn = hereTrafficKey.isNotEmpty(),
     )
 
     SettingsScaffold(stringResource(R.string.settings_title), onBack, spacing = 10.dp) {
