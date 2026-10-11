@@ -35,6 +35,10 @@ public sealed class GroupMember : Entity
     internal static GroupMember CreateOwner(Guid groupId, Guid userId) =>
         new(groupId, userId, GroupMemberStatus.Accepted);
 
+    /// <summary>Joined through a convoy invite link: no invitation to accept first.</summary>
+    internal static GroupMember CreateGuest(Guid groupId, Guid userId) =>
+        new(groupId, userId, GroupMemberStatus.Accepted);
+
     internal static GroupMember CreateInvited(Guid groupId, Guid userId) =>
         new(groupId, userId, GroupMemberStatus.Invited);
 

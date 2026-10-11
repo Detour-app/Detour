@@ -59,6 +59,7 @@ public static class DatabaseInstaller
         services.AddScoped<ISharedRouteRepository, SharedRouteRepository>();
         services.AddScoped<IPlannedRideRepository, PlannedRideRepository>();
         services.AddScoped<IGroupRepository, GroupRepository>();
+        services.AddScoped<IConvoyInviteRepository, ConvoyInviteRepository>();
         services.AddScoped<IMemberFixRepository, MemberFixRepository>();
         services.AddScoped<ICirclePlaceRepository, CirclePlaceRepository>();
         services.AddScoped<IPlaceEventRepository, PlaceEventRepository>();
