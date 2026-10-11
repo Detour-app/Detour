@@ -539,5 +539,6 @@ class CameraWarnerTest {
         assertEquals(CameraWarner.Outcome.Silent, next.outcome)
         assertEquals(redLight.at, next.countdown?.at)
         assertEquals("Red light camera ahead", next.countdown?.text)
+        assertEquals(SpeedCameras.CameraKind.RED_LIGHT, next.countdown?.kind)
     }
 }

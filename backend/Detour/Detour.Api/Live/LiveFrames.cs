@@ -18,6 +18,8 @@ internal static class LiveFrameTypes
     public const string Location = "location";
     public const string DestinationOffer = "spin_offer";
     public const string DestinationVote = "spin_vote";
+    public const string BreakRequest = "break_request";
+    public const string RegroupPin = "regroup_pin";
 
     // Server -> client.
     public const string Joined = "joined";
@@ -148,4 +150,45 @@ internal sealed record PlaceEventFrame(
     [JsonPropertyName("type")]
     [JsonPropertyOrder(-1)]
     public string Type => LiveFrameTypes.PlaceEvent;
+}
+
+/// <summary>
+/// A rider asking the convoy to stop, and where they were when they asked. Any member may send
+/// one (owner decision, #632). The relay keeps none of them: a request is a nudge to whoever is
+/// riding now, and the clients decide how long one stays on screen.
+/// </summary>
+internal sealed record BreakRequestFrame(
+    [property: JsonPropertyName("groupId")] Guid GroupId,
+    [property: JsonPropertyName("user")] Guid User,
+    [property: JsonPropertyName("lat")] double Latitude,
+    [property: JsonPropertyName("lon")] double Longitude)
+{
+    [JsonPropertyName("type")]
+    [JsonPropertyOrder(-1)]
+    public string Type => LiveFrameTypes.BreakRequest;
+}
+
+/// <summary>
+/// The host's meeting point, or its removal. Only the convoy's owner may send one (owner
+/// decision, #632). Unlike every other relayed frame the relay remembers the latest one per
+/// convoy, because a pin is a standing instruction rather than an event: a rider who reconnects
+/// after a tunnel must still be told where to regroup. See <see cref="LiveRelay.SetRegroupPin"/>.
+///
+/// A clear carries <c>clear: true</c> and no position, so a client never has to tell "no pin"
+/// apart from a pin at 0,0.
+/// </summary>
+internal sealed record RegroupPinFrame(
+    [property: JsonPropertyName("groupId")] Guid GroupId,
+    [property: JsonPropertyName("user")] Guid User,
+    [property: JsonPropertyName("lat")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? Latitude,
+    [property: JsonPropertyName("lon")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? Longitude,
+    [property: JsonPropertyName("label")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Label,
+    [property: JsonPropertyName("clear")] bool Clear)
+{
+    [JsonPropertyName("type")]
+    [JsonPropertyOrder(-1)]
+    public string Type => LiveFrameTypes.RegroupPin;
 }

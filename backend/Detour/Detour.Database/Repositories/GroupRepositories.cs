@@ -50,6 +50,22 @@ public class GroupRepository(ICustomDbContextFactory<DetourDbContext> factory)
             .ToListAsync(cancellationToken);
 }
 
+public class ConvoyInviteRepository(ICustomDbContextFactory<DetourDbContext> factory)
+    : BaseRepository<ConvoyInvite, DetourDbContext>(factory), IConvoyInviteRepository
+{
+    public Task<ConvoyInvite?> GetByHashAsync(string tokenHash, CancellationToken cancellationToken) =>
+        Set.Include(i => i.Guests)
+            .TagWith(Tag(nameof(GetByHashAsync)))
+            .FirstOrDefaultAsync(i => i.TokenHash == tokenHash, cancellationToken);
+
+    public Task<List<ConvoyInvite>> GetForGroupAsync(Guid groupId, CancellationToken cancellationToken) =>
+        Set.Include(i => i.Guests)
+            .TagWith(Tag(nameof(GetForGroupAsync)))
+            .Where(i => i.GroupId == groupId)
+            .OrderByDescending(i => i.CreatedAt)
+            .ToListAsync(cancellationToken);
+}
+
 public class MemberFixRepository(ICustomDbContextFactory<DetourDbContext> factory)
     : BaseRepository<MemberFix, DetourDbContext>(factory), IMemberFixRepository
 {

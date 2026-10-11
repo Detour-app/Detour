@@ -2117,6 +2117,82 @@ check 'the car still refuses rotation outright' 1 \
 
 ---
 
+## 25. Trip moments: iOS folds the same detectors as Android, with three known gaps
+
+**New with `#625`** — recorded on entry 24's precedent, because `iosApp/Detour/TripRecorder.swift`
+now carries four comments claiming Android parity (`detectHardEvents`, the lean-latch drop in the
+motion handler, `recordLean`, and the `moments` field), and a parity claim nothing enforces is
+what `conventions.md` §7.1 says belongs here.
+
+**What.** A saved trip carries `TripMoments` (#444): where the top speed, deepest lean, max g,
+hard events and stops happened. Android has recorded them since #444; iOS saved an empty set until
+#625.
+
+**Copies.** The rules are not duplicated — both surfaces call the same shared objects:
+`MomentRecorder` (`onSpeed`, `onLean`, `onEvent`, `onCorner`, `onStopFix`), `HardEventDetector`
+(`onSpeedFix`, `onHeadingFix`, `onLeanSample`) and `StopDetector.onFix`, all in `shared/`. What
+each surface owns is the **gates around those calls**, and those are the copy:
+
+- Android — `app/…/tracking/TripTrackingService.kt` `detectHardEvents` and `recordLean`, folding
+  into `app/…/tracking/TripSession.kt`.
+- iOS — `iosApp/Detour/TripRecorder.swift:387` `detectHardEvents`, `:557` `recordLean`, and the
+  latch drop at `:529`.
+
+**The gates that agree.** Speed events and the heading corner only for `mode.tracksGForce`; the
+heading corner only for `TravelMode.CAR`; speed events and stops only on a fix with a real speed
+measurement (Android's `fix.isReal`, iOS's `location.speed >= 0`); stops in every mode; a lean
+sample only after the plausibility, minimum-speed and slew gates; the corner latch dropped when a
+below-riding-speed sample is also upright (`< HARD_CORNER_LEAN_DEG`); top speed read back from the
+spike-filtered `MomentRecorder` value (#428) so the stat and its pin are one number.
+
+**Three known differences.**
+
+**25a — No max-g pin on iOS.** Android folds `MomentRecorder.onG` from its gravity-free g
+(`TripSession.recordG`, #478). iOS still reads raw `userAcceleration` without the #478 gravity
+frame, saves `gForceGravityFree: false`, and so does not fold its max g into `moments` at all
+(`TripRecorder.swift:250`). **An iOS trip has no max-g pin.** Deliberate until iOS gets #478's fix;
+pinning a gravity-contaminated number would be worse than none.
+
+**25b — The latch drop tests a raw lean on iOS, a smoothed one on Android.** Android's
+`recordLean(deg)` receives `RideMotionSensors`' EMA-and-slew-gated `currentLeanDeg` (or the moto
+board's own lean telemetry, which iOS has no equivalent of), so its
+`abs(deg) < HARD_CORNER_LEAN_DEG` test is on the smoothed value. iOS's minimum-speed guard runs
+before its EMA, so the same test is on `rawLean`. A noisy raw sample dipping under the threshold
+can drop the iOS latch slightly earlier than Android's would. **UNVERIFIED** whether that ever
+double-counts a corner in practice — nothing in this repo runs the iOS app.
+
+**25c — "Has a heading" is decided differently.** Android feeds the heading corner when
+`location.bearingDeg != null` (`FusedLocationSource` maps `hasBearing()`); iOS when
+`location.course >= 0`. Both mean "the platform measured a course", but the platforms decide that
+differently at low speed, so the set of fixes reaching `onHeadingFix` is not provably the same.
+Android also passes `fix.effectiveMps` (which may be a board or OBD speed) where iOS passes GPS
+speed — iOS has no other source.
+
+**Verdict: survive — Android's gates, and iOS converges on 25a when it gets #478.** 25b and 25c
+are platform-shaped rather than chosen; neither is worth a decision until someone observes a
+miscounted corner on iOS.
+
+**Fence.** Measured against `#625`'s branch:
+
+```sh
+# Entry 25 — iOS trip moments. 25a: iOS still pins no max g; 1 means someone
+# folded a gravity-contaminated g, or landed #478 on iOS and should update this.
+check 'iOS does not fold max g into moments' 0 \
+    "$(grep -c 'MomentRecorder.shared.onG' iosApp/Detour/TripRecorder.swift)"
+check 'Android folds max g into moments' 1 \
+    "$(grep -c 'MomentRecorder.onG' app/src/main/java/com/jellemax/detour/tracking/TripSession.kt)"
+# 25b: the iOS latch drop is on the raw lean.
+check 'iOS drops the lean latch on the raw lean' 1 \
+    "$(grep -c 'abs(rawLean) < HardEventDetector.shared.HARD_CORNER_LEAN_DEG' iosApp/Detour/TripRecorder.swift)"
+# 25c: the two "has a heading" tests.
+check 'Android heading corner gated on bearingDeg' 1 \
+    "$(grep -c 'location.bearingDeg != null' app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt)"
+check 'iOS heading corner gated on course' 1 \
+    "$(grep -c 'location.course >= 0' iosApp/Detour/TripRecorder.swift)"
+```
+
+---
+
 ## §A — Summary, ranked by how user-visible the decision is
 
 **22 divergences.** By kind:

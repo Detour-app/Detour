@@ -502,4 +502,97 @@ class RelayProtocolTest {
         val decoded = (RelayProtocol.decode(text, nowMs = 0) as RelayEvent.SpinOffer).candidates
         assertEquals(candidates, decoded)
     }
+
+    // --- break and regroup (#648) -------------------------------------------
+
+    @Test
+    fun breakRequestDecodesSenderAndPositionAndStampsArrival() {
+        val event = RelayProtocol.decode(
+            """{"type":"break_request","groupId":"g","user":"ada","lat":51.05,"lon":3.72}""",
+            nowMs = 42L,
+        )
+        assertEquals(
+            RelayEvent.BreakRequested(BreakRequest(RiderId("ada"), LatLon(51.05, 3.72), receivedAtMs = 42L)),
+            event,
+        )
+    }
+
+    @Test
+    fun breakRequestWithoutASenderOrPositionDecodesToNull() {
+        assertNull(RelayProtocol.decode("""{"type":"break_request","lat":51.0,"lon":3.7}""", nowMs = 0L))
+        assertNull(RelayProtocol.decode("""{"type":"break_request","user":"ada","lat":51.0}""", nowMs = 0L))
+    }
+
+    @Test
+    fun regroupPinDecodesPositionLabelAndHost() {
+        val event = RelayProtocol.decode(
+            """{"type":"regroup_pin","groupId":"g","user":"host","lat":50.75,"lon":3.6,"label":" Fuel ","clear":false}""",
+            nowMs = 0L,
+        )
+        assertEquals(RelayEvent.RegroupPinChanged(RegroupPin(LatLon(50.75, 3.6), "Fuel", RiderId("host"))), event)
+    }
+
+    @Test
+    fun regroupPinWithNoLabelDecodesANullLabel() {
+        val event = RelayProtocol.decode(
+            """{"type":"regroup_pin","user":"host","lat":50.75,"lon":3.6,"clear":false}""",
+            nowMs = 0L,
+        ) as RelayEvent.RegroupPinChanged
+        assertNull(event.pin?.label)
+    }
+
+    @Test
+    fun regroupPinLabelIsCappedOnReceive() {
+        val long = "x".repeat(RelayProtocol.REGROUP_PIN_LABEL_MAX + 20)
+        val event = RelayProtocol.decode(
+            """{"type":"regroup_pin","user":"host","lat":50.75,"lon":3.6,"label":"$long"}""",
+            nowMs = 0L,
+        ) as RelayEvent.RegroupPinChanged
+        assertEquals(RelayProtocol.REGROUP_PIN_LABEL_MAX, event.pin?.label?.length)
+    }
+
+    @Test
+    fun regroupPinClearDecodesToANullPin() {
+        assertEquals(
+            RelayEvent.RegroupPinChanged(null),
+            RelayProtocol.decode("""{"type":"regroup_pin","user":"host","clear":true}""", nowMs = 0L),
+        )
+    }
+
+    @Test
+    fun aRegroupPinThatIsNeitherASetNorAClearDecodesToNullRatherThanWipingThePin() {
+        // No position and no clear flag: a broken frame, not a clear.
+        assertNull(RelayProtocol.decode("""{"type":"regroup_pin","user":"host"}""", nowMs = 0L))
+        assertNull(RelayProtocol.decode("""{"type":"regroup_pin","lat":50.0,"lon":3.0}""", nowMs = 0L))
+    }
+
+    @Test
+    fun buildBreakRequestCarriesGroupAndPositionAndNoSender() {
+        val obj = jsonObjectOf(RelayProtocol.buildBreakRequest("g", LatLon(51.0, 3.7)))
+        assertEquals("break_request", obj.optString("type"))
+        assertEquals("g", obj.optString("groupId"))
+        assertEquals(51.0, obj.optDouble("lat"))
+        assertEquals(3.7, obj.optDouble("lon"))
+        assertTrue("user" !in obj)
+    }
+
+    @Test
+    fun buildRegroupPinTrimsTheLabelAndOmitsABlankOne() {
+        val labelled = jsonObjectOf(RelayProtocol.buildRegroupPin("g", LatLon(50.75, 3.6), "  Fuel  "))
+        assertEquals("regroup_pin", labelled.optString("type"))
+        assertEquals("Fuel", labelled.optString("label"))
+        assertEquals(50.75, labelled.optDouble("lat"))
+        assertTrue("clear" !in labelled)
+
+        val blank = jsonObjectOf(RelayProtocol.buildRegroupPin("g", LatLon(50.75, 3.6), "   "))
+        assertTrue("label" !in blank)
+    }
+
+    @Test
+    fun buildRegroupPinClearCarriesTheFlagAndNoPosition() {
+        val obj = jsonObjectOf(RelayProtocol.buildRegroupPinClear("g"))
+        assertEquals("regroup_pin", obj.optString("type"))
+        assertEquals("true", obj["clear"].toString())
+        assertTrue("lat" !in obj && "lon" !in obj)
+    }
 }

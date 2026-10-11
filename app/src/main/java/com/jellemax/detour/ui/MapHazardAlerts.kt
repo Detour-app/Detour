@@ -77,6 +77,7 @@ internal fun MapHazardAlerts(
             )
             warnerState = step.state
             retained.warnerState = warnerState
+            s.cameraCountdown = step.countdown
             when (val outcome = step.outcome) {
                 is CameraWarner.Outcome.Warn -> {
                     toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
@@ -94,10 +95,10 @@ internal fun MapHazardAlerts(
                     // (car/NavScreen.kt's checkCameras). Register entry 15.
                     //
                     // No toast: the car's stands in for a visual the head unit has
-                    // no room for, and the phone's map already draws the camera
-                    // marker. The snackbarHostState this screen already owns is the
-                    // error channel; routing a routine hazard through it would
-                    // teach the rider to ignore errors.
+                    // no room for, and the phone shows CameraBanner from
+                    // step.countdown above. The snackbarHostState this screen
+                    // already owns is the error channel; routing a routine hazard
+                    // through it would teach the rider to ignore errors.
                     announce(outcome.text)
                 }
                 CameraWarner.Outcome.Silent -> {}

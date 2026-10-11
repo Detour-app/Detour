@@ -1,5 +1,6 @@
 package com.jellemax.detour.drive
 
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RiderId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -133,6 +134,15 @@ class ConvoyRelayTest {
 
     private fun positionsFrame(username: String, lat: Double, lon: Double, ttl: Int = 10) =
         """{"type":"positions","peers":[{"u":"$username","lat":$lat,"lon":$lon,"ts":0,"ttl":$ttl}]}"""
+
+    private fun breakRequestFrame(user: String, lat: Double = 51.0, lon: Double = 4.0) =
+        """{"type":"break_request","groupId":"convoy-1","user":"$user","lat":$lat,"lon":$lon}"""
+
+    private fun regroupPinFrame(user: String, lat: Double = 50.75, lon: Double = 3.6, label: String = "Fuel") =
+        """{"type":"regroup_pin","groupId":"convoy-1","user":"$user","lat":$lat,"lon":$lon,"label":"$label","clear":false}"""
+
+    private fun regroupPinClearFrame(user: String) =
+        """{"type":"regroup_pin","groupId":"convoy-1","user":"$user","clear":true}"""
 
     private fun errorFrame(message: String?) =
         if (message == null) """{"type":"error"}""" else """{"type":"error","message":"$message"}"""
@@ -1072,6 +1082,8 @@ class ConvoyRelayTest {
             ),
         )
         relay.applyEvent(RelayEvent.SpinVote(RiderId("bob"), 1))
+        relay.onFrame(breakRequestFrame("bob"))
+        relay.onFrame(regroupPinFrame("host"))
 
         // What run()'s own sessionEpoch watcher calls once Auth.sessionEpoch
         // actually moves.
@@ -1084,6 +1096,8 @@ class ConvoyRelayTest {
         assertTrue(relay.talking.value.isEmpty())
         assertNull(relay.spinOffer.value)
         assertTrue(relay.spinVotes.value.isEmpty())
+        assertTrue(relay.breakRequests.value.isEmpty())
+        assertNull(relay.regroupPin.value)
     }
 
     @Test
@@ -1188,5 +1202,153 @@ class ConvoyRelayTest {
 
         relay.stop()
         job2.join()
+    }
+
+    // --- break and regroup (#648) -------------------------------------------
+
+    @Test
+    fun aBreakRequestIsKeptPerRiderAndASecondFromTheSameRiderReplacesTheFirst() {
+        val relay = ConvoyRelay()
+
+        relay.onFrame(breakRequestFrame("bob", lat = 51.0, lon = 4.0))
+        relay.onFrame(breakRequestFrame("ada", lat = 50.0, lon = 3.0))
+        relay.onFrame(breakRequestFrame("bob", lat = 51.5, lon = 4.5))
+
+        val requests = relay.breakRequests.value
+        assertEquals(setOf(RiderId("bob"), RiderId("ada")), requests.keys)
+        assertEquals(LatLon(51.5, 4.5), requests.getValue(RiderId("bob")).location)
+    }
+
+    @Test
+    fun aNewPinReplacesTheOldOneAndAClearRemovesIt() {
+        val relay = ConvoyRelay()
+
+        relay.onFrame(regroupPinFrame("host", label = "First"))
+        relay.onFrame(regroupPinFrame("host", lat = 50.8, lon = 3.65, label = "Second"))
+        assertEquals(RegroupPin(LatLon(50.8, 3.65), "Second", RiderId("host")), relay.regroupPin.value)
+
+        relay.onFrame(regroupPinClearFrame("host"))
+        assertNull(relay.regroupPin.value)
+    }
+
+    @Test
+    fun aRiderLeavingTheSocketKeepsTheirBreakRequest() {
+        val relay = ConvoyRelay()
+        relay.onFrame(breakRequestFrame("bob"))
+
+        // `left` is a dropped socket as often as a departure - a rider who
+        // asked for a break and then rode into a dead zone still wants one.
+        relay.onFrame("""{"type":"left","user":"bob"}""")
+
+        assertTrue(relay.breakRequests.value.containsKey(RiderId("bob")))
+    }
+
+    @Test
+    fun sendingABreakRequestRecordsItLocallyAndSendsItToTheConvoy() = testBody {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        relay.sendBreakRequest(RiderId("me"), LatLon(51.0, 4.0), nowMs = 1_000L)
+
+        assertEquals(BreakRequest(RiderId("me"), LatLon(51.0, 4.0), receivedAtMs = 1_000L),
+            relay.breakRequests.value[RiderId("me")])
+        assertEquals(RelayProtocol.buildBreakRequest("convoy-1", LatLon(51.0, 4.0)), socket.sent.last())
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun breakAndRegroupSendsDoNothingOutsideAConvoy() {
+        val relay = ConvoyRelay()
+
+        relay.sendBreakRequest(RiderId("me"), LatLon(51.0, 4.0), nowMs = 1_000L)
+        relay.sendRegroupPin(RiderId("me"), LatLon(51.0, 4.0), "Fuel")
+
+        assertTrue(relay.breakRequests.value.isEmpty())
+        assertNull(relay.regroupPin.value)
+    }
+
+    @Test
+    fun theHostsOwnPinShowsLocallyAndItsClearRemovesIt() = testBody {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        relay.sendRegroupPin(RiderId("host"), LatLon(50.75, 3.6), "  Fuel  ")
+        assertEquals(RegroupPin(LatLon(50.75, 3.6), "Fuel", RiderId("host")), relay.regroupPin.value)
+        assertEquals(RelayProtocol.buildRegroupPin("convoy-1", LatLon(50.75, 3.6), "Fuel"), socket.sent.last())
+
+        relay.sendRegroupPinClear()
+        assertNull(relay.regroupPin.value)
+        assertEquals(RelayProtocol.buildRegroupPinClear("convoy-1"), socket.sent.last())
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun leavingTheConvoyClearsBreakRequestsAndThePin() {
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        relay.onFrame(breakRequestFrame("bob"))
+        relay.onFrame(regroupPinFrame("host"))
+
+        relay.setConvoy(null)
+
+        assertTrue(relay.breakRequests.value.isEmpty())
+        assertNull(relay.regroupPin.value)
+    }
+
+    @Test
+    fun switchingConvoysClearsTheOldConvoysBreakRequestsAndPin() {
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        relay.onFrame(breakRequestFrame("bob"))
+        relay.onFrame(regroupPinFrame("host"))
+
+        relay.setConvoy("convoy-2")
+
+        assertTrue(relay.breakRequests.value.isEmpty())
+        assertNull(relay.regroupPin.value)
+    }
+
+    @Test
+    fun aReconnectDropsThePinUntilTheRelayReplaysItAndKeepsBreakRequests() = testBody {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        socket.push(breakRequestFrame("bob"))
+        socket.push(regroupPinFrame("host", label = "Old"))
+        relay.regroupPin.first { it != null }
+
+        socket.close()
+        // The pin is dropped before the backoff, so by the second connect it
+        // is gone: whatever the host did while this device was away, the
+        // stale pin must not be what the rider sees.
+        socket.connectCount.first { it >= 2 }
+        assertNull(relay.regroupPin.value)
+        assertTrue(relay.breakRequests.value.containsKey(RiderId("bob")))
+
+        socket.push(joinedFrame())
+        socket.push(regroupPinFrame("host", label = "New"))
+        assertEquals("New", relay.regroupPin.first { it != null }?.label)
+
+        relay.stop()
+        job.join()
     }
 }

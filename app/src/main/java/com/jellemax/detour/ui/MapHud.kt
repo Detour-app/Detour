@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,13 +31,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.jellemax.detour.R
 import com.jellemax.detour.audio.PushToTalk
+import com.jellemax.detour.data.SpeedCameras
+import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.presentation.SpeedHudState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -233,3 +240,65 @@ internal fun Obd2SignalLostLabel(lost: Boolean) {
     )
 }
 
+
+/** What the camera banner leaves free at the end while not navigating: the top
+ *  chrome's 40 dp rail buttons plus an 8 dp gap. Both sit inside the same 12 dp
+ *  screen padding, so this is all the banner has to add to stay off the rail. */
+private val CAMERA_BANNER_RAIL_CLEARANCE = 48.dp
+
+/** The camera a warning was given for, and the distance left to it, under the
+ *  navigation banner while it is still ahead (#549). [countdown] is
+ *  `CameraWarner.Step.countdown`, so the banner appears with the chime and goes
+ *  once the camera is passed or out of reach; the decision is all CameraWarner's.
+ *  Worded from the camera kind rather than from `Countdown.text`, which is the
+ *  English sentence the voice speaks.
+ *
+ *  [navigating]: under the navigation banner it takes the gap the speed island
+ *  takes; idle, the top chrome's rail is beside it instead, so it keeps clear. */
+@Composable
+internal fun CameraBanner(countdown: CameraWarner.Countdown, navigating: Boolean) {
+    val label = when (countdown.kind) {
+        SpeedCameras.CameraKind.SPEED -> R.string.map_camera_banner_speed
+        SpeedCameras.CameraKind.RED_LIGHT -> R.string.map_camera_banner_red_light
+        SpeedCameras.CameraKind.COMBINED -> R.string.map_camera_banner_combined
+    }
+    val icon = if (countdown.kind == SpeedCameras.CameraKind.SPEED) R.drawable.ic_map_camera
+        else R.drawable.ic_map_camera_redlight
+    Card(
+        modifier = Modifier
+            .padding(
+                top = if (navigating) 10.dp else 0.dp,
+                end = if (navigating) 0.dp else CAMERA_BANNER_RAIL_CLEARANCE,
+            )
+            .glassBorder(MaterialTheme.shapes.extraLarge),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = glassCardColors(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The map marker's own drawable, untinted, so the banner and the
+            // marker it points at read as the same thing.
+            Icon(
+                painterResource(icon),
+                contentDescription = null,
+                tint = Color.Unspecified,
+                modifier = Modifier.size(28.dp),
+            )
+            Text(
+                formatDistanceKm(countdown.distanceMeters),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                stringResource(label),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
+        }
+    }
+}

@@ -99,6 +99,23 @@ final class TripRecorder: NSObject, ObservableObject {
     private var currentG = 1.0
     private var maxG = 1.0
 
+    /// Where this trip's peaks, hard events and stops happened (#444), folded
+    /// by the shared `MomentRecorder` from the shared detectors' outputs —
+    /// the same calls Android's `TripSession` makes. Everything here runs on
+    /// the main actor, so unlike Android's there is no lock.
+    private var moments = TripRecorder.freshMoments()
+    /// The latest trip fix's position — where a lean sample, which has no
+    /// position of its own, gets pinned. Nil until the trip's first fix, and
+    /// nothing is pinned before it.
+    private var here: LatLon?
+    private var speedEventState = HardEventDetector.SpeedState(lastSpeedMps: nil, lastFixMs: 0)
+    private var headingEventState = TripRecorder.freshHeadingState()
+    private var leanCorneringNow = false
+    private var stopState = TripRecorder.freshStopState()
+    private var hardBrakeCount: Int32 = 0
+    private var hardAccelCount: Int32 = 0
+    private var hardCornerCount: Int32 = 0
+
     private var previousLocation: CLLocation?
     private var destination: LatLon?
     private var startedAutomatically = false
@@ -142,6 +159,15 @@ final class TripRecorder: NSObject, ObservableObject {
         maxLeanDeg = 0
         maxG = 1.0
         segmentPeakLeanDeg = 0
+        moments = Self.freshMoments()
+        here = nil
+        speedEventState = HardEventDetector.SpeedState(lastSpeedMps: nil, lastFixMs: 0)
+        headingEventState = Self.freshHeadingState()
+        leanCorneringNow = false
+        stopState = Self.freshStopState()
+        hardBrakeCount = 0
+        hardAccelCount = 0
+        hardCornerCount = 0
 
         // Navigation-grade fixes, and the background mode that keeps them
         // coming with the screen off — the closest thing iOS has to Android's
@@ -192,20 +218,21 @@ final class TripRecorder: NSObject, ObservableObject {
             destinationLat: destination.map { KotlinDouble(value: $0.lat) },
             destinationLon: destination.map { KotlinDouble(value: $0.lon) },
             mode: finished.mode,
-            // Driving-behaviour stats (incl. OBD2) are Android-only; iOS records
-            // an empty set, same as a pre-feature trip. Every field is spelled
-            // out because Kotlin default arguments don't cross into Swift — the
-            // same reason this call passes maxLeanAngleDeg etc.
+            // Hard events and stops are counted here, so they agree with the
+            // pins in `moments`; speeding, road types, twistiness and OBD2 are
+            // Android-only and record zero, same as a pre-feature trip. Every
+            // field is spelled out because Kotlin default arguments don't cross
+            // into Swift — the same reason this call passes maxLeanAngleDeg etc.
             drivingStats: DrivingStats(
-                hardBrakeCount: 0,
-                hardAccelCount: 0,
-                hardCornerCount: 0,
+                hardBrakeCount: hardBrakeCount,
+                hardAccelCount: hardAccelCount,
+                hardCornerCount: hardCornerCount,
                 secondsOverLimit: 0,
                 pctOverLimit: 0.0,
                 roadTypeMeters: [:],
                 twistinessScore: 0.0,
-                stopCount: 0,
-                idleMs: 0,
+                stopCount: stopState.stopCount,
+                idleMs: stopState.idleMs,
                 obd2SpeedPct: 0.0,
                 maxRpm: 0.0,
                 maxThrottlePct: 0.0,
@@ -215,11 +242,12 @@ final class TripRecorder: NSObject, ObservableObject {
                 fuelSampledMeters: 0,
                 fuelEstimated: false
             ),
-            // Where peaks, hard events and stops happened (#444) is recorded on
-            // Android only; empty here, same as a trip saved before it existed.
-            moments: TripMoments(topSpeed: nil, maxLean: nil, maxG: nil, events: [], stops: []),
+            // Where peaks, hard events and stops happened (#444). No max-g pin:
+            // see the gForceGravityFree line below.
+            moments: moments.moments,
             // This recorder still reads raw acceleration, gravity included
-            // (#478 fixed Android only), so its max g isn't one to show.
+            // (#478 fixed Android only), so its max g isn't one to show — and
+            // isn't folded into `moments` either.
             gForceGravityFree: false,
             // What started the trip (#472) is recorded on Android only.
             startedBy: nil,
@@ -306,9 +334,16 @@ final class TripRecorder: NSObject, ObservableObject {
                 current.distanceMeters += step
             }
         }
+        let p = LatLon(lat: location.coordinate.latitude, lon: location.coordinate.longitude)
+        let fixMs = Int64(location.timestamp.timeIntervalSince1970 * 1000)
+        here = p
+        moments = MomentRecorder.shared.onSpeed(state: moments, at: p, timeMs: fixMs, speedMps: speed)
+        detectHardEvents(location, mode: current.mode, at: p, fixMs: fixMs)
+
         current.durationMs = nowMs() - current.startTimeMs
         current.currentSpeedMps = speed
-        current.topSpeedMps = max(current.topSpeedMps, speed)
+        // Spike-filtered (#428), so the stat and its pin are one number.
+        current.topSpeedMps = moments.moments.topSpeed?.value ?? 0
         current.currentLeanAngleDeg = currentLeanDeg
         current.maxLeanAngleDeg = maxLeanDeg
         current.currentGForce = currentG
@@ -343,6 +378,58 @@ final class TripRecorder: NSObject, ObservableObject {
                   let since = movingSinceMs,
                   nowMs() - since > Self.stationaryEndMs {
             endTrip()
+        }
+    }
+
+    /// Hard brakes, accelerations and car corners, and mid-trip stops, each
+    /// counted and pinned where it happened. Mirrors Android's
+    /// `TripTrackingService.detectHardEvents`, gates included.
+    private func detectHardEvents(_ location: CLLocation, mode: TravelMode, at p: LatLon, fixMs: Int64) {
+        // CoreLocation's -1 is "no speed measured". A made-up 0 must not read
+        // as a hard brake or open a stop, so those detectors skip the fix.
+        let speedIsReal = location.speed >= 0
+        // A bike or a walk decelerating normally is not a vehicle's hard brake.
+        if mode.tracksGForce {
+            if speedIsReal {
+                let result = HardEventDetector.shared.onSpeedFix(
+                    state: speedEventState, speedMps: location.speed, fixMs: fixMs)
+                speedEventState = result.state
+                var kind: RidingEventKind?
+                if result.hardBrake {
+                    hardBrakeCount += 1
+                    kind = .hardBrake
+                } else if result.hardAccel {
+                    hardAccelCount += 1
+                    kind = .hardAccel
+                }
+                if let kind {
+                    moments = MomentRecorder.shared.onEvent(
+                        state: moments, kind: kind, at: p, timeMs: fixMs, magnitude: result.accelMps2)
+                }
+            }
+            // -1 is "no course"; a moto's corners come from lean instead.
+            if mode == .car, location.course >= 0 {
+                let turn = HardEventDetector.shared.onHeadingFix(
+                    state: headingEventState, headingDeg: location.course,
+                    speedMps: max(0, location.speed), fixMs: fixMs)
+                if let next = turn.first {
+                    let newEvent = turn.second?.boolValue ?? false
+                    headingEventState = next
+                    if newEvent { hardCornerCount += 1 }
+                    let sample = RidingEvent(
+                        kind: .hardCornerTurn, at: p, timeMs: next.lastFixMs, magnitude: next.rateDegPerSec)
+                    moments = MomentRecorder.shared.onCorner(
+                        state: moments, cornering: next.corneringNow, newEvent: newEvent, sample: sample)
+                }
+            }
+        }
+        // Stops mean something in every mode.
+        if speedIsReal {
+            let before = stopState
+            let after = StopDetector.shared.onFix(state: before, speedMps: location.speed, fixMs: fixMs)
+            stopState = after
+            moments = MomentRecorder.shared.onStopFix(
+                state: moments, before: before, after: after, at: p, fixMs: fixMs)
         }
     }
 
@@ -434,8 +521,14 @@ final class TripRecorder: NSObject, ObservableObject {
         let offset = Double(SettingsValues.shared.leanOffsetDeg)
         let rawLean = data.attitude.roll * 180 / .pi - offset
         guard abs(rawLean) <= Self.maxPlausibleLeanDeg else { return }
-        // Parked and being picked up is not leaning.
-        guard (stats?.currentSpeedMps ?? 0) >= Self.minLeanSpeedMps else { return }
+        // Parked and being picked up is not leaning. Upright as well, the
+        // corner latch drops here: `recordLean` won't run to clear it, and a
+        // corner that bled off speed while leaned would otherwise swallow the
+        // next one. Same as Android's `TripTrackingService.recordLean`.
+        guard (stats?.currentSpeedMps ?? 0) >= Self.minLeanSpeedMps else {
+            if abs(rawLean) < HardEventDetector.shared.HARD_CORNER_LEAN_DEG { leanCorneringNow = false }
+            return
+        }
 
         // Slew gate first, EMA second: the EMA only damps a spike, it does not
         // reject one, and a phone knocked off its mount is a spike.
@@ -445,6 +538,7 @@ final class TripRecorder: NSObject, ObservableObject {
             if abs(currentLeanDeg) > abs(segmentPeakLeanDeg) {
                 segmentPeakLeanDeg = currentLeanDeg
             }
+            if leanTracked { recordLean(currentLeanDeg) }
         }
 
         let a = data.userAcceleration
@@ -455,6 +549,42 @@ final class TripRecorder: NSObject, ObservableObject {
             currentG += Self.gEmaAlpha * (rawG - currentG)
             if currentG <= Self.maxPlausibleG { maxG = max(maxG, currentG) }
         }
+    }
+
+    /// A lean sample that cleared the plausibility, speed and slew gates: pins
+    /// the deepest lean and counts and pins lean corners. Android's
+    /// `TripSession.recordLean`.
+    private func recordLean(_ deg: Double) {
+        let now = nowMs()
+        let corner = HardEventDetector.shared.onLeanSample(corneringNow: leanCorneringNow, leanDeg: deg)
+        let cornering = corner.first?.boolValue ?? false
+        let newEvent = corner.second?.boolValue ?? false
+        leanCorneringNow = cornering
+        if newEvent { hardCornerCount += 1 }
+        guard let p = here else { return }
+        moments = MomentRecorder.shared.onLean(state: moments, at: p, timeMs: now, leanDeg: deg)
+        let sample = RidingEvent(kind: .hardCornerLean, at: p, timeMs: now, magnitude: deg)
+        moments = MomentRecorder.shared.onCorner(
+            state: moments, cornering: cornering, newEvent: newEvent, sample: sample)
+    }
+
+    /// Kotlin default arguments don't cross into Swift, so each fresh state
+    /// spells out the defaults its Kotlin `State()` has.
+    private static func freshMoments() -> MomentRecorder.State {
+        MomentRecorder.State(
+            moments: TripMoments(topSpeed: nil, maxLean: nil, maxG: nil, events: [], stops: []),
+            stopAt: nil,
+            openCorner: nil,
+            recentSpeeds: []
+        )
+    }
+
+    private static func freshHeadingState() -> HardEventDetector.HeadingState {
+        HardEventDetector.HeadingState(lastHeadingDeg: nil, lastFixMs: 0, corneringNow: false, rateDegPerSec: 0)
+    }
+
+    private static func freshStopState() -> StopDetector.State {
+        StopDetector.State(candidateSince: nil, stopCount: 0, idleMs: 0, hasMoved: false)
     }
 
     /// The automotive hint that opens a probe window. Android gets this from

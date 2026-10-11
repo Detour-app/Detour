@@ -2,10 +2,12 @@ package com.jellemax.detour.drive
 
 import com.jellemax.detour.data.AudioChunkWatcher
 import com.jellemax.detour.data.BoolWatcher
+import com.jellemax.detour.data.BreakRequestsWatcher
 import com.jellemax.detour.data.FriendPositionsWatcher
 import com.jellemax.detour.data.GroupSpinWatcher
 import com.jellemax.detour.data.OptionalStringWatcher
 import com.jellemax.detour.data.PlaceEventWatcher
+import com.jellemax.detour.data.RegroupPinWatcher
 import com.jellemax.detour.data.SpinVotesWatcher
 import com.jellemax.detour.data.StringSetWatcher
 
@@ -35,6 +37,8 @@ class ConvoyRelayWatchers(private val relay: ConvoyRelay) {
     fun talking() = StringSetWatcher(relay.talking)
     fun spinOffer() = GroupSpinWatcher(relay.spinOffer)
     fun spinVotes() = SpinVotesWatcher(relay.spinVotes)
+    fun breakRequests() = BreakRequestsWatcher(relay.breakRequests)
+    fun regroupPin() = RegroupPinWatcher(relay.regroupPin)
     fun lastError() = OptionalStringWatcher(relay.lastError)
     fun audioChunks() = AudioChunkWatcher(relay.audioChunks)
     fun placeEvents() = PlaceEventWatcher(relay.placeEvents)
