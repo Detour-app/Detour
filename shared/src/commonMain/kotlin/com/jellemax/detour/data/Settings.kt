@@ -1,6 +1,7 @@
 package com.jellemax.detour.data
 
 import com.jellemax.detour.drive.FuelType
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonElement
@@ -60,6 +61,7 @@ object Settings {
      *  there is what stops the install being written out four times. */
     const val PREFS_NAME = "settings"
     const val PERF_TRACING_KEY = "perf_tracing"
+    private const val SHARE_FOG_PENDING_KEY = "share_fog_pending"
 
     private var store: Prefs? = null
     private val prefs: Prefs get() = store ?: error("Settings.init() not called")
@@ -651,9 +653,35 @@ object Settings {
         prefs.put("loop_minutes", value)
     }
 
+    /** Bumped by every [setShareFog] in this process. [SyncClient.sync] reads
+     *  it before the upload and again after the response: a change means the
+     *  rider toggled mid-flight, and that choice is newer than the server's.
+     *  Read before [shareFog] and [shareFogPending], so a toggle landing
+     *  between the reads counts as mid-flight rather than as uploaded. */
+    @Volatile
+    private var shareFogEdits = 0
+
+    /** The rider's toggle. Marks the choice for upload: only a device whose
+     *  rider changed it sends `shareFog`, so another device's stale local
+     *  copy, or a fresh install's default, can't overwrite it (#689). */
     fun setShareFog(value: Boolean) {
         _shareFog.value = value
         prefs.put("share_fog", value)
+        prefs.put(SHARE_FOG_PENDING_KEY, true)
+        shareFogEdits++
+    }
+
+    fun shareFogEdits(): Int = shareFogEdits
+
+    /** True from a toggle until a sync brings the server's value back. */
+    fun shareFogPending(): Boolean = prefs.bool(SHARE_FOG_PENDING_KEY, false)
+
+    /** The account's value from a sync response. Not a rider choice, so it
+     *  clears the pending upload instead of setting it. */
+    fun adoptServerShareFog(value: Boolean) {
+        _shareFog.value = value
+        prefs.put("share_fog", value)
+        prefs.put(SHARE_FOG_PENDING_KEY, false)
     }
 
     fun setPerfTracing(value: Boolean) {
