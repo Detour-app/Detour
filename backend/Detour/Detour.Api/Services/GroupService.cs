@@ -126,7 +126,7 @@ public class GroupService(
             return Result.Ok("Declined");
         }
 
-        var result = membership.Accept();
+        var result = group.Accept(membership);
         return result.IsFailure ? result : Result.Ok(GroupMemberStatus.Accepted.Wire());
     }
 
