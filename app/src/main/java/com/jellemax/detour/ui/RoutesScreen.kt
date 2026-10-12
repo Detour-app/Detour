@@ -76,6 +76,7 @@ import com.jellemax.detour.data.RouteShare
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.SavedSpins
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.RouteCard
 import com.jellemax.detour.presentation.RoutesPresenter
@@ -212,13 +213,20 @@ fun RoutesScreen(
         }
     }
 
+    val loopRide = rememberSavedLoopRide(onStatus = { status = it }, onRide = onNavigate)
+
     fun navigate(route: SavedRoute) {
+        // A saved spin loop rides in-app through its stops (#589).
+        if (SavedSpins.isLoop(route)) {
+            loopRide.start(route)
+            return
+        }
         // Two stops (the common A-to-B case) keep the whole route through the
         // in-app path; more than that and the middle stops only survive a
         // hand-off to an external maps app — see navigateStopsExternally. The
         // predicate is shared with the card's action label so the pill cannot
         // say "Ride" for a tap that leaves the app.
-        if (routeOpensExternally(route.stops.size)) {
+        if (routeOpensExternally(route)) {
             status = navigateStopsExternally(context, route.stops, route.mode)
         } else {
             seedRouteNavigation(route)
@@ -376,6 +384,7 @@ fun RoutesScreen(
         }
     }
 
+    SavedLoopJoinDialog(loopRide)
     renaming?.let { route ->
         RenameRouteDialog(
             initial = route.name,
