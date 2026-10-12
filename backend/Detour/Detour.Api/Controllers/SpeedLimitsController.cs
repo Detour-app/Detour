@@ -19,11 +19,12 @@ namespace Detour.Api.Controllers;
 [AllowAnonymous]
 public class SpeedLimitsController(ISpeedLimitWayRepository repository) : ControllerBase
 {
-    /// <summary>Same reasoning and same value as <c>CamerasController.MaxSpanDegrees</c>: larger
-    /// than the ~0.03° span <c>RoadRoulette.SPEED_PREFETCH_RADIUS_M</c> ever requests, small
-    /// enough that an unauthenticated, lightly-rate-limited caller cannot force the whole table
-    /// to materialize and serialize in one request.</summary>
-    private const double MaxSpanDegrees = 2.0;
+    /// <summary>Same reasoning as <c>CamerasController.MaxSpanDegrees</c>, tighter value (#691):
+    /// this table holds every limited way in the region, so a 2° box was most of a country per
+    /// request. 0.25° is still about three times the widest span
+    /// <c>RoadRoulette.SPEED_PREFETCH_RADIUS_M</c> ever requests (1.5 km radius: 0.027° of
+    /// latitude, 0.08° of longitude at 70°N).</summary>
+    private const double MaxSpanDegrees = 0.25;
 
     [HttpGet]
     [EndpointSummary("Drivable ways with a posted speed limit whose bounding box overlaps the query box.")]
