@@ -36,11 +36,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-/** How often the traffic loop wakes. Not how often HERE is asked — that is
- *  [TrafficCorridor]'s TTLs — but how soon the delay follows the rider down
- *  the route, and how soon a reroute's new road is asked about. */
-private const val TRAFFIC_TICK_MS = 15_000L
-
 /**
  * HERE traffic on the phone's map while navigating (#645): the loop that asks,
  * and the push of what it got onto the map. The banner is [TrafficBanner]; the
@@ -91,7 +86,7 @@ internal fun MapTraffic(s: MapScreenState, retained: RetainedMap, mapOverlays: M
                 retained.traffic = withContext(Dispatchers.Default) {
                     trafficOnRoute(corridor, ahead, System.currentTimeMillis())
                 }
-                delay(TRAFFIC_TICK_MS)
+                delay(TrafficRound.TICK_MS)
             }
         }
     }

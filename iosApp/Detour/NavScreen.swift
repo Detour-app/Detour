@@ -304,7 +304,7 @@ final class NavModel: ObservableObject {
     }
 
     /// The traffic loop: one `TrafficHolder.tick` every
-    /// `trafficTickSeconds` until the task is cancelled. Not how often HERE
+    /// `TrafficRound.TICK_MS` until the task is cancelled. Not how often HERE
     /// is asked — that is `TrafficCorridor`'s TTLs in `:shared` — but how soon
     /// the delay follows the rider down the route. No key, no requests, and
     /// the layer is cleared.
@@ -317,7 +317,7 @@ final class NavModel: ObservableObject {
             let next = try? await trafficHolder.tick(key: trafficKey, route: route, progress: progress)
             if Task.isCancelled { return }
             traffic = next
-            try? await Task.sleep(nanoseconds: trafficTickSeconds * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(TrafficRound.shared.TICK_MS) * 1_000_000)
         }
     }
 
@@ -370,9 +370,6 @@ final class NavModel: ObservableObject {
         if SettingsValues.shared.voiceGuidance { voice.speak(text) }
     }
 }
-
-/// How often the traffic loop wakes — the phone's `TRAFFIC_TICK_MS`.
-private let trafficTickSeconds: UInt64 = 15
 
 /// Distance as the banner shows it — to 10 m up close, 100 m further out.
 private func displayDistance(_ meters: Double) -> String {

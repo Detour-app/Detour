@@ -12,7 +12,7 @@ import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.drive.FriendPosition
-import com.jellemax.detour.presentation.Congestion
+import com.jellemax.detour.presentation.CongestionColors
 import com.jellemax.detour.presentation.TrafficOnRoute
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -108,13 +108,6 @@ private const val CAMERA_ICON_SCALE = 2
 // lands at roughly the GPS's own once a second. What glides between two cuts is
 // the tail (see [MapOverlays.setDrivenFraction]), which is two points.
 private const val DRIVEN_STEP_METERS = 12.0
-// Traffic over the route ahead (#645), by HERE's jam factor: the usual
-// orange-red-dark ladder, kept off the route palette's amber and blue.
-private val CONGESTION_HEX = mapOf(
-    Congestion.SLOW to "#F57C00",
-    Congestion.QUEUING to "#D32F2F",
-    Congestion.CLOSED to "#4A0D0D",
-)
 // Below this there is nothing worth drawing: a stub of driven line at the very
 // start of a route reads as a rendering glitch, not as progress.
 private const val DRIVEN_MIN_METERS = 20.0
@@ -491,7 +484,7 @@ class MapOverlays(
     fun setTraffic(traffic: TrafficOnRoute?) {
         setData(SRC_TRAFFIC_FLOW, FeatureCollection.fromFeatures(traffic?.runs.orEmpty().map { run ->
             Feature.fromGeometry(LineString.fromLngLats(run.points.map { Point.fromLngLat(it.lon, it.lat) }))
-                .apply { addStringProperty("color", CONGESTION_HEX.getValue(run.congestion)) }
+                .apply { addStringProperty("color", CongestionColors.hex(run.congestion)) }
         }))
         setData(SRC_TRAFFIC_INCIDENTS, FeatureCollection.fromFeatures(traffic?.incidents.orEmpty().map { incident ->
             Feature.fromGeometry(Point.fromLngLat(incident.at.lon, incident.at.lat))

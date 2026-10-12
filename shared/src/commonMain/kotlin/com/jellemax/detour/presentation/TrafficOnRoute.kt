@@ -19,6 +19,21 @@ import kotlin.math.roundToInt
  */
 enum class Congestion { SLOW, QUEUING, CLOSED }
 
+/**
+ * The colour each [Congestion] is drawn in, as `#RRGGBB`: the usual
+ * orange-red-dark ladder, kept off the route palette's amber and blue. Here
+ * rather than in each map so the phone, the head unit and the iPhone draw a
+ * jam in the same colour — [com.jellemax.detour.data.RouteColors]'s reason.
+ */
+object CongestionColors {
+
+    fun hex(congestion: Congestion): String = when (congestion) {
+        Congestion.SLOW -> "#F57C00"
+        Congestion.QUEUING -> "#D32F2F"
+        Congestion.CLOSED -> "#4A0D0D"
+    }
+}
+
 /** Consecutive route legs at one [congestion], as one line to draw. */
 data class CongestedRun(val points: List<LatLon>, val congestion: Congestion)
 

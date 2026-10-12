@@ -6,7 +6,6 @@ import com.jellemax.detour.drive.GroupSpin
 import com.jellemax.detour.drive.IncomingAudioChunk
 import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.drive.SectionAverageTracker
-import com.jellemax.detour.presentation.TrafficKeyStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -313,17 +312,6 @@ class AudioChunkWatcher internal constructor(
     private val flow: SharedFlow<IncomingAudioChunk>,
 ) : Watcher() {
     var value: IncomingAudioChunk? = null
-        private set
-
-    override suspend fun collect(onChange: () -> Unit) =
-        flow.collect { value = it; onChange() }
-}
-
-/** The HERE key section's status line (#654); see `TrafficKeyHolder`. */
-class TrafficKeyStatusWatcher internal constructor(
-    private val flow: StateFlow<TrafficKeyStatus>,
-) : Watcher() {
-    var value: TrafficKeyStatus = flow.value
         private set
 
     override suspend fun collect(onChange: () -> Unit) =

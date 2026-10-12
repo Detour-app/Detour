@@ -127,6 +127,13 @@ class TrafficOnRouteTest {
         assertTrue(ahead.first().lat > route[0].lat && ahead.first().lat < route[1].lat)
     }
 
+    @Test
+    fun everyCongestionLevelHasItsOwnColour() {
+        val hexes = Congestion.entries.map { CongestionColors.hex(it) }
+        assertTrue(hexes.all { Regex("#[0-9A-F]{6}").matches(it) }, "every level is #RRGGBB: $hexes")
+        assertEquals(hexes.size, hexes.toSet().size, "no two levels share a colour: $hexes")
+    }
+
     private fun progress(remainingTimeMs: Long, remainingMeters: Double = 1_500.0) = NavEngine.Progress(
         offRouteMeters = 0.0,
         snappedAt = route.first(),

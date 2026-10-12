@@ -1,43 +1,13 @@
-package com.jellemax.detour.drive
+package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.HereTrafficClient
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.RouteResult
-import com.jellemax.detour.data.TrafficKeyStatusWatcher
 import com.jellemax.detour.data.nowMs
-import com.jellemax.detour.presentation.TrafficKeyPresenter
-import com.jellemax.detour.presentation.TrafficOnRoute
-import com.jellemax.detour.presentation.routeAhead
-import com.jellemax.detour.presentation.trafficOnRoute
-import com.jellemax.detour.presentation.withTrafficDelay
+import com.jellemax.detour.drive.TrafficCorridor
+import com.jellemax.detour.drive.TrafficRound
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
-/**
- * The HERE key section's [TrafficKeyPresenter] for iOS Settings (#654).
- *
- * A holder rather than the presenter itself for [CameraPrefetchHolder]'s
- * reason: the presenter's constructor parameters are all defaulted (they are
- * commonTest's seams), and Kotlin/Native exports no defaulted constructor, so
- * Swift could not write `TrafficKeyPresenter()`. Its status is a
- * `StateFlow<TrafficKeyStatus>`, which Swift reads through [status].
- */
-class TrafficKeyHolder {
-
-    private val presenter = TrafficKeyPresenter()
-
-    /** The line under the field. Cancel it when the screen goes away. */
-    fun status() = TrafficKeyStatusWatcher(presenter.status)
-
-    /** See [TrafficKeyPresenter.test]. */
-    suspend fun test(key: String) = presenter.test(key)
-
-    /** See [TrafficKeyPresenter.edited]. */
-    fun edited() = presenter.edited()
-
-    /** See [TrafficKeyPresenter.remove]. */
-    fun remove() = presenter.remove()
-}
 
 /**
  * HERE traffic for the iOS nav screen (#654): the corridor state one nav
@@ -46,11 +16,13 @@ class TrafficKeyHolder {
  * Which tiles, how often and the backoff are [TrafficCorridor]'s, one round
  * is [TrafficRound]'s, and what to draw is [trafficOnRoute]'s — this only
  * holds the state between calls, the way the phone's `RetainedMap` does, and
- * picks the dispatcher. The caller owns the clock of the loop and the
- * conditions under which it runs at all (navigating, app in the foreground).
+ * picks the dispatcher. The caller owns the clock of the loop
+ * ([TrafficRound.TICK_MS]) and the conditions under which it runs at all
+ * (navigating, app in the foreground).
  *
  * Also a holder because [TrafficCorridor.State]'s constructor is defaulted,
- * which Swift cannot call.
+ * which Swift cannot call. Lives as long as one nav session, unlike the
+ * Settings screen's [TrafficKeyHolder].
  */
 class TrafficHolder {
 

@@ -22,6 +22,12 @@ import kotlinx.coroutines.coroutineScope
  */
 object TrafficRound {
 
+    /** How often a caller's traffic loop wakes, on every surface. Not how
+     *  often HERE is asked — that is [TrafficCorridor]'s TTLs — but how soon
+     *  the delay follows the rider down the route, and how soon a reroute's
+     *  new road is asked about. */
+    const val TICK_MS = 15_000L
+
     /**
      * Make whatever [TrafficCorridor.due] says is due for [route] and return
      * the state with the answers in. Nothing is asked when it says nothing is

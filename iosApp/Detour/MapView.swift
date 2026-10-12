@@ -188,8 +188,7 @@ struct MapView: UIViewRepresentable {
         static let drivenTitle = "driven"
 
         /// Marks a congested stretch, by level; the stroke colour is read back
-        /// from it. The phone's orange-red-dark ladder (#645), kept off the
-        /// route palette's amber and blue.
+        /// from it, and is `CongestionColors`' in `:shared`, as on the phone.
         static func congestionTitle(_ congestion: Congestion) -> String {
             switch congestion {
             case .closed: return "traffic-closed"
@@ -198,9 +197,9 @@ struct MapView: UIViewRepresentable {
             }
         }
         private static let congestionColors: [String: UIColor] = [
-            "traffic-slow": uiColor("#F57C00"),
-            "traffic-queuing": uiColor("#D32F2F"),
-            "traffic-closed": uiColor("#4A0D0D"),
+            "traffic-slow": uiColor(CongestionColors.shared.hex(congestion: .slow)),
+            "traffic-queuing": uiColor(CongestionColors.shared.hex(congestion: .queuing)),
+            "traffic-closed": uiColor(CongestionColors.shared.hex(congestion: .closed)),
         ]
 
         /// The first fix should centre the map; later ones must not yank it back
