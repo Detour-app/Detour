@@ -95,6 +95,18 @@ fun NavEngine.Progress.withTrafficDelay(traffic: TrafficOnRoute?): NavEngine.Pro
 
 private const val MS_PER_SECOND = 1000.0
 
+/**
+ * What is left of [line] from the rider on — the stretch [trafficOnRoute] and
+ * [TrafficRound][com.jellemax.detour.drive.TrafficRound] are asked about. All
+ * of it before the first fix, nothing with no route. One copy for the phone's
+ * map (#645) and the head unit (#653), so both ask HERE about the same road.
+ */
+fun routeAhead(line: List<LatLon>?, progress: NavEngine.Progress?): List<LatLon> {
+    if (line == null) return emptyList()
+    if (progress == null) return line
+    return NavEngine.cut(line, progress.drivenFraction).ahead
+}
+
 private fun congestionOf(leg: TrafficEta.MatchedLeg): Congestion? = when {
     leg.segment.closed -> Congestion.CLOSED
     leg.segment.jamFactor >= TrafficOnRoute.QUEUING_JAM_FACTOR -> Congestion.QUEUING

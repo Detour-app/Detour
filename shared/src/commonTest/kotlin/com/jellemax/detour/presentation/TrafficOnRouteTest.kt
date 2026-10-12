@@ -116,13 +116,24 @@ class TrafficOnRouteTest {
         assertSame(progress, progress.withTrafficDelay(null), "no traffic leaves the router's time alone")
     }
 
-    private fun progress(remainingTimeMs: Long) = NavEngine.Progress(
+    @Test
+    fun routeAheadIsTheLineFromTheRiderOn() {
+        assertEquals(emptyList(), routeAhead(null, null), "no route, nothing to ask about")
+        assertEquals(route, routeAhead(route, null), "before the first fix, all of it")
+        // A third driven: 1,000 m left of 1,500, so the cut lands on route[1].
+        val ahead = routeAhead(route, progress(remainingTimeMs = 0L, remainingMeters = 1_000.0))
+        assertEquals(route.drop(1), ahead.map { LatLon(round5(it.lat), round5(it.lon)) })
+    }
+
+    private fun round5(v: Double) = kotlin.math.round(v * 1e5) / 1e5
+
+    private fun progress(remainingTimeMs: Long, remainingMeters: Double = 1_500.0) = NavEngine.Progress(
         offRouteMeters = 0.0,
         snappedAt = route.first(),
         segmentBearingDeg = 0.0,
         nextInstruction = null,
         distanceToTurnMeters = 0.0,
-        remainingMeters = 1_500.0,
+        remainingMeters = remainingMeters,
         routeMeters = 1_500.0,
         remainingTimeMs = remainingTimeMs,
         speedLimitKmh = null,

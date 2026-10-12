@@ -115,7 +115,8 @@ class ArchitectureTest {
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
-            "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1006,
+            // +10: #653 traffic layers held and refilled on a replacement surface, as cameras are
+            "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1016,
         )
         assertUnderLimit(1000, pinned, files.associate { it.rel to it.text.count { c -> c == '\n' } })
     }
