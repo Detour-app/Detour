@@ -14,6 +14,7 @@ struct TripDetailScreen: View {
 
     @State private var route: [CLLocationCoordinate2D] = []
     @State private var routeLatLon: [LatLon] = []
+    @State private var insights: TripNumbers?
     @State private var cardDialogOpen = false
     @State private var cardShareURL: URL?
     @State private var cardShareSheetOpen = false
@@ -21,7 +22,8 @@ struct TripDetailScreen: View {
     var body: some View {
         List {
             Section {
-                MapView(center: route.first, destination: destination, route: route)
+                MapView(center: route.first, destination: destination, route: route,
+                        pins: highlights.map { MapPin(coordinate: $0.at, title: "\($0.label) · \($0.value)") })
                     .frame(height: 240)
                     .listRowInsets(EdgeInsets())
             }
@@ -43,6 +45,20 @@ struct TripDetailScreen: View {
                         row("Max g", formatGForce(trip.maxGForce))
                     }
                 }
+            }
+
+            if !highlights.isEmpty {
+                Section("Highlights") {
+                    ForEach(highlights, id: \.label) { row($0.label, $0.value) }
+                }
+            }
+
+            if let insights {
+                speedSection(insights)
+                if trip.mode.tracksLean, let lean = insights.lean {
+                    corneringSection(lean)
+                }
+                splitsSection(insights)
             }
 
             Section("When") {
@@ -70,7 +86,7 @@ struct TripDetailScreen: View {
                 ActivityView(activityItems: [url])
             }
         }
-        .task { loadRoute() }
+        .task { await loadRoute() }
     }
 
     private var destination: CLLocationCoordinate2D? {
@@ -79,21 +95,111 @@ struct TripDetailScreen: View {
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
     }
 
-    private func loadRoute() {
-        var points: [CLLocationCoordinate2D] = []
-        var latLons: [LatLon] = []
+    private func loadRoute() async {
+        var traced: [TraceStore.TracePoint] = []
         for line in TraceStore.shared.rawLines() {
             guard let parsed = TraceStore.shared.parsePoints(line: line) else { continue }
-            let inside = parsed.filter {
+            traced += parsed.filter {
                 $0.timeMs >= trip.startTimeMs && $0.timeMs <= trip.endTimeMs
             }
-            points += inside.map {
-                CLLocationCoordinate2D(latitude: $0.at.lat, longitude: $0.at.lon)
-            }
-            latLons += inside.map { $0.at }
         }
-        route = points
-        routeLatLon = latLons
+        route = traced.map { CLLocationCoordinate2D(latitude: $0.at.lat, longitude: $0.at.lon) }
+        routeLatLon = traced.map { $0.at }
+        // Splits score every split's curviness and the lean summary walks the
+        // whole trace — same reason Android builds these off the main thread.
+        let points = traced
+        insights = await Task.detached { TripNumbers(points: points) }.value
+    }
+
+    /// Where the trip's peaks and hardest events happened, from the moments the
+    /// recorder pinned live — the decimated trace can't place them. Which moments
+    /// qualify is `TripHighlightRules`, shared with Android's `tripHighlights`,
+    /// less the best stretch, which is a line rather than a pin. Empty for a trip
+    /// recorded on iOS until its recorder writes moments (#625).
+    private var highlights: [TripHighlight] {
+        let picks = TripHighlightRules.shared.picks(moments: trip.moments, tracksLean: trip.mode.tracksLean)
+        var out: [TripHighlight] = []
+        if let lean = picks.lean {
+            out.append(TripHighlight(label: "Deepest lean", value: leanSide(lean.value), at: lean.at))
+        }
+        if let corner = picks.corner {
+            out.append(TripHighlight(label: "Sharpest corner", value: eventValue(corner), at: corner.at))
+        }
+        if let brake = picks.brake {
+            out.append(TripHighlight(label: "Hardest braking", value: eventValue(brake), at: brake.at))
+        }
+        if let top = picks.topSpeed {
+            out.append(TripHighlight(label: "Top speed", value: formatSpeedKmh(top.value), at: top.at))
+        }
+        return out
+    }
+
+    private func speedSection(_ n: TripNumbers) -> some View {
+        let moving = n.speedBands.reduce(Int64(0)) { $0 + $1.ms }
+        return Section("Speed") {
+            if n.movingMs > 0 {
+                row("Moving time", formatDurationHistory(n.movingMs))
+                row("Moving average", formatSpeedKmh(trip.distanceMeters / (Double(n.movingMs) / 1000)))
+            }
+            ForEach(n.speedBands.filter { $0.ms > 0 }, id: \.fromKmh) { b in
+                shareRow(
+                    b.toKmh.map { "\(b.fromKmh)–\($0.intValue) km/h" } ?? "\(b.fromKmh)+ km/h",
+                    b.ms, of: moving)
+            }
+        }
+    }
+
+    private func corneringSection(_ lean: LeanSummary) -> some View {
+        let leaned = lean.leftMs + lean.rightMs
+        return Section("Cornering") {
+            row("Deepest left", formatLeanAngle(lean.maxLeftDeg))
+            row("Deepest right", formatLeanAngle(lean.maxRightDeg))
+            if leaned > 0 {
+                shareRow("Leaning left", lean.leftMs, of: leaned)
+                shareRow("Leaning right", lean.rightMs, of: leaned)
+                ForEach(lean.bands.filter { $0.ms > 0 }, id: \.fromDeg) { b in
+                    shareRow(b.toDeg.map { "\(b.fromDeg)–\($0.intValue)°" } ?? "\(b.fromDeg)°+", b.ms, of: leaned)
+                }
+            }
+        }
+    }
+
+    /// Untimed legacy traces give every split "0 min · 0 km/h", so those, and a
+    /// trip shorter than two splits, show no section at all — as on Android.
+    @ViewBuilder
+    private func splitsSection(_ n: TripNumbers) -> some View {
+        if n.splits.count >= 2, n.splits.contains(where: { $0.durationMs > 0 }) {
+            Section("Splits · every \(formatDistanceKm(TripInsights.shared.SPLIT_METERS))") {
+                ForEach(n.splits, id: \.index) { s in
+                    let range = "\(formatDistanceKm(s.startMeters))–\(formatDistanceKm(s.startMeters + s.distanceMeters))"
+                    let parts = [
+                        formatDurationHistory(s.durationMs),
+                        formatSpeedKmh(s.avgSpeedMps),
+                        s.maxLeanDeg.map { formatLeanAngle($0.doubleValue) },
+                        "twisty \(Int((s.twistiness * 100).rounded()))%",
+                    ].compactMap { $0 }
+                    let best = s.index == n.bestSplitIndex
+                    LabeledContent(best ? "\(range) · best" : range, value: parts.joined(separator: " · "))
+                        .fontWeight(best ? .bold : .regular)
+                }
+            }
+        }
+    }
+
+    /// Label, the time, and its share of `total` as a bar.
+    private func shareRow(_ label: String, _ ms: Int64, of total: Int64) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                Spacer()
+                // formatDurationHistory floors to whole minutes; "0 min" next
+                // to a bar reads as nothing, when it was seconds.
+                Text(ms > 0 && ms < 60_000 ? "<1 min" : formatDurationHistory(ms))
+                    .foregroundStyle(.secondary)
+            }
+            .font(.subheadline)
+            ProgressView(value: total > 0 ? min(1, Double(ms) / Double(total)) : 0)
+        }
     }
 
     /// Renders and shares the trip card PNG. `darkTheme: false` (hardcoded)
@@ -142,5 +248,55 @@ struct TripDetailScreen: View {
 
     private func row(_ label: String, _ value: String) -> some View {
         LabeledContent(label, value: value)
+    }
+}
+
+/// One pinned moment of a trip, listed and dropped on the map together.
+private struct TripHighlight {
+    let label: String
+    let value: String
+    let at: CLLocationCoordinate2D
+
+    init(label: String, value: String, at: LatLon) {
+        self.label = label
+        self.value = value
+        self.at = CLLocationCoordinate2D(latitude: at.lat, longitude: at.lon)
+    }
+}
+
+/// The trace-derived figures, computed together off the main thread so
+/// opening a trip walks the trace a fixed number of times.
+private struct TripNumbers {
+    let movingMs: Int64
+    let splits: [TripSplit]
+    let bestSplitIndex: Int32?
+    let speedBands: [SpeedBand]
+    let lean: LeanSummary?
+
+    init(points: [TraceStore.TracePoint]) {
+        let insights = TripInsights.shared
+        movingMs = insights.movingMs(points: points)
+        splits = insights.splits(points: points, splitMeters: insights.SPLIT_METERS)
+        bestSplitIndex = insights.bestSplit(splits: splits)?.index
+        speedBands = insights.speedBands(points: points)
+        lean = insights.lean(points: points)
+    }
+}
+
+/// "32° left" / "32° right" for a signed lean (negative is left).
+private func leanSide(_ deg: Double) -> String {
+    "\(formatLeanAngle(abs(deg))) \(deg < 0 ? "left" : "right")"
+}
+
+/// An event's strength in words: m/s² and °/s mean nothing to most riders.
+/// A lean angle is the one figure riders already read, so it stays a number.
+/// The rule is `TripHighlightRules.strength`; this only picks the words.
+private func eventValue(_ e: RidingEvent) -> String {
+    switch TripHighlightRules.shared.strength(e: e) {
+    case .lean: return leanSide(e.magnitude)
+    case .verySharp: return "very sharp"
+    case .sharp: return "sharp"
+    case .veryHard: return "very hard"
+    default: return "hard"
     }
 }
