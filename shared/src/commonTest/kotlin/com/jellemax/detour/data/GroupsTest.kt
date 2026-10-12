@@ -78,6 +78,38 @@ class GroupsTest {
     }
 
     @Test
+    fun group_parses_the_owner_as_a_rider_id() {
+        val json = buildJsonObject {
+            put("id", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c12")
+            put("name", "Ride")
+            put("status", "accepted")
+            put("ownerId", "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+            putJsonArray("members") {}
+        }
+
+        val group = groupFromJson(json, "convoy")
+
+        assertEquals(RiderId("3fa85f64-5717-4562-b3fc-2c963f66afa6"), group.ownerId)
+    }
+
+    @Test
+    fun group_from_a_server_without_an_owner_still_decodes_with_the_owner_unknown() {
+        val json = buildJsonObject {
+            put("id", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c12")
+            put("name", "Ride")
+            put("status", "accepted")
+            putJsonArray("members") {
+                addJsonObject { put("id", "bob-id"); put("username", "bob"); put("status", "accepted") }
+            }
+        }
+
+        val group = groupFromJson(json, "convoy")
+
+        assertEquals(null, group.ownerId)
+        assertEquals("bob", group.members.single().username)
+    }
+
+    @Test
     fun memberFixParsesEveryField() {
         val json = buildJsonObject {
             put("riderId", "alice")

@@ -7,11 +7,17 @@ namespace Detour.Api.Contracts;
 
 public record CreateGroupBody([Required] string Name);
 
+/// <summary>
+/// <c>ownerId</c> is the account that created the group. For a convoy that is the host, the one
+/// rider the relay takes a <c>regroup_pin</c> from and the only one who may mint an invite link,
+/// so a client reads it to decide which actions to offer (#676).
+/// </summary>
 public record GroupResponse(
     [Required] Guid Id,
     [Required] string Kind,
     [Required] string Name,
     [Required] string Status,
+    [Required] Guid OwnerId,
     [Required] IReadOnlyList<GroupMemberResponse> Members);
 
 /// <summary>
@@ -123,7 +129,8 @@ public static class GroupResponseMapper
             .ToList();
 
         var callerStatus = group.FindMember(callerId)?.Status.Wire() ?? GroupMemberStatus.Invited.Wire();
-        return new GroupResponse(group.Id, group.Kind.Wire(), group.Name, callerStatus, members);
+        return new GroupResponse(
+            group.Id, group.Kind.Wire(), group.Name, callerStatus, group.OwnerId, members);
     }
 }
 

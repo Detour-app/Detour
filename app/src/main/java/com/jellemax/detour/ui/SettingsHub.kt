@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
+import com.jellemax.detour.presentation.NavigationSummary
 import com.jellemax.detour.presentation.settingsHubStateFrom
 import com.jellemax.detour.update.InstalledNotes
 import com.jellemax.detour.update.UpdateAction
@@ -76,6 +77,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
     val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
     val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
     val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
+    val hereTrafficKey by Settings.hereTrafficKey.collectAsStateWithLifecycle()
     val manualCheck by UpdateChecker.lastManualCheck.collectAsStateWithLifecycle()
     // Collected, not read once: the transfer belongs to UpdateDownloadService
     // and keeps reporting while the rider is elsewhere, so the row has to
@@ -86,7 +88,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
     val hub = settingsHubStateFrom(
         themeName = theme.name,
         autoDetectDrives = autoDetect,
-        avoid = avoid,
+        navigation = NavigationSummary(avoid, trafficOn = hereTrafficKey.isNotEmpty()),
         fogRadiusMeters = fogRadius.toDouble(),
         externalDisplayEnabled = externalDisplayEnabled,
         authUsername = authUsername,

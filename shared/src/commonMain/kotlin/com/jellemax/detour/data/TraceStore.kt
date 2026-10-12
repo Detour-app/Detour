@@ -59,7 +59,7 @@ object TraceStore {
      * #82: MapScreen's `produceState` is keyed on [version], but a navigation
      * away and back disposes the composition, so the return re-read and
      * re-parsed the whole file for a version it had already parsed. #84 then
-     * added a second reader — the history screen's `readTraceSegments`, which
+     * added a second reader — the Logbook's `TripTraces.readSegments`, which
      * needs the per-point timestamps [loadAll]'s coords projection drops — that
      * had the same problem. Both go through [loadAllPoints] now; [loadAll]
      * projects its result and caches that projection so the fog path still hits

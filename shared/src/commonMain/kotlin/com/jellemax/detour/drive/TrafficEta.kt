@@ -65,19 +65,35 @@ object TrafficEta {
      * [route] is what is left of it, from the rider on; [routerSeconds] the
      * router's estimate for that same stretch.
      */
-    fun estimate(route: List<LatLon>, routerSeconds: Double, flow: List<FlowSegment>): Estimate {
-        val candidates = flow.filter { it.shape.size >= 2 }.map { Indexed(it) }
+    fun estimate(route: List<LatLon>, routerSeconds: Double, flow: List<FlowSegment>): Estimate =
+        estimateOf(matchedLegs(route, flow), routerSeconds)
+
+    /** [estimate], from legs [matchedLegs] already matched — so a caller that
+     *  also draws them matches the route once, not twice. */
+    fun estimateOf(legs: List<MatchedLeg>, routerSeconds: Double): Estimate {
         var delay = 0.0
         var matched = 0.0
         var closed = false
-        for ((a, b) in route.zipWithNext()) {
-            val length = RoadRoulette.distanceMeters(a, b)
-            val segment = (if (length > 0.0) matchOf(a, b, candidates) else null) ?: continue
-            matched += length
-            closed = closed || segment.closed
-            delay += delayOf(segment, length)
+        for (leg in legs) {
+            matched += leg.meters
+            closed = closed || leg.segment.closed
+            delay += delayOf(leg.segment, leg.meters)
         }
         return Estimate(routerSeconds + delay, delay, closed, matched)
+    }
+
+    /** One leg of the route and the flow segment it was matched to. */
+    data class MatchedLeg(val from: LatLon, val to: LatLon, val meters: Double, val segment: FlowSegment)
+
+    /** The legs of [route] some flow segment matches, in route order — the
+     *  matching [estimate] does, kept for whatever colours the route by it. */
+    fun matchedLegs(route: List<LatLon>, flow: List<FlowSegment>): List<MatchedLeg> {
+        val candidates = flow.filter { it.shape.size >= 2 }.map { Indexed(it) }
+        return route.zipWithNext().mapNotNull { (a, b) ->
+            val length = RoadRoulette.distanceMeters(a, b)
+            val segment = (if (length > 0.0) matchOf(a, b, candidates) else null) ?: return@mapNotNull null
+            MatchedLeg(a, b, length, segment)
+        }
     }
 
     /** Seconds [segment]'s traffic adds over [length] metres of it. None on

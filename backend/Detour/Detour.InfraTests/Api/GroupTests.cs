@@ -64,6 +64,27 @@ public class GroupTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Every_member_listing_a_convoy_sees_who_the_host_is()
+    {
+        // The phone hides host-only actions (Regroup here) from everyone else, so the
+        // list has to say who the host is to a member, not only to the host (#676).
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Befriend(alex, blake);
+        var convoy = await CreateConvoy(alex, "Sunday ride");
+        (await Invite(alex, convoy, blake.Username)).EnsureSuccessStatusCode();
+        (await Respond(blake, convoy, accept: true)).EnsureSuccessStatusCode();
+
+        convoy.GetProperty("ownerId").GetGuid().Should().Be(alex.UserId);
+        foreach (var rider in new[] { alex, blake })
+        {
+            var listed = await Convoys(rider);
+            listed.GetArrayLength().Should().Be(1);
+            listed[0].GetProperty("ownerId").GetGuid().Should().Be(alex.UserId);
+        }
+    }
+
+    [Fact]
     public async Task Only_a_friend_can_be_invited()
     {
         var alex = await _factory.SignInAsync();
@@ -495,6 +516,9 @@ public class GroupTests(PostgresFixture postgres) : IAsyncLifetime
 
     private static async Task<JsonElement> Circles(SignedInClient client) =>
         await (await client.GetAsync("/api/circles")).Content.ReadFromJsonAsync<JsonElement>();
+
+    private static async Task<JsonElement> Convoys(SignedInClient client) =>
+        await (await client.GetAsync("/api/convoys")).Content.ReadFromJsonAsync<JsonElement>();
 
     private static Task<HttpResponseMessage> ReportPosition(
         SignedInClient client, JsonElement circle, double latitude, double longitude) =>
