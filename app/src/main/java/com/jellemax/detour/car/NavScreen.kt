@@ -26,10 +26,13 @@ import androidx.car.app.navigation.model.Trip
 import androidx.car.app.versioning.CarAppApiLevels
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.jellemax.detour.R
 import com.jellemax.detour.audio.NavVoice
+import com.jellemax.detour.data.HereTrafficClient
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
@@ -44,9 +47,15 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.TrafficCorridor
+import com.jellemax.detour.drive.TrafficRound
 import com.jellemax.detour.drive.cameraWarnerOptions
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.RouteTileCache
+import com.jellemax.detour.presentation.TrafficOnRoute
+import com.jellemax.detour.presentation.routeAhead
+import com.jellemax.detour.presentation.trafficOnRoute
+import com.jellemax.detour.presentation.withTrafficDelay
 import com.jellemax.detour.tracking.DriveClock
 import com.jellemax.detour.tracking.DriveClocks
 import com.jellemax.detour.tracking.SectionAverageLog
@@ -54,6 +63,8 @@ import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
@@ -158,6 +169,16 @@ class NavScreen(
      *  than re-requested by every fix that lands while it is still running. */
     private var cameraFetchJob: Job? = null
 
+    /** HERE's per-tile cache, TTLs and backoff (#653), [TrafficCorridor]'s.
+     *  Per-screen, like the camera prefetch: a fresh navigation asks afresh. */
+    private var trafficCorridor = TrafficCorridor.State()
+    /** The key [trafficCorridor] was built for: a different one starts it
+     *  over, which is the corridor's only way out of a refused key. */
+    private var trafficKey: String? = null
+    /** What the map, the ETA and the trip text show of traffic; null with no
+     *  key, before the first answer, and once this screen stops. */
+    private var traffic: TrafficOnRoute? = null
+
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
@@ -222,6 +243,8 @@ class NavScreen(
                 // The map outlives this screen — hand it back to free drive
                 // without the finished route still drawn on it.
                 renderer.setRoute(null, null)
+                traffic = null
+                renderer.setTraffic(null)
             }
             override fun onDestroy(owner: LifecycleOwner) {
                 // Not renderer.destroy(): the session owns it.
@@ -249,6 +272,14 @@ class NavScreen(
                 } catch (e: Exception) {
                     Log.w(TAG, "nav update failed", e)
                 }
+            }
+        }
+        // HERE traffic (#653). STARTED, so a head unit that switched to another
+        // app — or a phone whose car session went away — stops asking on the
+        // rider's key; collectLatest, so a new key in Settings ends the old loop.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                Settings.hereTrafficKey.collectLatest { key -> runTraffic(key) }
             }
         }
     }
@@ -357,6 +388,72 @@ class NavScreen(
         }
     }
 
+    // ---- traffic ----------------------------------------------------------
+
+    /**
+     * The phone map's traffic loop (`ui/MapTraffic.kt`) on this screen's own
+     * route: which tiles and when is [TrafficCorridor]'s, one round is
+     * [TrafficRound]'s, what to draw is [trafficOnRoute]'s. Nothing is asked
+     * with no key, or once HERE refused it. Not keyed on [route] or
+     * [progress]: each round reads them, so a fix or a reroute does not
+     * restart the loop and its schedule.
+     *
+     * Network off the fix collector (checklist, Concurrency): a slow HERE
+     * answer holds up this loop, never [onFix].
+     */
+    private suspend fun runTraffic(key: String) {
+        if (trafficKey != key) {
+            trafficKey = key
+            trafficCorridor = TrafficCorridor.State()
+        }
+        val client = HereTrafficClient.forKey(key)
+        if (client == null) {
+            showTraffic(null)
+            return
+        }
+        while (true) {
+            val ahead = routeAhead(route.polyline, progress)
+            val held = trafficCorridor
+            val corridor = runCatching {
+                withContext(Dispatchers.IO) {
+                    // The rider's monthly budget (#637) is one count across the
+                    // phone's map and the head unit, so both spend from it.
+                    TrafficRound.run(held, client, ahead, navigating = true, nowMs = { System.currentTimeMillis() },
+                        spend = Settings::spendTrafficRequests)
+                }
+            }.onFailure {
+                if (it is CancellationException) throw it
+                Log.w(TAG, "traffic round failed", it)
+            }.getOrDefault(held)
+            trafficCorridor = corridor
+            showTraffic(withContext(Dispatchers.Default) {
+                trafficOnRoute(corridor, ahead, System.currentTimeMillis())
+            })
+            delay(TrafficRound.TICK_MS)
+        }
+    }
+
+    /** Puts [next] on the map, and on the ETA and trip text with the next
+     *  redraw — now, rather than on the next fix, which a car standing in the
+     *  queue being reported may be a while sending. */
+    private fun showTraffic(next: TrafficOnRoute?) {
+        traffic = next
+        renderer.setTraffic(next)
+        progress?.let {
+            pushTrip(it)
+            refreshTemplate(it)
+        }
+    }
+
+    /** "+7 min traffic" or "Road closed ahead": the phone's banner
+     *  (`ui/MapTraffic.kt`'s TrafficBanner) as words the trip card can carry.
+     *  Null when the phone would show no banner either. */
+    private fun trafficText(): String? {
+        val t = traffic ?: return null
+        if (t.closedAhead) return carContext.getString(R.string.map_traffic_closed)
+        return t.bannerDelayMinutes?.let { carContext.getString(R.string.map_traffic_delay, it) }
+    }
+
     // ---- voice ------------------------------------------------------------
 
     private fun speak(text: String) {
@@ -381,7 +478,10 @@ class NavScreen(
     private fun pushTrip(p: NavEngine.Progress) {
         if (!navigating) return
         val step = stepFor(p.nextInstruction, continueCue) ?: return
-        val remainingSec = ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
+        // The destination's time carries the traffic delay, as the phone's ETA
+        // does; the steps keep the router's pace, since the delay is spread
+        // over the next 20 km and not over the next turn.
+        val remainingSec = remainingSeconds(p.withTrafficDelay(traffic))
         val stepSec = secondsFor(p, p.distanceToTurnMeters)
         val trip = runCatching {
             val builder = Trip.Builder()
@@ -413,7 +513,8 @@ class NavScreen(
             append(p.nextInstruction?.text).append('|')
             append(displayMeters(p.distanceToTurnMeters)).append('|')
             append(displayMeters(p.remainingMeters)).append('|')
-            append((p.remainingTimeMs ?: 0L) / 60_000).append('|')
+            append((p.withTrafficDelay(traffic).remainingTimeMs ?: 0L) / 60_000).append('|')
+            append(trafficText()).append('|')
             // Part of the key, not just of the template: leaving the route has
             // to redraw even when nothing else moved, and a car stopped just
             // off the line moves none of the five values above.
@@ -513,9 +614,13 @@ class NavScreen(
             stepFor(p.nextNextInstruction, continueCue)?.let { info.setNextStep(it) }
             builder.setNavigationInfo(info.build())
         }
-        val remainingSec = ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
         builder.setDestinationTravelEstimate(
-            travelEstimate(p.remainingMeters, remainingSec, offRoute = offRoute(p)))
+            travelEstimate(
+                p.remainingMeters,
+                remainingSeconds(p.withTrafficDelay(traffic)),
+                offRoute = offRoute(p),
+                trafficText = trafficText(),
+            ))
         return builder.build()
     }
 
@@ -563,16 +668,21 @@ class NavScreen(
     private fun offRoute(p: NavEngine.Progress): Boolean =
         p.offRouteMeters > NavPolicy.OFF_ROUTE_METERS
 
+    private fun remainingSeconds(p: NavEngine.Progress): Long =
+        ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
+
     /**
      * [offRoute] defaults to false so [pushTrip]'s three call sites keep a
      * zero-line diff: those estimates go to the instrument cluster through
      * [NavigationManager.updateTrip], which is a fourth drawing surface and not
-     * part of this change.
+     * part of this change. [trafficText] likewise: the cluster gets the delayed
+     * time, not the words.
      */
     private fun travelEstimate(
         meters: Double,
         seconds: Long,
         offRoute: Boolean = false,
+        trafficText: String? = null,
     ): TravelEstimate {
         val builder = TravelEstimate
             .Builder(carDistance(meters), ZonedDateTime.now().plusSeconds(seconds))
@@ -592,6 +702,15 @@ class NavScreen(
             builder.setRemainingTimeColor(CarColor.RED)
             if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_5) {
                 builder.setTripText(CarText.create(carContext.getString(R.string.car_nav_off_route)))
+            }
+        } else if (trafficText != null) {
+            // Off route wins: the line the traffic was measured along is the
+            // one being left. Yellow, not red, so on a host too old for the
+            // words (same API 5 gate as above) a delay still never reads as
+            // "off route".
+            builder.setRemainingTimeColor(CarColor.YELLOW)
+            if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_5) {
+                builder.setTripText(CarText.create(trafficText))
             }
         }
         return builder.build()
