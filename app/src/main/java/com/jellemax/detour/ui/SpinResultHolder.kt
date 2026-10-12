@@ -63,6 +63,21 @@ internal object SpinResultHolder {
             candidates = emptyList(),
         )
     }
+
+    /** Set by [seedLoop], cleared by the first [takeOpenSheet]. */
+    private var openSheet = false
+
+    /** Seeds a routed loop with no destination, and asks the map to open the
+     *  spin sheet once: a loop's Go lives there, and a resting map would show
+     *  the line with nothing to press (#589). */
+    fun seedLoop(route: RouteResult) {
+        _state.value = SpinResult(route = route)
+        openSheet = true
+    }
+
+    /** Whether the map should open the spin sheet for a just-seeded loop.
+     *  One-shot, so a later return to the map leaves the sheet as the rider left it. */
+    fun takeOpenSheet(): Boolean = openSheet.also { openSheet = false }
 }
 
 /**
@@ -96,4 +111,16 @@ internal fun seedRouteNavigation(route: SavedRoute) {
             timeMs = route.timeMs,
         ),
     )
+}
+
+/**
+ * Hands a saved spin loop to the map already routed through its stops (#589),
+ * with no destination — the same shape a fresh loop spin leaves — so Go rides
+ * [routed]'s own turn instructions instead of re-fetching a two-point route
+ * that would drop every via point. [routed] comes from
+ * [com.jellemax.detour.data.SavedSpins.loopRoutingPoints], fetched by the caller.
+ */
+internal fun seedLoopNavigation(route: SavedRoute, routed: RouteResult) {
+    Settings.setTripMode(route.mode)
+    SpinResultHolder.seedLoop(routed)
 }
