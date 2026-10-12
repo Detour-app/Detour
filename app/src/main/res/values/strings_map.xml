@@ -148,4 +148,8 @@
     <string name="map_camera_banner_speed">Speed camera</string>
     <string name="map_camera_banner_red_light">Red-light camera</string>
     <string name="map_camera_banner_combined">Speed and red-light camera</string>
+    <!-- Traffic banner (#645): delay HERE puts on the route ahead, and a closure on it. -->
+    <string name="map_traffic_delay">+%1$d min traffic</string>
+    <string name="map_traffic_delay_label">on the route ahead</string>
+    <string name="map_traffic_closed">Road closed ahead</string>
 </resources>

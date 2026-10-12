@@ -6,14 +6,13 @@ import DetourShared
 /// too. Keeps the vehicle correction and delete that the sync server needs to
 /// hear about.
 ///
-/// No places yet: they come from matching trace segments to trips, which
-/// lives in Android's `HistoryScreen.kt`, not in `shared/`. Until it moves,
-/// iOS passes none, so titles fall back to the day and time, and the
-/// "new places" chip never shows.
+/// Places come from the shared `TripTraces`, which matches trace segments to
+/// trips the same way Android does (#669).
 struct HistoryScreen: View {
 
     @State private var trips: [Trip] = []
     @State private var titles: [KotlinLong: String] = [:]
+    @State private var places: [KotlinLong: [PlaceVisit]] = [:]
     @State private var milestones: [LogbookItemMilestone] = []
     @State private var filter: LogbookFilter = .all
     @State private var editing: Trip?
@@ -36,7 +35,7 @@ struct HistoryScreen: View {
                 }
             }
             .navigationTitle("Logbook")
-            .task { reload() }
+            .task { await reload() }
             .confirmationDialog(
                 "Which vehicle was this?",
                 isPresented: .constant(editing != nil),
@@ -54,7 +53,7 @@ struct HistoryScreen: View {
         let months = Logbook.shared.build(
             trips: trips,
             filter: filter,
-            places: [:],
+            places: places,
             editedTitles: titles,
             milestones: milestones
         )
@@ -109,26 +108,29 @@ struct HistoryScreen: View {
         }
     }
 
-    private func reload() {
-        trips = TripStore.shared.load()
-        titles = TripTitleStore.shared.load()
-        milestones = BadgeStore.shared.earned().compactMap { earned in
-            guard let def = earned.first, let at = earned.second else { return nil }
-            return LogbookItemMilestone(title: def.title, atMs: at.int64Value)
-        }
+    private func reload() async {
+        // Matching walks every trace point per trip and tests it against the
+        // municipalities, so it runs detached, like BadgesScreen's coverage.
+        let data = await Task.detached {
+            TripTraces.shared.loadLogbook(trips: TripStore.shared.load())
+        }.value
+        trips = data.trips
+        titles = data.titles
+        places = data.places
+        milestones = data.milestones
     }
 
     private func updateMode(_ trip: Trip, to mode: TravelMode) {
         TripStore.shared.updateMode(startTimeMs: trip.startTimeMs, mode: mode)
         editing = nil
-        reload()
+        Task { await reload() }
         // Push the correction so it survives a reinstall / other devices.
         Task { _ = try? await SyncClient.shared.sync() }
     }
 
     private func delete(_ trip: Trip) {
         TripStore.shared.delete(startTimeMs: trip.startTimeMs)
-        reload()
+        Task { await reload() }
         Task { _ = try? await SyncClient.shared.sync() }
     }
 }

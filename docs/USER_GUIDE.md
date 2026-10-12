@@ -224,6 +224,16 @@ is ahead and you're over the limit. Inside an average-speed section, the running
 average for that section is shown next to your live speed, since that is the
 number the camera pair actually judges.
 
+**Live traffic** (phone only, with your own HERE key — see
+[What leaves your device](#what-leaves-your-device)): while navigating, the next
+20 km of the route turns orange where traffic is slow, red where it is queuing
+and dark red where the road is closed; incidents on it get a warning triangle,
+closures a no-entry sign. A banner under the next maneuver says how many minutes
+traffic adds (from one minute up) or that the road ahead is closed, and the
+remaining time and arrival clock include that delay. The route itself still
+comes from GraphHopper — traffic never reroutes you. HERE is only asked while
+you navigate with the screen on, and at most once a minute per area.
+
 Navigation can avoid motorways or avoid narrow rural lanes — see
 [Settings reference](#settings-reference).
 
@@ -589,6 +599,15 @@ Detour also sends that point's exact coordinates to the same Photon. If you self
 instance only when yours is unreachable, and only if you leave "Fall back to
 public search" turned on; turn it off to keep search on your own hardware even
 when your instance is down.
+
+**Live traffic sends your route's area to HERE, with your own key.** Traffic is
+off until you paste a HERE API key into Settings → Navigation → HERE traffic and
+it passes **Test key**. From then on Detour asks HERE directly — never through
+your Detour server — so HERE sees your IP address, your key (which ties the
+requests to your HERE account) and the area along the route you are navigating.
+The test itself asks about a fixed spot in Brussels, not where you are. The key
+is kept in the phone's secure storage and is not synced, backed up or exported;
+**Remove key** turns traffic off again.
 
 **Android backup copies your trips to Google Drive.** Detour opts in to
 Android's automatic backup, so if backup is on for your phone, your trips and

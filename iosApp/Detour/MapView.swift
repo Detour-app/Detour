@@ -44,6 +44,11 @@ struct MapView: UIViewRepresentable {
     /// camera carries one, surfaces on tap rather than as an always-visible
     /// label.
     var cameras: [SpeedCameras.Camera] = []
+    /// HERE traffic over the route ahead (#654), from `TrafficOnRoute`: the
+    /// congested stretches, drawn over the route line in the congestion's
+    /// colour, and the incidents on it. Empty everywhere but `NavScreen`.
+    var congestion: [CongestedRun] = []
+    var incidents: [HereTrafficClient.Incident] = []
 
     func makeUIView(context: Context) -> MLNMapView {
         let view = MLNMapView(frame: .zero)
@@ -114,6 +119,13 @@ struct MapView: UIViewRepresentable {
             view.addAnnotation(pin)
         }
 
+        for incident in incidents {
+            let pin = MLNPointAnnotation()
+            pin.coordinate = CLLocationCoordinate2D(latitude: incident.at.lat, longitude: incident.at.lon)
+            pin.title = incident.roadClosed ? "Road closed" : "Traffic incident"
+            view.addAnnotation(pin)
+        }
+
         for (index, candidate) in candidates.enumerated() {
             let pin = MLNPointAnnotation()
             pin.coordinate = candidate
@@ -151,6 +163,14 @@ struct MapView: UIViewRepresentable {
                 line.title = Coordinator.drivenTitle
                 view.addAnnotation(line)
             }
+            // Traffic over the road ahead, after the route so it draws on top;
+            // only the road ahead is ever fed in, so none covers the driven part.
+            for run in congestion where run.points.count >= 2 {
+                var runCoords = run.points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+                let line = MLNPolyline(coordinates: &runCoords, count: UInt(runCoords.count))
+                line.title = Coordinator.congestionTitle(run.congestion)
+                view.addAnnotation(line)
+            }
             // Frame the whole route rather than the user, which is what you want
             // the moment a spin lands.
             view.setVisibleCoordinates(
@@ -166,6 +186,21 @@ struct MapView: UIViewRepresentable {
         /// Marks the driven overlay. A polyline annotation carries no identity
         /// of its own, and the delegate is handed nothing but the annotation.
         static let drivenTitle = "driven"
+
+        /// Marks a congested stretch, by level; the stroke colour is read back
+        /// from it, and is `CongestionColors`' in `:shared`, as on the phone.
+        static func congestionTitle(_ congestion: Congestion) -> String {
+            switch congestion {
+            case .closed: return "traffic-closed"
+            case .queuing: return "traffic-queuing"
+            default: return "traffic-slow"
+            }
+        }
+        private static let congestionColors: [String: UIColor] = [
+            "traffic-slow": uiColor(CongestionColors.shared.hex(congestion: .slow)),
+            "traffic-queuing": uiColor(CongestionColors.shared.hex(congestion: .queuing)),
+            "traffic-closed": uiColor(CongestionColors.shared.hex(congestion: .closed)),
+        ]
 
         /// The first fix should centre the map; later ones must not yank it back
         /// while the user is panning.
@@ -190,7 +225,8 @@ struct MapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, strokeColorForShapeAnnotation annotation: MLNShape) -> UIColor {
-            annotation.title == Coordinator.drivenTitle ? drivenColor : routeColor
+            if let title = annotation.title, let color = Coordinator.congestionColors[title] { return color }
+            return annotation.title == Coordinator.drivenTitle ? drivenColor : routeColor
         }
     }
 }

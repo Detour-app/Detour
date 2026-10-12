@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Closed-road marker (#645): the round no-entry sign - sign-red disc with
+     a white bar. Same 48-unit grid at 36dp as ic_map_camera, rasterised at
+     2x by MapOverlays. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="36dp"
+    android:height="36dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- drop shadow -->
+    <path
+        android:fillColor="#33000000"
+        android:pathData="M24,26m-20,0a20,20 0 1,1 40,0a20,20 0 1,1 -40,0" />
+    <!-- white rim -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M24,24m-20,0a20,20 0 1,1 40,0a20,20 0 1,1 -40,0" />
+    <!-- sign-red disc -->
+    <path
+        android:fillColor="#FFD8382B"
+        android:pathData="M24,24m-17.5,0a17.5,17.5 0 1,1 35,0a17.5,17.5 0 1,1 -35,0" />
+    <!-- white bar -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,21h24v6h-24z" />
+</vector>
