@@ -127,7 +127,11 @@ public class GroupService(
         }
 
         var result = membership.Accept();
-        return result.IsFailure ? result : Result.Ok(GroupMemberStatus.Accepted.Wire());
+        if (result.IsFailure)
+            return result;
+
+        group.FillVacantOwnership();
+        return Result.Ok(GroupMemberStatus.Accepted.Wire());
     }
 
     public async Task<Result> LeaveAsync(Guid callerId, Guid groupId, CancellationToken cancellationToken)

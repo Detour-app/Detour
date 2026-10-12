@@ -132,6 +132,51 @@ public class GroupTests
         convoy.ShouldBeDeletedWhenEmpty.Should().BeTrue();
         circle.ShouldBeDeletedWhenEmpty.Should().BeFalse();
     }
+
+    [Fact]
+    public void The_owner_leaving_hands_the_group_to_an_accepted_member_not_a_pending_invitee()
+    {
+        var ownerId = Guid.CreateVersion7();
+        var invitedId = Guid.CreateVersion7();
+        var guestId = Guid.CreateVersion7();
+        var (_, convoy) = Group.Create(GroupKind.Convoy, "Sunday ride", ownerId);
+        convoy.Invite(invitedId);
+        convoy.AdmitGuest(guestId);
+
+        convoy.RemoveMember(convoy.FindMember(ownerId)!);
+
+        convoy.OwnerId.Should().Be(guestId);
+    }
+
+    [Fact]
+    public void A_member_other_than_the_owner_leaving_keeps_the_owner()
+    {
+        var ownerId = Guid.CreateVersion7();
+        var guestId = Guid.CreateVersion7();
+        var (_, convoy) = Group.Create(GroupKind.Convoy, "Sunday ride", ownerId);
+        convoy.AdmitGuest(guestId);
+
+        convoy.RemoveMember(convoy.FindMember(guestId)!);
+
+        convoy.OwnerId.Should().Be(ownerId);
+    }
+
+    [Fact]
+    public void An_owner_who_left_only_invitees_behind_is_replaced_by_the_first_to_accept()
+    {
+        var ownerId = Guid.CreateVersion7();
+        var invitedId = Guid.CreateVersion7();
+        var (_, convoy) = Group.Create(GroupKind.Convoy, "Sunday ride", ownerId);
+        convoy.Invite(invitedId);
+
+        convoy.RemoveMember(convoy.FindMember(ownerId)!);
+        convoy.OwnerId.Should().Be(ownerId, "nobody accepted is left to take it");
+
+        convoy.FindMember(invitedId)!.Accept();
+        convoy.FillVacantOwnership();
+
+        convoy.OwnerId.Should().Be(invitedId);
+    }
 }
 
 public class GroupMemberTests

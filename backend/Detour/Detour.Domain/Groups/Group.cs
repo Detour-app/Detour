@@ -100,7 +100,37 @@ public sealed class Group : Entity, INamedEntity
 
     public bool IsAcceptedMember(Guid userId) => FindMember(userId)?.IsAccepted == true;
 
-    public void RemoveMember(GroupMember member) => _members.Remove(member);
+    /// <summary>
+    /// Drops a membership. When the owner goes and others ride on, the group passes to the
+    /// longest-standing accepted member: every host-only power (invite links, guest removal,
+    /// the regroup pin) checks <see cref="OwnerId"/>, so a departed owner would leave nobody
+    /// able to use them (#698).
+    /// </summary>
+    public void RemoveMember(GroupMember member)
+    {
+        _members.Remove(member);
+        if (member.UserId == OwnerId)
+            FillVacantOwnership();
+    }
+
+    /// <summary>
+    /// Hands ownership to the longest-standing accepted member if the owner is no longer one.
+    /// Called again when an invitation is accepted, because an owner who left a group of only
+    /// pending invitees had nobody to hand it to at the time.
+    /// </summary>
+    public void FillVacantOwnership()
+    {
+        if (IsAcceptedMember(OwnerId))
+            return;
+
+        var heir = _members
+            .Where(m => m.IsAccepted)
+            .OrderBy(m => m.JoinedAt)
+            .ThenBy(m => m.UserId)
+            .FirstOrDefault();
+        if (heir is not null)
+            OwnerId = heir.UserId;
+    }
 
     /// <summary>
     /// Read the kind's own policy rather than re-testing what it is. A convoy with nobody left
