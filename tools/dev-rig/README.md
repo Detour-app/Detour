@@ -41,7 +41,8 @@ It uses the canonical dev ports — API **7500**, GraphHopper **7510**, Postgres
 **7532** — so it cannot run at the same time as a `detour-dev` GraphHopper or an
 API started from your IDE. `up.sh` checks and says which one is in the way.
 Keycloak, Redis, Traefik and Grafana are not started: spin and navigation are
-anonymous.
+anonymous. For anything that needs a signed-in rider, see
+[Convoys and other signed-in features](#convoys-and-other-signed-in-features).
 
 ## What `point-emulator.sh` writes
 
@@ -124,6 +125,57 @@ Luxembourg's — budget as `docker/dev/README.md` describes.
 The extract is not refreshed on its own: Geofabrik republishes daily, and a new
 extract under an existing graph means a rebuild. Delete
 `docker/dev/data/rig/osm/region.osm.pbf` to fetch a fresh one.
+
+## Convoys and other signed-in features
+
+Convoys, the live relay and friends need real sign-ins, and a convoy needs a
+second rider. `auth-up.sh` adds Keycloak to a running rig; `convoy-rider.py`
+plays the second rider from a script, on the real `/api/live` socket, so the
+phone's own screens can be driven and screenshotted (#649, #647 were checked
+this way).
+
+```sh
+tools/dev-rig/up.sh emulator-5554
+tools/dev-rig/auth-up.sh emulator-5554        # Keycloak, rider + rider2, adb reverse, app repointed
+pip install websockets                        # once, for convoy-rider.py
+```
+
+Sign in on the emulator as `rider` / `detour-dev` (Settings or Social > Sign in;
+Chrome opens on `localhost:7580`). Then:
+
+```sh
+tools/dev-rig/convoy-rider.py route 49.6299,6.1696 49.5999,6.1342   # same start as the emulator, the destination you give the app
+tools/dev-rig/convoy-rider.py setup                                  # rider hosts "Rig convoy", rider2 joins
+# app: Social > Friends > Rig convoy > Go live; give it that destination and Start
+adb -s emulator-5554 emu geo fix 6.1696 49.6299
+.claude/skills/detour-gps-replay/scripts/start-port-replay.sh /tmp/detour-rig-convoy/route.txt emulator-5554 1000 1
+tools/dev-rig/convoy-rider.py run gap                                # right after the replay starts
+```
+
+`run gap` and `run break` are described at the top of the script; `gap` walks
+the phone through "fell behind", "stopped" and "signal lost", `break` through a
+break request and a non-host regroup pin that the relay must drop. Replay at
+1x: the detector's thresholds (500 m or 60 s behind, 20 s stopped, 30 s of
+silence) are wall-clock.
+
+Things that bite:
+
+- **`localhost:7580` is the issuer, everywhere.** The API requires a token's
+  `iss` to equal `Idp__Authority` exactly, so the emulator reaches Keycloak
+  through `adb reverse`, never `10.0.2.2`, and `compose.auth.yml` runs a socat
+  sidecar in the API's network namespace so the container can too. Re-running
+  `up.sh` recreates the API; run `auth-up.sh` again afterwards.
+- **The rig's API has to be built from a checkout that has the feature.**
+  `up.sh` builds `backend/` from the checkout you run it in. A convoy payload
+  without `ownerId` (before #676) makes the phone's gap alerts silently do
+  nothing.
+- **Sign-in goes through the browser.** Chrome's first-run screen ("Use without
+  an account") appears once. After the login, Android showed an "Open with"
+  chooser with two "Detour (debug)" entries for `detour://auth/callback`; the
+  first one, "Just once", completed the sign-in. Why there were two was not
+  investigated.
+- `rider2`'s password grant and the `detour-app` setting live in the rig's own
+  Keycloak volume; `down.sh --purge` removes them with it.
 
 ## Logs
 
