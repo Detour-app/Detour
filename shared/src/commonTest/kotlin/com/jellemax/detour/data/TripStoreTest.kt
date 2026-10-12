@@ -3,7 +3,9 @@ package com.jellemax.detour.data
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.JsonArray
 
 /** Characterises [TripStore]'s encode/decode round trip for [DrivingStats] —
  *  pure JSON building, no file access, so these run in commonTest per
@@ -141,5 +143,38 @@ class TripStoreTest {
         val merged = TripStore.mergeServerTrips(serverTrips("CAR", 0), setOf(1000L), mutableMapOf(), emptyMap())
 
         assertEquals(0, merged.size)
+    }
+
+    // --- withUnsynced: trips saved while /sync was in flight (#693) ---------
+
+    private fun trips(vararg starts: Long) = jsonArrayOf(starts.joinToString(",", "[", "]") { """{"startTimeMs":$it}""" })
+
+    private fun JsonArray.starts() = objects().map { it.optLong("startTimeMs") }
+
+    @Test
+    fun aTripSavedDuringTheRoundTripSurvivesTheWriteBack() {
+        val server = trips(2000, 1000)
+
+        val kept = TripStore.withUnsynced(server, uploadedStarts = setOf(1000L), local = trips(3000, 1000))
+
+        assertEquals(listOf(3000L, 2000L, 1000L), kept.starts(), "a trip saved mid-sync vanished until the next sync")
+    }
+
+    @Test
+    fun anUploadedTripTheServerDidNotReturnIsNotKept() {
+        val server = trips(2000)
+
+        val kept = TripStore.withUnsynced(server, uploadedStarts = setOf(1000L), local = trips(1000))
+
+        assertEquals(listOf(2000L), kept.starts())
+    }
+
+    @Test
+    fun nothingUnsyncedReturnsTheServerArrayItself() {
+        val server = trips(1000)
+
+        val kept = TripStore.withUnsynced(server, uploadedStarts = setOf(1000L), local = trips(1000))
+
+        assertSame(server, kept, "replaceRaw writes the server text as is only when nothing was kept")
     }
 }
