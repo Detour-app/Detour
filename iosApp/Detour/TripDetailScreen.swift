@@ -297,6 +297,6 @@ private func eventValue(_ e: RidingEvent) -> String {
     case .verySharp: return "very sharp"
     case .sharp: return "sharp"
     case .veryHard: return "very hard"
-    case .hard: return "hard"
+    default: return "hard"
     }
 }
