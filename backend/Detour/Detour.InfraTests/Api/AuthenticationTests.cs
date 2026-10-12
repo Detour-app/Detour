@@ -122,6 +122,73 @@ public class AuthenticationTests(PostgresFixture postgres) : IAsyncLifetime
         stored.ShareFog.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Concurrent_first_requests_all_succeed_and_share_one_account()
+    {
+        // The app fires /me, device registration, friends and sync at once right after sign-in.
+        // Each sees no row; before #697 all but one hit the unique index and returned 500. The
+        // PUTs run inside the transaction middleware, where a failed insert would also poison it.
+        var subject = Subject();
+        var client = _factory.CreateClientWith(_factory.IssueToken(subject, Handle(), null, "detour-user"));
+
+        var requests = Enumerable.Range(0, 12)
+            .Select(i => i % 2 == 0
+                ? client.GetAsync("/api/me")
+                : client.PutAsJsonAsync("/api/me/fog-sharing", new { shareFog = false }));
+        var responses = await Task.WhenAll(requests);
+
+        responses.Select(r => r.StatusCode).Should().AllBeEquivalentTo(HttpStatusCode.OK);
+        await using var db = postgres.CreateContext();
+        (await db.Users.CountAsync(u => u.Subject == subject)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_handle_held_by_another_account_is_a_clear_400_not_a_500()
+    {
+        // The identity provider deleted the first rider and let someone else register the same
+        // handle, but this backend's row for the first rider is still there.
+        var handle = Handle();
+        await _factory.CreateClientWith(_factory.IssueToken(Subject(), handle, null, "detour-user"))
+            .GetAsync("/api/me");
+
+        var newcomer = Subject();
+        var response = await _factory.CreateClientWith(_factory.IssueToken(newcomer, handle, null, "detour-user"))
+            .GetAsync("/api/me");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain(handle);
+        await using var db = postgres.CreateContext();
+        (await db.Users.CountAsync(u => u.Subject == newcomer)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_rename_onto_a_held_handle_keeps_the_old_handle_instead_of_failing()
+    {
+        var takenHandle = Handle();
+        await _factory.CreateClientWith(_factory.IssueToken(Subject(), takenHandle, null, "detour-user"))
+            .GetAsync("/api/me");
+
+        var subject = Subject();
+        var oldHandle = Handle();
+        await _factory.CreateClientWith(_factory.IssueToken(subject, oldHandle, null, "detour-user"))
+            .GetAsync("/api/me");
+
+        // The identity provider now says this rider is called what the other row already holds.
+        // The PUT goes through the transaction middleware, which flushes any rename at commit.
+        var renamed = _factory.CreateClientWith(
+            _factory.IssueToken(subject, takenHandle.ToUpperInvariant(), null, "detour-user"));
+        var put = await renamed.PutAsJsonAsync("/api/me/fog-sharing", new { shareFog = true });
+        var me = await renamed.GetAsync("/api/me");
+
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+        me.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await me.Content.ReadFromJsonAsync<MePayload>())!.Username.Should().Be(oldHandle);
+        await using var db = postgres.CreateContext();
+        var stored = await db.Users.SingleAsync(u => u.Subject == subject);
+        stored.Username.Should().Be(oldHandle);
+        stored.ShareFog.Should().BeTrue("the rest of the request still commits");
+    }
+
     private static string Subject() => $"subject-{Guid.NewGuid():N}";
 
     private static string Handle() => $"rider{Guid.NewGuid():N}"[..16];
