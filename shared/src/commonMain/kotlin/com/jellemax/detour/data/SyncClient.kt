@@ -1,5 +1,7 @@
 package com.jellemax.detour.data
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -9,7 +11,8 @@ import kotlinx.serialization.json.put
  * Bidirectional sync with the rider's own server (see backend/README.md). One
  * POST uploads local trips, fog-of-war traces, badges, ride titles and the
  * aggregate stats friends are allowed to see; the server merges them with its
- * copy and returns the union, which replaces the local stores. Deleting and
+ * copy and returns the union, which replaces the local stores (keeping what
+ * was written locally while the request was out). Deleting and
  * reinstalling the app therefore restores everything on the first sync.
  *
  * The server keys everything on the signed-in rider, so syncing requires a
@@ -25,6 +28,13 @@ object SyncClient {
      *  call [sync] directly. */
     private const val AUTO_SYNC_MIN_INTERVAL_MS = 5 * 60_000L
 
+    /** One sync at a time. The launch sync, the trip-end sync and "Sync now"
+     *  can overlap, and each response replaces the stores: whichever landed
+     *  last won, even an older one (#693). A [Mutex], not [SingleFlight]: a
+     *  trip-end sync arriving mid-flight carries a trip the running one did
+     *  not upload, so it must wait and run, not be dropped. */
+    private val syncLock = Mutex()
+
     /** Effective API base: the one server address the user set (Settings) →
      *  baked default. The custom address still wins, which is what lets someone
      *  point a release APK at their own server. */
@@ -38,10 +48,11 @@ object SyncClient {
      *  ([sync]'s doc comment), and re-paying that on every cold start when
      *  nothing has changed is exactly the unconditional cost this exists to
      *  avoid. Returns null when skipped. */
-    suspend fun syncIfDue(): SyncResult? {
+    suspend fun syncIfDue(): SyncResult? = syncLock.withLock {
         Settings.init()
-        if (nowMs() - Settings.lastSyncMs() < AUTO_SYNC_MIN_INTERVAL_MS) return null
-        return sync()
+        // Inside the lock, so a launch sync queued behind another sees the
+        // stamp that one just wrote.
+        if (nowMs() - Settings.lastSyncMs() < AUTO_SYNC_MIN_INTERVAL_MS) null else syncLocked()
     }
 
     /**
@@ -92,7 +103,9 @@ object SyncClient {
      * here.
      */
     @Throws(Exception::class)
-    suspend fun sync(): SyncResult {
+    suspend fun sync(): SyncResult = syncLock.withLock { syncLocked() }
+
+    private suspend fun syncLocked(): SyncResult {
         Settings.init()
 
         // Signed in but with nothing to key a bucket on: the files being read
@@ -127,13 +140,17 @@ object SyncClient {
         val buildMark = Perf.start()
         val stats = BadgeStore.stats(Coverage.compute())
 
+        // Kept for the write-back: anything stored after these reads is not in
+        // the server's answer and must survive it (#693).
+        val uploadedTrips = tripsForUpload()
+        val uploadedLines = TraceStore.rawLines()
         val payload = buildJsonObject {
-            put("trips", tripsForUpload())
+            put("trips", uploadedTrips)
             // Deletions the server has not seen yet. Without them its copy comes
             // back in the merge and only this device's own tombstone filter
             // hides it — every other device would resurrect the trip.
             put("deletedTripStartTimes", buildJsonArrayOfLongs(TripStore.deletedStartTimes()))
-            put("traces", buildJsonArrayOfStrings(TraceStore.rawLines()))
+            put("traces", buildJsonArrayOfStrings(uploadedLines))
             put("badges", jsonObjectOf(BadgeStore.rawJson()))
             put("tripTitles", TripTitleStore.toUpload(TripTitleStore.loadEntries()))
             put("savedPlaces", jsonArrayOf(SavedPlaces.rawJson()))
@@ -187,7 +204,7 @@ object SyncClient {
         val traces = merged.optArray("traces") ?: JsonArrayEmpty
         val badges = merged.optObject("badges") ?: jsonObjectOf("{}")
 
-        TripStore.replaceRaw(trips.string())
+        TripStore.replaceRaw(trips.string(), uploadedTrips.objects().mapTo(HashSet()) { it.optLong("startTimeMs") })
         // replaceRaw just invalidated the totals record — the merge is the
         // server's union against ours, so the delta is not knowable here. Refold
         // it now rather than leaving the bill for whichever screen opens next:
@@ -195,7 +212,7 @@ object SyncClient {
         // Dispatchers.IO scope in AndroidSync, a Task on iOS), and a rider
         // opening the Hub is not.
         RiderTotals.refreshIfStale()
-        TraceStore.replaceLines(traces.indices.map { traces.optString(it) })
+        TraceStore.replaceLines(traces.indices.map { traces.optString(it) }, uploadedLines.toHashSet())
         BadgeStore.replaceRaw(badges.string())
         writeBackOptional(merged)
         Settings.setLastSyncMs(nowMs())
