@@ -108,8 +108,10 @@ class ArchitectureTest {
             // +2: #549 camera banner and the island's gap under it
             // +16: #427 Back cancels candidates, restored candidates re-framed
             // +3: #439 route tile prefetch at nav start
+            // +4: #645 traffic loop call and its comment, traffic banner, withTrafficDelay import
+            // +5: #589 save-spin callbacks and the saved-loop sheet open
             // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1450,
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1459,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,

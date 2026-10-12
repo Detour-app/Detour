@@ -104,6 +104,7 @@ import com.jellemax.detour.presentation.reachMeters
 import com.jellemax.detour.presentation.RiderCardState
 import com.jellemax.detour.presentation.riderCardStateFrom
 import com.jellemax.detour.presentation.speedHudStateFrom
+import com.jellemax.detour.presentation.withTrafficDelay
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.CameraAuthority
@@ -276,6 +277,8 @@ fun MapScreen(
     // touches this flag — it takes the slot as the navigation dock through
     // `hasDestination` in homeBottomCard (#254), which outranks `collapsed`.
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
+    // A saved loop ridden from Routes arrives with its Go in the spin sheet (#589).
+    LaunchedEffect(Unit) { if (SpinResultHolder.takeOpenSheet()) settingsCollapsed = false }
     // A trip ending lands on the home sheet. Edge-triggered on a running trip
     // ending, not on "no trip": a return from the Hub with no trip must not
     // close a spin sheet the rider left open.
@@ -876,6 +879,8 @@ fun MapScreen(
 
     // The two Overpass prefetches, in MapHazardPrefetch.kt.
     MapHazardPrefetch(s = s, retained = retained, scope = scope, snackbarHostState = snackbarHostState)
+    // HERE traffic while navigating with a key, in MapTraffic.kt (#645).
+    MapTraffic(s = s, retained = retained, mapOverlays = mapOverlays)
 
     // Push camera markers to the map. Separate from the main overlay render
     // because cameras change on the prefetch cadence, not per drawable-state flip.
@@ -954,7 +959,7 @@ fun MapScreen(
     val navState by remember(retained) {
         derivedStateOf {
             navStateFrom(
-                progress = s.navProgress,
+                progress = s.navProgress?.withTrafficDelay(retained.traffic),
                 navigating = s.navigating,
                 rerouting = s.rerouting,
                 ambientSpeedLimitKmh = retained.ambientSpeedLimitKmh,
@@ -1191,6 +1196,7 @@ fun MapScreen(
                 ) {
                     NavigationBanner(navState, Modifier.fillMaxWidth())
                 }
+                retained.traffic?.let { TrafficBanner(it) }
                 s.cameraCountdown?.let { CameraBanner(it, navigating = s.navigating) }
                 // Speed, the posted limit and the trajectcontrole average, in
                 // one island at the top-left — isHome.html's left:14/top:44,
@@ -1370,6 +1376,9 @@ fun MapScreen(
                                 ConvoyLiveClient.currentLeadIndex(offer.candidates.size)]))
                     }
                 },
+                onSaveCandidate = { c -> s.saveSpinDraft = spinCandidateDraft(context, c, mode, s.myLocation) },
+                onSaveLoop = s.route?.takeIf { s.destination == null }
+                    ?.let { r -> { s.saveSpinDraft = spinLoopDraft(context, r, mode) } },
                 mode = mode,
                 // A refusal goes to the snackbar, not to `error`: that field
                 // renders as a red line inside the sheet, which a "not right

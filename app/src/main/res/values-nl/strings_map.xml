@@ -70,6 +70,12 @@
         <item quantity="other">%1$d stemmen · %2$s</item>
     </plurals>
     <string name="candidates_share">Delen met konvooi</string>
+    <string name="save_spin_action">Opslaan in Routes</string>
+    <string name="save_spin_title">Opslaan in Routes</string>
+    <string name="save_spin_name">Naam</string>
+    <string name="save_spin_loop">Lus opslaan</string>
+    <string name="save_spin_loop_name">Lus · %1$s</string>
+    <string name="save_spin_destination_name">Spinbestemming</string>
     <string name="candidates_go_with_lead">Volg de keuze van de koploper</string>
     <string name="candidates_cancel">Annuleren</string>
     <string name="candidates_reroll">Opnieuw</string>
@@ -153,4 +159,8 @@
     <string name="map_regroup_on_the_way">Onderweg: %1$s</string>
     <string name="map_regroup_route">Route</string>
     <string name="map_regroup_clear">Wissen</string>
+    <!-- Traffic banner (#645): delay HERE puts on the route ahead, and a closure on it. -->
+    <string name="map_traffic_delay">+%1$d min file</string>
+    <string name="map_traffic_delay_label">op de route vooruit</string>
+    <string name="map_traffic_closed">Weg verderop afgesloten</string>
 </resources>

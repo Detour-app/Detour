@@ -12,6 +12,8 @@ import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.drive.FriendPosition
+import com.jellemax.detour.presentation.CongestionColors
+import com.jellemax.detour.presentation.TrafficOnRoute
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -58,6 +60,8 @@ private const val SRC_CAMERAS_SECTION = "mr-cameras-section"
 private const val SRC_FRIENDS = "mr-friends"
 private const val SRC_CIRCLE_MEMBERS = "mr-circle-members"
 private const val SRC_CONVOY_MARKS = "mr-convoy-marks"
+private const val SRC_TRAFFIC_FLOW = "mr-traffic-flow"
+private const val SRC_TRAFFIC_INCIDENTS = "mr-traffic-incidents"
 private const val IMG_DEST = "mr-img-dest"
 private const val IMG_POSITION = "mr-img-position"
 private const val IMG_CAMERA = "mr-img-camera"
@@ -65,6 +69,8 @@ private const val IMG_CAMERA_REDLIGHT = "mr-img-camera-redlight"
 private const val IMG_CAMERA_SECTION = "mr-img-camera-section"
 private const val IMG_FRIEND = "mr-img-friend"
 private const val IMG_CIRCLE_MEMBER = "mr-img-circle-member"
+private const val IMG_INCIDENT = "mr-img-incident"
+private const val IMG_CLOSURE = "mr-img-closure"
 private const val LAYER_ROUTE = "mr-route-line"
 private const val LAYER_ROUTE_DRIVEN = "mr-route-driven-line"
 private const val LAYER_ROUTE_TAIL = "mr-route-tail-line"
@@ -149,6 +155,8 @@ class MapOverlays(
             IMG_CAMERA to R.drawable.ic_map_camera,
             IMG_CAMERA_SECTION to R.drawable.ic_map_camera_section,
             IMG_CAMERA_REDLIGHT to R.drawable.ic_map_camera_redlight,
+            IMG_INCIDENT to R.drawable.ic_map_incident,
+            IMG_CLOSURE to R.drawable.ic_map_closure,
         ).forEach { (name, res) ->
             ContextCompat.getDrawable(context, res)?.let {
                 style.addImage(name, it.toBitmap(
@@ -164,7 +172,7 @@ class MapOverlays(
         }
         listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_ROUTE_DRIVEN, SRC_ROUTE_TAIL,
             SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_CAMERAS_SECTION, SRC_CAMERAS_REDLIGHT,
-            SRC_FRIENDS, SRC_CIRCLE_MEMBERS, SRC_CONVOY_MARKS)
+            SRC_FRIENDS, SRC_CIRCLE_MEMBERS, SRC_CONVOY_MARKS, SRC_TRAFFIC_FLOW, SRC_TRAFFIC_INCIDENTS)
             .forEach { style.addSource(GeoJsonSource(it)) }
 
         // Whatever the user picked in Settings > Route line; the default,
@@ -229,6 +237,14 @@ class MapOverlays(
             PropertyFactory.lineWidth(7f),
             PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+        // Congested stretches of the road ahead (#645), over the route at its
+        // own width so a jam reads as the route changing colour. Only the road
+        // ahead is ever fed in, so nothing here covers the dimmed half.
+        style.addLayer(LineLayer("mr-traffic-flow", SRC_TRAFFIC_FLOW).withProperties(
+            PropertyFactory.lineColor(Expression.get("color")),
+            PropertyFactory.lineWidth(7f),
+            PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
         // Rotated to the last known heading, aligned to the map rather than the
         // viewport: heading-up already turns the camera, so a vehicle icon
         // rotated the same amount ends up pointing up the screen — and stays
@@ -283,6 +299,12 @@ class MapOverlays(
             PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("#000000"),
             PropertyFactory.textHaloWidth(1.2f),
             PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true)))
+        // Traffic incidents on the route ahead (#645): a closed road gets the
+        // no-entry sign, anything else the warning triangle.
+        style.addLayer(SymbolLayer("mr-traffic-incidents", SRC_TRAFFIC_INCIDENTS).withProperties(
+            PropertyFactory.iconImage(Expression.get("icon")),
+            PropertyFactory.iconSize(1f / CAMERA_ICON_SCALE),
+            PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
         // Speed cameras: static markers fed by the prefetch loop. Sit under the
         // candidate dots so a spin result is never hidden behind a camera.
         style.addLayer(SymbolLayer("mr-cameras", SRC_CAMERAS).withProperties(
@@ -475,6 +497,19 @@ class MapOverlays(
         val from = cutAt
         setData(SRC_ROUTE_TAIL,
             if (at != null && from != null) lineFeature(listOf(from, at)) else empty())
+    }
+
+    /** Replace the traffic drawn over the route ahead (#645); null clears it.
+     *  Fed by the traffic loop on its own cadence, like [setCameras]. */
+    fun setTraffic(traffic: TrafficOnRoute?) {
+        setData(SRC_TRAFFIC_FLOW, FeatureCollection.fromFeatures(traffic?.runs.orEmpty().map { run ->
+            Feature.fromGeometry(LineString.fromLngLats(run.points.map { Point.fromLngLat(it.lon, it.lat) }))
+                .apply { addStringProperty("color", CongestionColors.hex(run.congestion)) }
+        }))
+        setData(SRC_TRAFFIC_INCIDENTS, FeatureCollection.fromFeatures(traffic?.incidents.orEmpty().map { incident ->
+            Feature.fromGeometry(Point.fromLngLat(incident.at.lon, incident.at.lat))
+                .apply { addStringProperty("icon", if (incident.roadClosed) IMG_CLOSURE else IMG_INCIDENT) }
+        }))
     }
 
     /** Replace the speed-camera markers. Fed by the prefetch loop, not [render],
