@@ -351,6 +351,9 @@ object SettingsFlows {
     fun cameraWarnNotSpeeding() = BoolWatcher(Settings.cameraWarnNotSpeeding)
     fun cameraWarnLimitUnknown() = BoolWatcher(Settings.cameraWarnLimitUnknown)
     fun routeColor() = RouteColorWatcher(Settings.routeColor)
+
+    /** Non-blank means tested and on — see `TrafficKeyPresenter`. */
+    fun hereTrafficKey() = StringWatcher(Settings.hereTrafficKey)
     fun authUsername() = StringWatcher(Settings.authUsername)
     fun authRiderId() = RiderIdWatcher(Settings.authRiderId)
 

@@ -104,6 +104,7 @@ import com.jellemax.detour.presentation.reachMeters
 import com.jellemax.detour.presentation.RiderCardState
 import com.jellemax.detour.presentation.riderCardStateFrom
 import com.jellemax.detour.presentation.speedHudStateFrom
+import com.jellemax.detour.presentation.withTrafficDelay
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.CameraAuthority
@@ -876,6 +877,8 @@ fun MapScreen(
 
     // The two Overpass prefetches, in MapHazardPrefetch.kt.
     MapHazardPrefetch(s = s, retained = retained, scope = scope, snackbarHostState = snackbarHostState)
+    // HERE traffic while navigating with a key, in MapTraffic.kt (#645).
+    MapTraffic(s = s, retained = retained, mapOverlays = mapOverlays)
 
     // Push camera markers to the map. Separate from the main overlay render
     // because cameras change on the prefetch cadence, not per drawable-state flip.
@@ -956,7 +959,7 @@ fun MapScreen(
     val navState by remember(retained) {
         derivedStateOf {
             navStateFrom(
-                progress = s.navProgress,
+                progress = s.navProgress?.withTrafficDelay(retained.traffic),
                 navigating = s.navigating,
                 rerouting = s.rerouting,
                 ambientSpeedLimitKmh = retained.ambientSpeedLimitKmh,
@@ -1193,6 +1196,7 @@ fun MapScreen(
                 ) {
                     NavigationBanner(navState, Modifier.fillMaxWidth())
                 }
+                retained.traffic?.let { TrafficBanner(it) }
                 s.cameraCountdown?.let { CameraBanner(it, navigating = s.navigating) }
                 ConvoyGapBanner()
                 // Speed, the posted limit and the trajectcontrole average, in

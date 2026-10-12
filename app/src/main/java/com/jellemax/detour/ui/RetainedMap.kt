@@ -20,6 +20,8 @@ import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
+import com.jellemax.detour.drive.TrafficCorridor
+import com.jellemax.detour.presentation.TrafficOnRoute
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -169,6 +171,23 @@ class RetainedMap(context: Context) {
     /** The one-warning-per-camera latch. Reset it and a camera already passed
      *  chimes again on the way back past nothing. */
     var warnerState: CameraWarner.State by mutableStateOf(CameraWarner.State())
+
+    // --- HERE traffic (#645) ----------------------------------------------
+
+    /** The per-tile cache, TTLs and backoff. Here rather than in the effect
+     *  that runs it for the reason [cameraPrefetch] is: a return to the map
+     *  must not re-ask HERE for tiles it answered a minute ago, on the rider's
+     *  own key, or forget that the key was refused. Only that effect reads it,
+     *  so it is not snapshot state. */
+    var trafficCorridor: TrafficCorridor.State = TrafficCorridor.State()
+
+    /** The key [trafficCorridor] was built for: a different one starts it
+     *  over, which is the corridor's only way out of a refused key. */
+    var trafficKey: String? = null
+
+    /** What the map draws of traffic; null when there is none to draw — no
+     *  key, not navigating, or nothing back yet. */
+    var traffic: TrafficOnRoute? by mutableStateOf(null)
 }
 
 /**

@@ -146,4 +146,8 @@
     <string name="map_convoy_gap_behind">%1$s fell behind</string>
     <string name="map_convoy_gap_stopped">%1$s stopped</string>
     <string name="map_convoy_gap_signal_lost">Lost %1$s\'s signal</string>
+    <!-- Traffic banner (#645): delay HERE puts on the route ahead, and a closure on it. -->
+    <string name="map_traffic_delay">+%1$d min traffic</string>
+    <string name="map_traffic_delay_label">on the route ahead</string>
+    <string name="map_traffic_closed">Road closed ahead</string>
 </resources>
