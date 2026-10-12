@@ -122,20 +122,30 @@ position, so they are safe to publish as-is.
 
 ## Data safety form
 
-Detour collects nothing to a developer-operated server, so the form is short.
-There is no default sync server; any sync target is one the user configures.
-
-- **Does your app collect or share any of the required user data types?** — No.
-
-That answer is defensible because the developer operates no endpoint that
-receives user data. If you would rather over-disclose than argue the point
-later, declare instead:
+Detour collects nothing to a developer-operated server, and there is no default
+sync server; any sync target is one the user configures. The one thing the
+Play build sends off the device on its own is Firebase Cloud Messaging's
+installation ID and push token, to Google, at app start
+([privacy policy](privacy.html#push), [PUSH.md](PUSH.md)). Play counts data an
+SDK sends as collected by the app, so the answer is **yes**, with this table:
 
 | Data type | Collected | Shared | Purpose | Optional |
 |---|---|---|---|---|
+| Device or other IDs | Yes | No | App functionality (push wake-ups for circle alerts) | No — FCM initialises at app start whether or not the rider signs in |
 | Location (precise) | Yes | No | App functionality | Yes, user-configured sync only |
 | Personal info (name/email) | Yes | No | Account management | Yes, sign-in is optional |
 | Audio | No | No | — | Push-to-talk is not carried today; when it returns it is transient and never stored |
+
+- **Device or other IDs → Shared: No.** Google receives the IDs as FCM, the
+  service provider delivering the app's own push messages, which Play does not
+  count as sharing. The IDs are not ephemeral: FCM keeps them for the life of
+  the install.
+- **Location and personal info** are only defensible as "not collected" because
+  the developer operates no endpoint that receives them; declaring them, as
+  above, over-discloses rather than argues the point later.
+- **If FCM auto-init is ever gated on sign-in** (`firebase_messaging_auto_init_enabled=false`
+  in the manifest, enabled in `Push.refresh`), the Device or other IDs row
+  becomes *Optional: Yes*.
 
 - **Data encrypted in transit** — yes (HTTPS/WSS throughout).
 - **Users can request data deletion** — yes; uninstall wipes local data, and a
