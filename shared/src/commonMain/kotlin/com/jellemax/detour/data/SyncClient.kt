@@ -1,6 +1,8 @@
 package com.jellemax.detour.data
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -116,8 +118,6 @@ object SyncClient {
         // Same epoch capture FriendsStore.reload and CirclesStore use.
         val epoch = Auth.sessionEpoch.value
 
-        // Coverage is the only stat the server can't derive from the trips it
-        // already holds — it needs the boundaries, which only we have.
         // Two labels for this function, not one: the payload build is local work
         // that grows with the rider's history, the round trip is a network cost
         // that does not, and one number covering both would let mirror latency
@@ -125,7 +125,7 @@ object SyncClient {
         // this leg "on a year of riding is seconds, not instants" — measured
         // never, until now.
         val buildMark = Perf.start()
-        val stats = BadgeStore.stats(Coverage.compute())
+        val fogEditsAtUpload = Settings.shareFogEdits()
 
         val payload = buildJsonObject {
             put("trips", tripsForUpload())
@@ -137,8 +137,10 @@ object SyncClient {
             put("badges", jsonObjectOf(BadgeStore.rawJson()))
             put("tripTitles", TripTitleStore.toUpload(TripTitleStore.loadEntries()))
             put("savedPlaces", jsonArrayOf(SavedPlaces.rawJson()))
-            put("stats", stats.toJson())
-            put("shareFog", Settings.shareFog.value)
+            // Coverage is the only stat the server can't derive from the trips it
+            // already holds — it needs the boundaries, which only we have.
+            put("stats", BadgeStore.stats(Coverage.compute()).toJson())
+            shareFogForUpload(Settings.shareFogPending(), Settings.shareFog.value)?.let { put("shareFog", it) }
         }
 
         // Again, immediately before the POST. The capture above guards the
@@ -197,18 +199,40 @@ object SyncClient {
         RiderTotals.refreshIfStale()
         TraceStore.replaceLines(traces.indices.map { traces.optString(it) })
         BadgeStore.replaceRaw(badges.string())
-        writeBackOptional(merged)
+        writeBackOptional(merged, fogEditsAtUpload)
         Settings.setLastSyncMs(nowMs())
         return SyncResult(trips.size, traces.size, badges.size)
     }
 
     /** The documents an older server omits from its response. Absent leaves
      *  the local copy untouched. Titles are merged rather than replaced, so a
-     *  rename made while the round trip was in flight is not overwritten. */
-    private fun writeBackOptional(merged: JsonObject) {
+     *  rename made while the round trip was in flight is not overwritten; the
+     *  fog-sharing choice is skipped for the same reason. */
+    private fun writeBackOptional(merged: JsonObject, fogEditsAtUpload: Int) {
         merged.optArray("savedPlaces")?.let { SavedPlaces.replaceFromServer(it.string()) }
         merged.optArray("tripTitles")?.let { TripTitleStore.mergeFromServer(TripTitleStore.fromServer(it)) }
+        val serverFog = (merged["shareFog"] as? JsonPrimitive)?.booleanOrNull
+        shareFogFromServer(serverFog, fogEditsAtUpload, Settings.shareFogEdits())
+            ?.let(Settings::adoptServerShareFog)
     }
+
+    /**
+     * `shareFog` for the upload, or null to leave it out. The setting is the
+     * account's, not this device's (#689): sending the local copy on every sync
+     * let a device that never touched the toggle turn it back on after the
+     * rider turned it off elsewhere, and a fresh install's default turn it off.
+     * The server reads an absent field as "unchanged", never as off.
+     */
+    internal fun shareFogForUpload(pending: Boolean, value: Boolean): Boolean? = value.takeIf { pending }
+
+    /**
+     * The server's `shareFog` to adopt locally, or null to keep this device's:
+     * when an older server left it out, or when the rider toggled since the
+     * upload was built ([editsAtUpload] vs [editsNow]) — that choice is newer
+     * than the response and goes up with the next sync.
+     */
+    internal fun shareFogFromServer(server: Boolean?, editsAtUpload: Int, editsNow: Int): Boolean? =
+        server.takeIf { editsAtUpload == editsNow }
 
     private fun tripsForUpload() = buildJsonArray {
         for (trip in jsonArrayOf(TripStore.rawJson()).objects()) add(tripForUpload(trip))
