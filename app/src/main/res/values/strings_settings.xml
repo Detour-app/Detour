@@ -88,6 +88,14 @@
     <string name="settings_offline_tiles_hint">When navigation starts, Detour downloads the map up to 5 km either side of the route (at most 150 MB), so it keeps drawing where the signal drops. Starting a new route replaces it.</string>
     <string name="settings_offline_tiles_clear">Clear</string>
     <string name="settings_offline_tiles_cleared">Offline map cleared</string>
+    <string name="settings_offline_area">Offline map of this view</string>
+    <string name="settings_offline_area_estimate">Keeps the part of the map you were last looking at, down to street level: about %1$d MB. Replaces the previous one.</string>
+    <string name="settings_offline_area_too_big">That view is too big: about %1$d MB, and the limit is %2$d MB. Zoom in on the map first.</string>
+    <string name="settings_offline_area_no_map">Open the map and look at the area you want to keep, then come back.</string>
+    <string name="settings_offline_area_progress">Downloading… %1$d%%</string>
+    <string name="settings_offline_area_saved">Saved: %1$d MB</string>
+    <string name="settings_offline_area_download">Download</string>
+    <string name="settings_offline_area_delete">Delete</string>
 
     <!-- Fog of war -->
     <string name="settings_reveal_radius">Reveal radius</string>

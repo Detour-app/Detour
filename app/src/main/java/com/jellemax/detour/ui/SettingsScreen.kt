@@ -718,6 +718,7 @@ private fun MapSection() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OfflineTilesRow()
+        OfflineAreaRow()
     }
 }
 

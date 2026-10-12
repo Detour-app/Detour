@@ -85,6 +85,14 @@
     <string name="settings_offline_tiles_hint">Als navigatie start, downloadt Detour de kaart tot 5 km aan weerszijden van de route (maximaal 150 MB), zodat ze blijft tekenen waar het bereik wegvalt. Een nieuwe route vervangt ze.</string>
     <string name="settings_offline_tiles_clear">Wissen</string>
     <string name="settings_offline_tiles_cleared">Offline kaart gewist</string>
+    <string name="settings_offline_area">Offline kaart van dit beeld</string>
+    <string name="settings_offline_area_estimate">Bewaart het deel van de kaart waar je het laatst naar keek, tot straatniveau: ongeveer %1$d MB. Vervangt het vorige.</string>
+    <string name="settings_offline_area_too_big">Dat beeld is te groot: ongeveer %1$d MB, en de limiet is %2$d MB. Zoom eerst in op de kaart.</string>
+    <string name="settings_offline_area_no_map">Open de kaart en kijk naar het gebied dat je wilt bewaren, kom dan terug.</string>
+    <string name="settings_offline_area_progress">Downloaden… %1$d%%</string>
+    <string name="settings_offline_area_saved">Bewaard: %1$d MB</string>
+    <string name="settings_offline_area_download">Downloaden</string>
+    <string name="settings_offline_area_delete">Verwijderen</string>
 
     <!-- Fog of war -->
     <string name="settings_reveal_radius">Onthullingsstraal</string>
