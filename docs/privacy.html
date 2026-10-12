@@ -32,7 +32,7 @@
 <body>
 
 <h1>Privacy Policy — Detour</h1>
-<p class="updated">Last updated: 11 October 2026</p>
+<p class="updated">Last updated: 12 October 2026</p>
 
 <p>Detour is an Android app that picks a random road destination within a radius
 you choose, routes you to it, and records the ride. This policy explains what
@@ -42,9 +42,12 @@ the app does with your data.</p>
 analytics, no advertising, no crash reporting and no third-party trackers. Your
 trips, traces and explored area are stored in the app's private storage on your
 device. Nothing is uploaded anywhere unless you deliberately configure a sync
-server, and that server is one you run or choose — with one exception: if
+server, and that server is one you run or choose — with two exceptions: if
 Android's own backup is on for your phone, it copies your trips and traces to
-your Google account (see <a href="#backup">Android backup</a>).</p>
+your Google account (see <a href="#backup">Android backup</a>); and the
+published builds register with Google's push service when they start, which sends
+Google a device identifier but none of your data (see
+<a href="#push">Push notifications</a>).</p>
 
 <h2>Who is responsible</h2>
 <p>Detour is developed by an individual developer. For any question about this
@@ -127,6 +130,31 @@ is listed below is sent:</p>
 what any HTTPS request necessarily exposes to the server handling it (such as
 your IP address). Their operators are independent of Detour and handle those
 requests under their own policies.</p>
+
+<h2 id="push">Push notifications (Firebase Cloud Messaging)</h2>
+<p>The Play Store build of Detour includes Google's
+<a href="https://firebase.google.com/docs/cloud-messaging">Firebase Cloud
+Messaging</a> (FCM), the push service a server uses to wake a backgrounded
+Android app. It is the only Firebase component in the app: there is no Firebase
+Analytics, Crashlytics or any other Firebase product.</p>
+<p>FCM starts when the app starts, whether or not you are signed in. It then
+contacts Google to obtain a Firebase installation ID and a push token for this
+install of the app. Google receives those identifiers, together with the app's
+package name and version and your IP address, and handles them under
+<a href="https://policies.google.com/privacy">Google's privacy policy</a>.
+Nothing about your trips, traces, places or location is sent to Google by
+this.</p>
+<p>If you sign in to a sync server, the app registers the push token with that
+server, so it can wake your phone when something happens in one of your circles.
+The server then sends Google a wake-up message that contains nothing but the
+word <code>circle_wake</code> and an internal circle identifier — no circle name, no
+place, no person and no position. Your phone receives the wake-up, asks your own
+server what happened, and shows the notification itself. Signing out removes the
+token from the server.</p>
+<p>The APK published on GitHub is built the same way and includes FCM too. A
+build you compile yourself without a Firebase configuration file never starts
+FCM: nothing is sent to Google, and circle alerts arrive over a direct
+connection to your server instead.</p>
 
 <h2>Optional sync account</h2>
 <p>Detour works fully offline-first with no account. If you choose to sign in to
