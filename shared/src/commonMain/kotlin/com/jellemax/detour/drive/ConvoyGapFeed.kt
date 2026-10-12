@@ -60,12 +60,19 @@ object ConvoyGapFeed {
      * included, with `tsMs` on the sender's clock. [route] is the one gaps are
      * measured along; empty means nobody can fall behind.
      */
-    fun step(state: State, frames: List<ConvoyGapDetector.Fix>, roster: Roster, route: List<LatLon>, nowMs: Long): Step {
+    fun step(
+        state: State,
+        frames: List<ConvoyGapDetector.Fix>,
+        roster: Roster,
+        route: List<LatLon>,
+        nowMs: Long,
+    ): Step {
         val members = roster.members
         val seen = state.lastSenderTsMs.filterKeys { it in members }
         val fresh = frames.filter { it.riderId in members && it.tsMs > (seen[it.riderId] ?: Long.MIN_VALUE) }
         val detectorState = state.detector.copy(riders = state.detector.riders.filterKeys { it in members })
-        val step = ConvoyGapDetector.step(detectorState, fresh.map { it.copy(tsMs = nowMs) }, roster.hostId, route, nowMs)
+        val stamped = fresh.map { it.copy(tsMs = nowMs) }
+        val step = ConvoyGapDetector.step(detectorState, stamped, roster.hostId, route, nowMs)
         return Step(
             state = State(step.state, seen + fresh.associate { it.riderId to it.tsMs }),
             events = step.events.filter { it.rider != roster.selfId },

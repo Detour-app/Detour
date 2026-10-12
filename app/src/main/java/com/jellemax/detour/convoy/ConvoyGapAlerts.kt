@@ -110,7 +110,11 @@ object ConvoyGapAlerts {
         // whatever factor a replay on this device runs at.
         val step = ConvoyGapFeed.step(state, frames, roster, route, System.currentTimeMillis())
         _lines.value = convoyGapLinesFrom(step.state.detector.riders, members, selfId)
-        step.events.forEach { event -> convoyGapSpokenLine(event, members)?.let { _spoken.tryEmit(it) } }
+        // One utterance per tick: NavVoice flushes its queue on every speak, so
+        // two riders lost together would otherwise be heard as the last one only.
+        step.events.mapNotNull { convoyGapSpokenLine(it, members) }
+            .takeIf { it.isNotEmpty() }
+            ?.let { _spoken.tryEmit(it.joinToString(". ")) }
         return step.state
     }
 }
