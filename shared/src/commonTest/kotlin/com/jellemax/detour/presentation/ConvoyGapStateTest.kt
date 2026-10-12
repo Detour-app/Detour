@@ -24,7 +24,7 @@ class ConvoyGapStateTest {
         )
 
     @Test
-    fun `one line per alerting rider, worst alert wins, in member order, never me`() {
+    fun `one line per alerting rider with the worst alert winning in member order and never me`() {
         val riders = mapOf(
             cat to rider(behind = true, stopped = true),
             ann to rider(behind = true, signalLost = true),
@@ -46,7 +46,7 @@ class ConvoyGapStateTest {
     }
 
     @Test
-    fun `alerts are spoken by name, rejoining is not spoken`() {
+    fun `alerts are spoken by name and rejoining is not spoken`() {
         assertEquals("BOB fell behind", convoyGapSpokenLine(Event.FellBehind(bob), members))
         assertEquals("BOB stopped", convoyGapSpokenLine(Event.Stopped(bob), members))
         assertEquals("Lost BOB's signal", convoyGapSpokenLine(Event.SignalLost(bob), members))

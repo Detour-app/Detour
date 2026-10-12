@@ -49,7 +49,7 @@ class ConvoyGapFeedTest {
     }
 
     @Test
-    fun `a frame seen again is not restamped, so a quiet rider is lost once`() {
+    fun `a frame seen again is not restamped so a quiet rider is lost once`() {
         // Sam sends for 5 s, then the relay keeps handing back his last frame.
         val (_, events) = run(60) { s -> listOf(Fix(sam, at, 30.0, t0 + minOf(s, 4) * 1_000L)) }
         assertEquals(listOf(34 to Event.SignalLost(sam)), events)
@@ -77,7 +77,7 @@ class ConvoyGapFeedTest {
     }
 
     @Test
-    fun `a rider who leaves is dropped, not reported lost`() {
+    fun `a rider who leaves is dropped and not reported lost`() {
         val withoutSam = roster.copy(members = setOf(host, me))
         val (state, events) = run(60, rosterAt = { s -> if (s < 5) roster else withoutSam }) { s ->
             if (s < 5) listOf(Fix(sam, at, 30.0, t0 + s * 1_000L)) else emptyList()
@@ -87,7 +87,7 @@ class ConvoyGapFeedTest {
     }
 
     @Test
-    fun `alerts about this device are not raised, about others they are`() {
+    fun `alerts about this device are not raised but alerts about others are`() {
         // The host rides on; Sam and I both stop at second 0 and stay stopped.
         val (_, events) = run(30) { s ->
             listOf(
@@ -114,7 +114,7 @@ class ConvoyGapFeedTest {
     )
 
     @Test
-    fun `the roster is the accepted members, led by the host`() {
+    fun `the roster is the accepted members led by the host`() {
         assertEquals(
             ConvoyGapFeed.Roster(setOf(host, sam, me), hostId = host, selfId = me),
             ConvoyGapFeed.Roster.of(convoy(ownerId = host), selfId = me),
