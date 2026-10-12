@@ -777,11 +777,14 @@ This endpoint is read-only: data is loaded by an operator running
 
 `GET /api/speedlimits` is unauthenticated, for the same reason §15.6 is — posted speed limits
 are public safety information, not rider data. It is covered by the global per-IP limiter only,
-for the same reason and with the same span cap as §15.6's `/api/cameras`.
+for the same reason §15.6's `/api/cameras` is, which is why its span is capped too.
 
 Query parameters are the same bounding box: `minLat`, `minLon`, `maxLat`, `maxLon`, validated the
-same way, capped at the same 2° span — comfortably larger than the ~0.03° span
-`RoadRoulette.SPEED_PREFETCH_RADIUS_M` (`shared/`) ever requests. A request that fails any of
+same way, but capped at 0.25° on either axis rather than 2° (#691): this table holds every limited
+way in the region, so a 2° box was most of a country per unauthenticated request. 0.25° is still
+about three times the widest span `RoadRoulette.SPEED_PREFETCH_RADIUS_M` (`shared/`) ever
+requests. `/api/roads` takes the same bounding box capped at 0.6°, because spin's widest road
+search (a 9.6 km radius) spans up to 0.54° of longitude at Nordkapp. A request that fails any of
 these checks is a 400.
 
 ```json

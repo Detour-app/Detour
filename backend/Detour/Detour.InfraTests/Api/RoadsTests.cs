@@ -92,6 +92,25 @@ public class RoadsTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_with_a_bbox_wider_than_the_road_cap_returns_400()
+    {
+        var response = await _factory.CreateClient()
+            .GetAsync("/api/roads?minLat=50.00&minLon=4.00&maxLat=50.10&maxLon=5.00");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Get_answers_spins_widest_search_at_nordkapp()
+    {
+        // RoadRoulette.randomRoadPoint's 9.6 km step at 71.2°N: 0.172° x 0.534°.
+        var response = await _factory.CreateClient()
+            .GetAsync("/api/roads?minLat=71.114&minLon=25.513&maxLat=71.286&maxLon=26.047");
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    [Fact]
     public async Task Get_excludes_a_way_outside_the_query_box()
     {
         var way = await SeedWayAsync("w-api-2", 10.00, 10.00);
