@@ -80,7 +80,8 @@ internal fun MapTraffic(s: MapScreenState, retained: RetainedMap, mapOverlays: M
                 val ahead = routeAhead(s.route?.polyline, s.navProgress)
                 val held = retained.trafficCorridor
                 val corridor = withContext(Dispatchers.IO) {
-                    TrafficRound.run(held, client, ahead, navigating = true, nowMs = { System.currentTimeMillis() })
+                    TrafficRound.run(held, client, ahead, navigating = true, nowMs = { System.currentTimeMillis() },
+                        spend = Settings::spendTrafficRequests)
                 }
                 retained.trafficCorridor = corridor
                 retained.traffic = withContext(Dispatchers.Default) {
