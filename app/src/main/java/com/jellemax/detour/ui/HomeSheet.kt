@@ -147,6 +147,7 @@ internal fun ColumnScope.HomeSheet(
     onSpinSettings: () -> Unit,
     onOpenRoutes: () -> Unit,
     onOpenSocial: () -> Unit,
+    loopDistance: String? = null,
 ) {
     Surface(
         modifier = Modifier.weight(1f, fill = false).fillMaxWidth(),
@@ -197,6 +198,7 @@ internal fun ColumnScope.HomeSheet(
                     onPick = onPickPlace,
                     mode = mode,
                     onSpinSettings = onSpinSettings,
+                    loopDistance = loopDistance,
                     onOpenRoutes = onOpenRoutes.takeIf { landscape },
                     onOpenSocial = onOpenSocial.takeIf { landscape },
                 )
@@ -319,6 +321,7 @@ private fun ShortcutChipRow(
     onPick: (SavedPlace) -> Unit,
     mode: TravelMode,
     onSpinSettings: () -> Unit,
+    loopDistance: String?,
     onOpenRoutes: (() -> Unit)?,
     onOpenSocial: (() -> Unit)?,
 ) {
@@ -349,7 +352,14 @@ private fun ShortcutChipRow(
         // only way to reach it — and, with it, the only way to roll a spin.
         AssistChip(
             onClick = onSpinSettings,
-            label = { Text(stringResource(R.string.home_spin), fontWeight = FontWeight.SemiBold, maxLines = 1) },
+            // A loop still on the map (the sheet was folded away to see it)
+            // says so here: this chip is the way back to its Re-spin and Go.
+            label = {
+                Text(
+                    stringResource(R.string.home_spin) + (loopDistance?.let { " · $it" } ?: ""),
+                    fontWeight = FontWeight.SemiBold, maxLines = 1,
+                )
+            },
             leadingIcon = {
                 Icon(mode.icon, contentDescription = mode.label, Modifier.size(18.dp))
             },

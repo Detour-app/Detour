@@ -329,6 +329,7 @@ internal fun BoxScope.MapBottomSlot(
                 onSpinSettings = onExpand,
                 onOpenRoutes = onOpenRoutes,
                 onOpenSocial = onOpenSocial,
+                loopDistance = route?.distanceMeters?.let { formatDistanceKm(it) },
             )
         }
     }
