@@ -1,6 +1,7 @@
 package com.jellemax.detour.data
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -136,7 +137,7 @@ object SyncClient {
             put("traces", buildJsonArrayOfStrings(TraceStore.rawLines()))
             put("badges", jsonObjectOf(BadgeStore.rawJson()))
             put("tripTitles", TripTitleStore.toUpload(TripTitleStore.loadEntries()))
-            put("savedPlaces", jsonArrayOf(SavedPlaces.rawJson()))
+            putSavedPlaces()
             put("stats", stats.toJson())
             put("shareFog", Settings.shareFog.value)
         }
@@ -208,6 +209,14 @@ object SyncClient {
     private fun writeBackOptional(merged: JsonObject) {
         merged.optArray("savedPlaces")?.let { SavedPlaces.replaceFromServer(it.string()) }
         merged.optArray("tripTitles")?.let { TripTitleStore.mergeFromServer(TripTitleStore.fromServer(it)) }
+    }
+
+    /** The shortcuts, and the ones removed here — the latter for the same
+     *  reason as `deletedTripStartTimes`: without it the server's copy of a
+     *  removed shortcut comes back in the merge (#695). */
+    private fun JsonObjectBuilder.putSavedPlaces() {
+        put("savedPlaces", jsonArrayOf(SavedPlaces.rawJson()))
+        put("deletedSavedPlaceIds", buildJsonArrayOfLongs(SavedPlaces.deletedIds()))
     }
 
     private fun tripsForUpload() = buildJsonArray {
