@@ -71,6 +71,8 @@ import com.jellemax.detour.data.Gpx
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MunicipalityStore
 import com.jellemax.detour.data.RoadRoulette
+import com.jellemax.detour.data.RouteStore
+import com.jellemax.detour.data.SavedSpins
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.Trip
@@ -232,10 +234,11 @@ private fun shareGpxIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).apply 
  * button, and every number in a collapsed Deep dive. [HistoryScreen] only opens this for
  * trips a trace was matched to, so [loadTripTrace] coming back empty is not
  * expected in practice — handled anyway rather than assumed away.
+ * [onOpenRoute] opens the saved spin the trip rode, by its route id (#590).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
+fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Loaded off the main thread, same reasoning as HistoryScreen: reading and
@@ -618,6 +621,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 TripStoryHeader(trip, editedTitle, extras)
+                RiddenSpinLink(trip, onOpenRoute)
                 exportError?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                 }
@@ -727,6 +731,20 @@ private fun TripStoryHeader(trip: Trip, editedTitle: String?, extras: TripDetail
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         extras?.places?.takeIf { it.isNotEmpty() }?.let { PlaceStamps(it, max = Int.MAX_VALUE) }
+    }
+}
+
+/** A link to the saved spin this trip rode (#590); nothing when it rode none
+ *  or the spin has since been deleted, so the trip never shows a dead link. */
+@Composable
+private fun RiddenSpinLink(trip: Trip, onOpenRoute: (Long) -> Unit) {
+    if (trip.spinRouteId == null) return
+    // ensureLoaded reads routes.json on a cold start straight into this screen.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { RouteStore.ensureLoaded() } }
+    val routes by RouteStore.routes.collectAsStateWithLifecycle()
+    val spin = SavedSpins.riddenBy(trip, routes) ?: return
+    TextButton(onClick = { onOpenRoute(spin.id) }) {
+        Text(stringResource(R.string.trip_ridden_spin, spin.name))
     }
 }
 

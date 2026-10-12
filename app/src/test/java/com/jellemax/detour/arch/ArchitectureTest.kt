@@ -102,7 +102,8 @@ class ArchitectureTest {
     fun `files stay under 1000 lines - section 8`() {
         val pinned = mapOf(
             // +4: #472 car-started flag on the nav start intent; +5: #500 precise-only trip start
-            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1811,
+            // +10: #590 saved-spin id on the nav start intent, carried to the saved trip
+            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1821,
             // +3: #456 stale-destination guard; +1: #485 MapSurface import; -1: #432 route-fetch guard
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
             // +2: #549 camera banner and the island's gap under it
@@ -110,7 +111,8 @@ class ArchitectureTest {
             // +3: #439 route tile prefetch at nav start
             // +4: #645 traffic loop call and its comment, traffic banner, withTrafficDelay import
             // +5: #589 save-spin callbacks and the saved-loop sheet open
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1448,
+            // +1: #590 FollowedRoute import (the claim is on the existing recordTrip line)
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1449,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,

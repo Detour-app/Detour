@@ -252,7 +252,10 @@ final class TripRecorder: NSObject, ObservableObject {
             // What started the trip (#472) is recorded on Android only.
             startedBy: nil,
             // A new trip has never been edited (#486).
-            editedAtMs: 0
+            editedAtMs: 0,
+            // Riding a saved spin is linked on Android only (#590): iOS has no
+            // Routes ride action yet.
+            spinRouteId: nil
         )
         TripStore.shared.save(trip: trip)
 

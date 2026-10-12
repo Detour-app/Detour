@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 data class Trip(
@@ -35,6 +36,11 @@ data class Trip(
      *  when never edited (#486). The sync server keeps whichever copy has the
      *  newer stamp, so another device's stale copy can't revert the edit. */
     val editedAtMs: Long = 0L,
+    /** The [SavedRoute.id] of the saved spin this trip rode (#590), or null.
+     *  A reference, not a copy: the spin may since have been deleted, or never
+     *  have existed on this device (saved routes do not sync, #592), so a
+     *  reader looks it up and shows nothing when it is gone. */
+    val spinRouteId: Long? = null,
 ) {
     val durationMs: Long get() = endTimeMs - startTimeMs
     val avgSpeedMps: Double
@@ -190,6 +196,7 @@ object TripStore {
         put("gForceGravityFree", t.gForceGravityFree)
         put("startedBy", t.startedBy?.name)
         put("editedAtMs", t.editedAtMs)
+        put("spinRouteId", t.spinRouteId)
     }
 
     private fun encodeDrivingStats(d: DrivingStats): JsonObject = buildJsonObject {
@@ -295,6 +302,7 @@ object TripStore {
         gForceGravityFree = o.optBoolean("gForceGravityFree"),
         startedBy = TripStart.of(o.optString("startedBy")),
         editedAtMs = o.optLong("editedAtMs"),
+        spinRouteId = (o["spinRouteId"] as? JsonPrimitive)?.longOrNull,
     )
 
     /** Raw stored JSON array, for server sync. */
