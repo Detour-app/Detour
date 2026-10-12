@@ -16,6 +16,7 @@ struct NavScreen: View {
 
     @EnvironmentObject private var recorder: TripRecorder
     @StateObject private var model = NavModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -28,7 +29,9 @@ struct NavScreen: View {
                     CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
                 },
                 driven: drivenPolyline,
-                cameras: model.cameras
+                cameras: model.cameras,
+                congestion: model.traffic?.runs ?? [],
+                incidents: model.traffic?.incidents ?? []
             )
             .ignoresSafeArea()
 
@@ -36,6 +39,9 @@ struct NavScreen: View {
                 banner
                 if let countdown = model.cameraCountdown {
                     CameraBanner(countdown: countdown)
+                }
+                if let traffic = model.traffic {
+                    TrafficBanner(traffic: traffic)
                 }
             }
 
@@ -45,6 +51,14 @@ struct NavScreen: View {
             }
         }
         .task { model.start(route: route) }
+        // HERE traffic (#654): keyed on the key and on the app being in the
+        // foreground, so a new key restarts the loop, and backgrounding the
+        // app — screen off, or another app — cancels it: nothing is asked
+        // while nobody can see the map. Leaving navigation cancels it too.
+        .task(id: TrafficLoopKey(key: model.trafficKey, active: scenePhase == .active)) {
+            guard scenePhase == .active else { return }
+            await model.runTraffic(route: route)
+        }
         .onDisappear { model.stop() }
         .onChange(of: recorder.lastFix) { _, fix in
             guard let fix else { return }
@@ -97,7 +111,7 @@ struct NavScreen: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.progress.map { formatDistanceKm($0.remainingMeters) } ?? "—")
                     .font(.headline.monospacedDigit())
-                if let ms = model.progress?.remainingTimeMs?.int64Value {
+                if let ms = model.etaProgress?.remainingTimeMs?.int64Value {
                     Text(formatDurationHistory(ms))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -149,6 +163,50 @@ private struct CameraBanner: View {
     }
 }
 
+/// "+7 min traffic" or "Road closed ahead" under the turn banner (#654).
+/// Nothing below `TrafficOnRoute.BANNER_MIN_DELAY_MIN` and no closure: a free
+/// road says nothing. Which is which is `TrafficOnRoute`'s, in `:shared`.
+private struct TrafficBanner: View {
+    let traffic: TrafficOnRoute
+
+    var body: some View {
+        if traffic.closedAhead || traffic.bannerDelayMinutes != nil {
+            HStack(spacing: 10) {
+                Image(systemName: traffic.closedAhead ? "nosign" : "exclamationmark.triangle.fill")
+                    .font(.title3)
+                    .foregroundStyle(traffic.closedAhead ? .red : .orange)
+                    // The text beside it already says what it is.
+                    .accessibilityHidden(true)
+                if traffic.closedAhead {
+                    Text("Road closed ahead")
+                        .font(.title3.weight(.bold))
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("+\(traffic.bannerDelayMinutes?.intValue ?? 0) min traffic")
+                            .font(.title3.monospacedDigit().weight(.bold))
+                        Text("on the route ahead")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal)
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// What restarts the traffic loop: a different key, or the app coming back
+/// to the foreground.
+private struct TrafficLoopKey: Equatable {
+    let key: String
+    let active: Bool
+}
+
 /// The European round white-on-red plate, which is what the posted limits from
 /// OSM mean here.
 private struct SpeedLimitSign: View {
@@ -175,11 +233,27 @@ final class NavModel: ObservableObject {
     @Published private(set) var cameras: [SpeedCameras.Camera] = []
     /// The warned camera still ahead, for `CameraBanner`; nil when none is.
     @Published private(set) var cameraCountdown: CameraCountdown?
+    /// HERE traffic on the route ahead (#654): what the map colours and the
+    /// banner say. Nil with no key, or before the first answer.
+    @Published private(set) var traffic: TrafficOnRoute?
+    /// The stored HERE key; non-blank means it passed Test key and traffic
+    /// is on (`TrafficKeyPresenter`).
+    @Published private(set) var trafficKey = ""
+
+    /// `progress` with the traffic delay added to the time left, which is
+    /// what the footer's time shows — `TrafficHolder.withDelay`.
+    var etaProgress: NavEngine.Progress? {
+        progress.map { trafficHolder.withDelay(progress: $0, traffic: traffic) }
+    }
 
     private var route: RouteResult?
     private let voice = NavVoice()
     private let cameraAlerts = CameraPrefetchModel()
     private let cameraWarner = CameraWarnerHolder()
+    /// The HERE corridor for this nav session: per-tile cache, TTLs, backoff.
+    private let trafficHolder = TrafficHolder()
+    /// Same lifetime rule as `voiceWatch` below: cancelled in `deinit` only.
+    private let trafficKeyWatch = SettingsFlows.shared.hereTrafficKey()
 
     /// Spoken guidance being switched off has to cut the prompt already in
     /// flight, which is what the car does (car/NavScreen.kt:479-480). Without
@@ -199,6 +273,10 @@ final class NavModel: ObservableObject {
     private let announcer = NavAnnouncer()
 
     init() {
+        trafficKeyWatch.watch { [weak self] in
+            guard let self else { return }
+            self.trafficKey = self.trafficKeyWatch.value
+        }
         voiceWatch.watch { [weak self] in
             // `watch` fires once with the current value as well as on every
             // change; stopping a synthesizer that is not speaking is a no-op,
@@ -210,6 +288,7 @@ final class NavModel: ObservableObject {
 
     deinit {
         voiceWatch.cancel()
+        trafficKeyWatch.cancel()
     }
 
     func start(route: RouteResult) {
@@ -221,6 +300,25 @@ final class NavModel: ObservableObject {
         voice.stop()
         route = nil
         cameraCountdown = nil
+        traffic = nil
+    }
+
+    /// The traffic loop: one `TrafficHolder.tick` every
+    /// `trafficTickSeconds` until the task is cancelled. Not how often HERE
+    /// is asked — that is `TrafficCorridor`'s TTLs in `:shared` — but how soon
+    /// the delay follows the rider down the route. No key, no requests, and
+    /// the layer is cleared.
+    func runTraffic(route: RouteResult) async {
+        guard !trafficKey.isEmpty else {
+            traffic = nil
+            return
+        }
+        while !Task.isCancelled {
+            let next = try? await trafficHolder.tick(key: trafficKey, route: route, progress: progress)
+            if Task.isCancelled { return }
+            traffic = next
+            try? await Task.sleep(nanoseconds: trafficTickSeconds * 1_000_000_000)
+        }
     }
 
     func update(with fix: CLLocation) {
@@ -272,6 +370,9 @@ final class NavModel: ObservableObject {
         if SettingsValues.shared.voiceGuidance { voice.speak(text) }
     }
 }
+
+/// How often the traffic loop wakes — the phone's `TRAFFIC_TICK_MS`.
+private let trafficTickSeconds: UInt64 = 15
 
 /// Distance as the banner shows it — to 10 m up close, 100 m further out.
 private func displayDistance(_ meters: Double) -> String {

@@ -26,12 +26,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.jellemax.detour.R
 import com.jellemax.detour.data.HereTrafficClient
-import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.drive.TrafficCorridor
 import com.jellemax.detour.drive.TrafficRound
 import com.jellemax.detour.presentation.TrafficOnRoute
+import com.jellemax.detour.presentation.routeAhead
 import com.jellemax.detour.presentation.trafficOnRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -100,13 +99,6 @@ internal fun MapTraffic(s: MapScreenState, retained: RetainedMap, mapOverlays: M
     LaunchedEffect(mapOverlays, retained.traffic) {
         mapOverlays?.setTraffic(retained.traffic)
     }
-}
-
-/** What is left of [line] from the rider on; all of it before the first fix. */
-private fun routeAhead(line: List<LatLon>?, progress: NavEngine.Progress?): List<LatLon> {
-    if (line == null) return emptyList()
-    if (progress == null) return line
-    return NavEngine.cut(line, progress.drivenFraction).ahead
 }
 
 /**

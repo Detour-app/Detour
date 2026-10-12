@@ -6,6 +6,7 @@ import com.jellemax.detour.drive.GroupSpin
 import com.jellemax.detour.drive.IncomingAudioChunk
 import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.presentation.TrafficKeyStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -318,6 +319,17 @@ class AudioChunkWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+/** The HERE key section's status line (#654); see `TrafficKeyHolder`. */
+class TrafficKeyStatusWatcher internal constructor(
+    private val flow: StateFlow<TrafficKeyStatus>,
+) : Watcher() {
+    var value: TrafficKeyStatus = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 /** Same shape as [AudioChunkWatcher] - see its doc - for a `place_event`
  *  arriving on the relay rather than a `ptt_audio` chunk. */
 class PlaceEventWatcher internal constructor(
@@ -351,6 +363,9 @@ object SettingsFlows {
     fun cameraWarnNotSpeeding() = BoolWatcher(Settings.cameraWarnNotSpeeding)
     fun cameraWarnLimitUnknown() = BoolWatcher(Settings.cameraWarnLimitUnknown)
     fun routeColor() = RouteColorWatcher(Settings.routeColor)
+
+    /** Non-blank means tested and on — see `TrafficKeyPresenter`. */
+    fun hereTrafficKey() = StringWatcher(Settings.hereTrafficKey)
     fun authUsername() = StringWatcher(Settings.authUsername)
     fun authRiderId() = RiderIdWatcher(Settings.authRiderId)
 

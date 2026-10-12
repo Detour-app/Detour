@@ -82,6 +82,17 @@ fun trafficOnRoute(state: TrafficCorridor.State, remaining: List<LatLon>, nowMs:
 }
 
 /**
+ * What is left of [line] from the rider on — what [trafficOnRoute] and
+ * [com.jellemax.detour.drive.TrafficRound] are handed each tick. All of it
+ * before the first fix ([progress] null), nothing with no route.
+ */
+fun routeAhead(line: List<LatLon>?, progress: NavEngine.Progress?): List<LatLon> {
+    if (line == null) return emptyList()
+    if (progress == null) return line
+    return NavEngine.cut(line, progress.drivenFraction).ahead
+}
+
+/**
  * This progress with [traffic]'s delay added to the time left, so the ETA and
  * the "… min left" the nav sheet already format from it carry the traffic —
  * GraphHopper's estimate stays the baseline ([TrafficEta]'s class doc says
