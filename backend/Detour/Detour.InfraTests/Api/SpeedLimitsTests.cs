@@ -77,6 +77,25 @@ public class SpeedLimitsTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_with_a_bbox_wider_than_a_quarter_degree_returns_400()
+    {
+        var response = await _factory.CreateClient()
+            .GetAsync("/api/speedlimits?minLat=50.00&minLon=4.00&maxLat=50.30&maxLon=4.10");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Get_answers_the_widest_box_the_client_prefetch_asks_for()
+    {
+        // RoadRoulette.SPEED_PREFETCH_RADIUS_M (1.5 km) at 70°N: 0.027° x 0.079°.
+        var response = await _factory.CreateClient()
+            .GetAsync("/api/speedlimits?minLat=69.986&minLon=24.960&maxLat=70.014&maxLon=25.040");
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    [Fact]
     public async Task Get_excludes_a_way_outside_the_query_box()
     {
         var way = await SeedWayAsync("w-api-2", 10.00, 10.00);
