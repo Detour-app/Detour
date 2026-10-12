@@ -302,6 +302,26 @@ public class ConvoyInviteTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_host_who_left_only_an_invitee_behind_is_replaced_by_the_next_link_guest()
+    {
+        var host = await _factory.SignInAsync();
+        var friend = await _factory.SignInAsync();
+        await Befriend(host, friend);
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+        (await host.PostAsJsonAsync($"/api/groups/{convoy}/invitations", new { username = friend.Username }))
+            .EnsureSuccessStatusCode();
+
+        (await host.DeleteAsync($"/api/groups/{convoy}/membership")).EnsureSuccessStatusCode();
+        var stranger = await _factory.SignInAsync();
+        (await Join(stranger, invite)).EnsureSuccessStatusCode();
+
+        (await OwnerOf(stranger, convoy)).Should().Be(stranger.UserId);
+        (await stranger.PostAsJsonAsync($"/api/convoys/{convoy}/invite-link", new { })).StatusCode
+            .Should().Be(HttpStatusCode.Created);
+    }
+
+    [Fact]
     public async Task A_convoy_takes_at_most_eight_guests_and_a_removal_frees_a_seat()
     {
         var host = await _factory.SignInAsync();

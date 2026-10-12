@@ -87,13 +87,28 @@ public sealed class Group : Entity, INamedEntity
         var existing = FindMember(userId);
         if (existing is not null)
         {
-            var accepted = existing.Accept();
+            var accepted = Accept(existing);
             return accepted.IsFailure ? accepted : existing;
         }
 
         var member = GroupMember.CreateGuest(Id, userId);
         _members.Add(member);
+        FillVacantOwnership();
         return member;
+    }
+
+    /// <summary>
+    /// Accepts a pending invitation. Goes through the group rather than the member because a
+    /// newly accepted rider may be the one to take over an owner who already left.
+    /// </summary>
+    public Result Accept(GroupMember member)
+    {
+        var accepted = member.Accept();
+        if (accepted.IsFailure)
+            return accepted;
+
+        FillVacantOwnership();
+        return Result.Ok();
     }
 
     public GroupMember? FindMember(Guid userId) => _members.FirstOrDefault(m => m.UserId == userId);
@@ -115,10 +130,10 @@ public sealed class Group : Entity, INamedEntity
 
     /// <summary>
     /// Hands ownership to the longest-standing accepted member if the owner is no longer one.
-    /// Called again when an invitation is accepted, because an owner who left a group of only
-    /// pending invitees had nobody to hand it to at the time.
+    /// Called again whenever someone is accepted (an invitation or an invite link), because an
+    /// owner who left a group of only pending invitees had nobody to hand it to at the time.
     /// </summary>
-    public void FillVacantOwnership()
+    private void FillVacantOwnership()
     {
         if (IsAcceptedMember(OwnerId))
             return;

@@ -126,12 +126,8 @@ public class GroupService(
             return Result.Ok("Declined");
         }
 
-        var result = membership.Accept();
-        if (result.IsFailure)
-            return result;
-
-        group.FillVacantOwnership();
-        return Result.Ok(GroupMemberStatus.Accepted.Wire());
+        var result = group.Accept(membership);
+        return result.IsFailure ? result : Result.Ok(GroupMemberStatus.Accepted.Wire());
     }
 
     public async Task<Result> LeaveAsync(Guid callerId, Guid groupId, CancellationToken cancellationToken)
