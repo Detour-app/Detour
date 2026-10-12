@@ -26,21 +26,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.jellemax.detour.R
 import com.jellemax.detour.data.HereTrafficClient
-import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.drive.TrafficCorridor
 import com.jellemax.detour.drive.TrafficRound
 import com.jellemax.detour.presentation.TrafficOnRoute
+import com.jellemax.detour.presentation.routeAhead
 import com.jellemax.detour.presentation.trafficOnRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-
-/** How often the traffic loop wakes. Not how often HERE is asked — that is
- *  [TrafficCorridor]'s TTLs — but how soon the delay follows the rider down
- *  the route, and how soon a reroute's new road is asked about. */
-private const val TRAFFIC_TICK_MS = 15_000L
 
 /**
  * HERE traffic on the phone's map while navigating (#645): the loop that asks,
@@ -92,7 +86,7 @@ internal fun MapTraffic(s: MapScreenState, retained: RetainedMap, mapOverlays: M
                 retained.traffic = withContext(Dispatchers.Default) {
                     trafficOnRoute(corridor, ahead, System.currentTimeMillis())
                 }
-                delay(TRAFFIC_TICK_MS)
+                delay(TrafficRound.TICK_MS)
             }
         }
     }
@@ -100,13 +94,6 @@ internal fun MapTraffic(s: MapScreenState, retained: RetainedMap, mapOverlays: M
     LaunchedEffect(mapOverlays, retained.traffic) {
         mapOverlays?.setTraffic(retained.traffic)
     }
-}
-
-/** What is left of [line] from the rider on; all of it before the first fix. */
-private fun routeAhead(line: List<LatLon>?, progress: NavEngine.Progress?): List<LatLon> {
-    if (line == null) return emptyList()
-    if (progress == null) return line
-    return NavEngine.cut(line, progress.drivenFraction).ahead
 }
 
 /**

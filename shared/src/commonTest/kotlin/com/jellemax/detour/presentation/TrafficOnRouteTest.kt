@@ -116,13 +116,31 @@ class TrafficOnRouteTest {
         assertSame(progress, progress.withTrafficDelay(null), "no traffic leaves the router's time alone")
     }
 
-    private fun progress(remainingTimeMs: Long) = NavEngine.Progress(
+    @Test
+    fun theRouteAheadStartsWhereTheRiderIs() {
+        assertEquals(emptyList(), routeAhead(null, null), "no route, nothing ahead")
+        assertEquals(route, routeAhead(route, null), "before the first fix, all of it")
+        // A sixth of the way is halfway along the first leg: the line ahead
+        // opens at the rider, mid-leg, and keeps every vertex after it.
+        val ahead = routeAhead(route, progress(remainingTimeMs = 0L, remainingMeters = 1_250.0))
+        assertEquals(route.drop(1), ahead.drop(1))
+        assertTrue(ahead.first().lat > route[0].lat && ahead.first().lat < route[1].lat)
+    }
+
+    @Test
+    fun everyCongestionLevelHasItsOwnColour() {
+        val hexes = Congestion.entries.map { CongestionColors.hex(it) }
+        assertTrue(hexes.all { Regex("#[0-9A-F]{6}").matches(it) }, "every level is #RRGGBB: $hexes")
+        assertEquals(hexes.size, hexes.toSet().size, "no two levels share a colour: $hexes")
+    }
+
+    private fun progress(remainingTimeMs: Long, remainingMeters: Double = 1_500.0) = NavEngine.Progress(
         offRouteMeters = 0.0,
         snappedAt = route.first(),
         segmentBearingDeg = 0.0,
         nextInstruction = null,
         distanceToTurnMeters = 0.0,
-        remainingMeters = 1_500.0,
+        remainingMeters = remainingMeters,
         routeMeters = 1_500.0,
         remainingTimeMs = remainingTimeMs,
         speedLimitKmh = null,
