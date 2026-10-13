@@ -325,11 +325,10 @@ internal fun BoxScope.MapBottomSlot(
                 onPickDestination = onPickDestination,
                 savedPlaces = savedPlaces,
                 onPickPlace = onPickPlace,
-                mode = mode,
+                spin = spinChipFor(mode, route),
                 onSpinSettings = onExpand,
                 onOpenRoutes = onOpenRoutes,
                 onOpenSocial = onOpenSocial,
-                loopDistance = route?.distanceMeters?.let { formatDistanceKm(it) },
             )
         }
     }

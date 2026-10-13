@@ -155,8 +155,14 @@ public class ConvoyInviteService(
         // record, and not worth refusing just because the link has since expired.
         if (!group.IsAcceptedMember(caller.Id))
         {
-            var guestsIn = CurrentGuests(await invites.GetForGroupAsync(group.Id, cancellationToken), group)
-                .Count();
+            var all = await invites.GetForGroupAsync(group.Id, cancellationToken);
+
+            // A removal is from the convoy, not from one link: without this, the host sharing a
+            // fresh link would let every rider they removed straight back in (#698).
+            if (all.SelectMany(i => i.Guests).Any(g => g.UserId == caller.Id && g.IsRemoved))
+                return Result.Error(ValidationKeys.ConvoyInvite.GuestRemoved);
+
+            var guestsIn = CurrentGuests(all, group).Count();
             if (guestsIn >= DetourLimits.MaxConvoyGuests)
                 return Result.Error(ValidationKeys.ConvoyInvite.ConvoyFull, DetourLimits.MaxConvoyGuests);
 
@@ -178,11 +184,12 @@ public class ConvoyInviteService(
     /// <summary>
     /// Link guests still in the convoy, one row per rider (their latest join): neither removed
     /// by the host nor gone on their own. What the host sees, and what the guest cap counts.
+    /// A guest who became host when the previous one left (#698) is not a guest any more.
     /// </summary>
     private static IEnumerable<ConvoyGuest> CurrentGuests(IEnumerable<ConvoyInvite> invites, Group group) =>
         invites
             .SelectMany(i => i.Guests)
-            .Where(g => !g.IsRemoved && group.IsAcceptedMember(g.UserId))
+            .Where(g => !g.IsRemoved && g.UserId != group.OwnerId && group.IsAcceptedMember(g.UserId))
             .GroupBy(g => g.UserId)
             .Select(byUser => byUser.MaxBy(g => g.JoinedAt)!);
 

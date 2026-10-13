@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
+import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaceKind
 import com.jellemax.detour.data.TravelMode
@@ -111,6 +112,14 @@ private const val SHEET_ALPHA = 0.96f
  *  Shared with [SpinSheet]'s handle in `SpinCards.kt`, same package. */
 internal val SHEET_SWIPE_THRESHOLD = 24.dp
 
+/** The Spin chip's two readouts. [loopDistance] is set while a loop is still on
+ *  the map (the sheet was folded away to see it), so the chip is the way back
+ *  to its Re-spin and Go. */
+internal data class SpinChip(val mode: TravelMode, val loopDistance: String? = null)
+
+internal fun spinChipFor(mode: TravelMode, route: RouteResult?) =
+    SpinChip(mode, route?.distanceMeters?.let { formatDistanceKm(it) })
+
 /**
  * The map's idle home state: a bottom sheet carrying everywhere you might want
  * to go next — search, your saved places, the spin settings, Routes and Social.
@@ -129,7 +138,8 @@ internal val SHEET_SWIPE_THRESHOLD = 24.dp
  * shows once there is *no* destination, which is exactly when there would be
  * nothing to save.
  *
- * @param mode the travel mode a spin would roll under. A readout, not a
+ * @param spin what the Spin chip reads out: the travel mode a spin would roll
+ *   under, and the length of a loop still on the map. A readout, not a
  *   control — the switch itself lives in `SpinSheet`, one tap away through the
  *   same chip, which is where the Spin chip's glyph comes from; see
  *   [ShortcutChipRow].
@@ -143,11 +153,10 @@ internal fun ColumnScope.HomeSheet(
     onPickDestination: (GeocodeResult) -> Unit,
     savedPlaces: List<SavedPlace>,
     onPickPlace: (SavedPlace) -> Unit,
-    mode: TravelMode,
+    spin: SpinChip,
     onSpinSettings: () -> Unit,
     onOpenRoutes: () -> Unit,
     onOpenSocial: () -> Unit,
-    loopDistance: String? = null,
 ) {
     Surface(
         modifier = Modifier.weight(1f, fill = false).fillMaxWidth(),
@@ -196,9 +205,8 @@ internal fun ColumnScope.HomeSheet(
                 ShortcutChipRow(
                     places = shortcuts,
                     onPick = onPickPlace,
-                    mode = mode,
+                    spin = spin,
                     onSpinSettings = onSpinSettings,
-                    loopDistance = loopDistance,
                     onOpenRoutes = onOpenRoutes.takeIf { landscape },
                     onOpenSocial = onOpenSocial.takeIf { landscape },
                 )
@@ -303,7 +311,7 @@ internal fun DragHandle(onExpand: (() -> Unit)? = null) {
  * favourites, in that order — not the whole store the map's chips used to
  * render. The row scrolls, so any number of favourites is safe here.
  *
- * The Spin chip still shows [mode], as its leading glyph rather than the
+ * The Spin chip still shows [SpinChip.mode], as its leading glyph rather than the
  * `Spin · Car` it used to spell out. The dock that used to show the mode went
  * with the mode switch into `SpinSheet`, and the idle map must say whether it
  * is about to roll a car route or a moto one — mode decides the radius default,
@@ -319,9 +327,8 @@ internal fun DragHandle(onExpand: (() -> Unit)? = null) {
 private fun ShortcutChipRow(
     places: List<SavedPlace>,
     onPick: (SavedPlace) -> Unit,
-    mode: TravelMode,
+    spin: SpinChip,
     onSpinSettings: () -> Unit,
-    loopDistance: String?,
     onOpenRoutes: (() -> Unit)?,
     onOpenSocial: (() -> Unit)?,
 ) {
@@ -356,12 +363,12 @@ private fun ShortcutChipRow(
             // says so here: this chip is the way back to its Re-spin and Go.
             label = {
                 Text(
-                    stringResource(R.string.home_spin) + (loopDistance?.let { " · $it" } ?: ""),
+                    stringResource(R.string.home_spin) + (spin.loopDistance?.let { " · $it" } ?: ""),
                     fontWeight = FontWeight.SemiBold, maxLines = 1,
                 )
             },
             leadingIcon = {
-                Icon(mode.icon, contentDescription = mode.label, Modifier.size(18.dp))
+                Icon(spin.mode.icon, contentDescription = spin.mode.label, Modifier.size(18.dp))
             },
             colors = AssistChipDefaults.assistChipColors(
                 containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),

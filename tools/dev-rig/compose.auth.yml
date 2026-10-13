@@ -1,0 +1,20 @@
+# Overlay for tools/dev-rig/auth-up.sh: Keycloak inside the rig, so the API
+# validates real sign-ins and the live relay (/api/live) can be exercised.
+# Not meant to be run by hand; auth-up.sh sets RIG_REPO and RIG_DATA, and layers
+# this on docker/dev/docker-compose.yml + compose.rig.yml under the detour-rig
+# project.
+#
+# The API checks tokens against Idp__Authority = http://localhost:7580/realms/detour
+# (compose.rig.yml), and that string is also the exact issuer a token must
+# carry. From inside the API container "localhost:7580" is the container
+# itself, so idp-proxy shares the API's network namespace and forwards that
+# port to Keycloak. The host and an emulator (through `adb reverse`) reach
+# Keycloak on the same localhost:7580, so the issuer is one string everywhere.
+services:
+  keycloak:
+    networks: [edge, keycloak-int, detour-int]
+  idp-proxy:
+    image: alpine/socat:1.8.0.3
+    network_mode: "service:api"
+    command: TCP-LISTEN:7580,fork,reuseaddr TCP:keycloak:8080
+    depends_on: [keycloak]

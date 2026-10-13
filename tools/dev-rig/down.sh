@@ -4,8 +4,9 @@
 #   tools/dev-rig/down.sh          stop the containers, keep the graph and the database
 #   tools/dev-rig/down.sh --purge  also drop the rig's volumes and downloaded data
 #
-# Only ever touches the detour-rig compose project — a detour-dev stack and its
-# volumes (including a Belgium graph) are a different project and are left alone.
+# Also stops what auth-up.sh added (Keycloak and its proxy). Only ever touches
+# the detour-rig compose project — a detour-dev stack and its volumes (including
+# a Belgium graph) are a different project and are left alone.
 # Nothing on any device is changed: the emulator keeps pointing at 10.0.2.2,
 # which just stops answering until the next up.sh.
 set -euo pipefail
@@ -19,7 +20,8 @@ PROJECT=detour-rig
 compose() {
     docker compose -p "$PROJECT" \
         -f "$REPO/docker/dev/docker-compose.yml" \
-        -f "$HERE/compose.rig.yml" "$@"
+        -f "$HERE/compose.rig.yml" \
+        -f "$HERE/compose.auth.yml" "$@"
 }
 
 case "${1:-}" in

@@ -95,7 +95,7 @@ per-kind rules have an obvious home.
 
 | Path | Notes |
 |---|---|
-| `POST`/`GET` `/api/convoys` · `/api/circles` | Create, list. Kind comes from the path. Each group carries `ownerId` — for a convoy, the host — so a client can hide host-only actions from everyone else (#676) |
+| `POST`/`GET` `/api/convoys` · `/api/circles` | Create, list. Kind comes from the path. Each group carries `ownerId` — for a convoy, the host — so a client can hide host-only actions from everyone else (#676). When the owner leaves, ownership passes to the longest-standing accepted member; if only pending invitees remain, to the first of them to accept (#698) |
 | `POST /api/groups/{id}/invitations` | Membership *and* friendship required |
 | `POST /api/groups/{id}/invitations/respond` | Accept or decline |
 | `DELETE /api/groups/{id}/membership` | Leave; drops live sockets and the leaver's places and last fix |
@@ -137,15 +137,17 @@ The rules, and why each one is there:
 - **A guest is an ordinary accepted `group_members` row**, so the relay, voice
   and votes need no second path. The `convoy_guests` row is what lets the host
   list who came in by link and what keeps a removed guest out: removal sets
-  `removed_at`, and the same link refuses that rider from then on. A newly
-  minted link would let them in — the host chose to share it again. A guest who
-  left on their own may rejoin with the same link.
+  `removed_at`, and every link the convoy has, including one minted later,
+  refuses that rider from then on (#698): a removal is from the convoy, and a
+  host re-sharing a link for latecomers is not inviting back whoever they
+  removed. A guest who left on their own may rejoin with the same link.
 - **No friendship is created**, and the guest loses access when the convoy ends
   because their membership goes with it.
 - **At most 8 link guests per convoy** (`DetourLimits.MaxConvoyGuests`, owner
   decision on #641; the host cannot raise it). The count is over every link the
   convoy has had, so minting a new link does not reset it, and only guests still
-  in the convoy count: one the host removed or who left frees the seat. Friends
+  in the convoy count: one the host removed or who left frees the seat, and so
+  does a guest who became host when the previous one left. Friends
   invited the ordinary way are not guests and do not count. The 9th join answers
   `400` with `ConvoyInvite.ConvoyFull`.
 - **Join attempts are capped per token and per address**
