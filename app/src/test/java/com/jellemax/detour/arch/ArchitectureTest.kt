@@ -111,8 +111,9 @@ class ArchitectureTest {
             // +3: #439 route tile prefetch at nav start
             // +4: #645 traffic loop call and its comment, traffic banner, withTrafficDelay import
             // +5: #589 save-spin callbacks and the saved-loop sheet open
+            // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
             // +1: #590 FollowedRoute import (the claim is on the existing recordTrip line)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1449,
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1460,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,
@@ -130,7 +131,7 @@ class ArchitectureTest {
     @Test
     fun `shared functions stay under 100 lines - section 8`() {
         val pinned = mapOf(
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#sync" to 157,
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#syncLocked" to 113,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 150,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             // +3: #587 the three graph-dependent avoid options

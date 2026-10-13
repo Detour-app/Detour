@@ -323,14 +323,23 @@ object TripStore {
      * deletion on every sync. A mode override clears itself once the server
      * echoes the same value back or holds a newer edit, so it never masks a
      * genuine later change. See [mergeServerTrips].
+     *
+     * A trip saved here after the upload was read ([uploadedStarts]) is kept:
+     * the server has not seen it, so its copy cannot carry it (#693).
      */
-    fun replaceRaw(json: String) {
+    fun replaceRaw(json: String, uploadedStarts: Set<Long>) {
         val t = Perf.start()
-        val incoming = jsonArrayOf(json) // validate before overwriting
+        val server = jsonArrayOf(json) // validate before overwriting
+        // An unreadable local file has nothing to keep, and must not stop the
+        // server's copy replacing it.
+        val local = runCatching { jsonArrayOf(rawJson()) }.getOrDefault(JsonArrayEmpty)
+        val incoming = withUnsynced(server, uploadedStarts, local)
         val tombstones = tombstones()
         val overrides = modeOverrides()
         if (tombstones.isEmpty() && overrides.isEmpty()) {
-            accountFile(FILE_NAME).writeText(json)
+            // Same instance when nothing was kept: write the server's text as is
+            // rather than re-encoding the whole history.
+            accountFile(FILE_NAME).writeText(if (incoming === server) json else incoming.string())
             RiderTotals.invalidate()
             Perf.end(t, "TripStore.replaceRaw") {
                 listOf("trips" to incoming.objects().count(), "bytes" to json.length)
@@ -351,6 +360,18 @@ object TripStore {
         // trips can vanish, so no increment is even definable from here. Both
         // exits invalidate.
         RiderTotals.invalidate()
+    }
+
+    /** [server] with each [local] trip that was neither uploaded
+     *  ([uploadedStarts]) nor returned by the server put in front, where
+     *  [save] puts a new trip. [server] itself when there is none. */
+    internal fun withUnsynced(server: JsonArray, uploadedStarts: Set<Long>, local: JsonArray): JsonArray {
+        val returned = server.objects().mapTo(HashSet()) { it.optLong("startTimeMs") }
+        val unsynced = local.objects().filter {
+            val start = it.optLong("startTimeMs")
+            start !in uploadedStarts && start !in returned
+        }
+        return if (unsynced.isEmpty()) server else JsonArray(unsynced + server)
     }
 
     /**

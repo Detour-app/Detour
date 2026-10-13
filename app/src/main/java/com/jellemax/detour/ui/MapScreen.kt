@@ -1297,6 +1297,17 @@ fun MapScreen(
                 PushToTalkButton(talking = convoyTalking.isNotEmpty())
             }
 
+            // Break please, Regroup here and the regroup banner (#649), in MapBreakRegroup.kt.
+            MapBreakRegroup(
+                s = s,
+                mapOverlays = mapOverlays,
+                onRouteTo = { at, name ->
+                    s.destination = at; s.destinationName = name; s.route = null
+                    startNavigation()
+                },
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp),
+            )
+
             MapBottomSlot(
                 stats = stats,
                 onEndTrip = { TripTrackingService.stop(context) },
