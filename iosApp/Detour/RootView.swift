@@ -83,6 +83,9 @@ struct RootView: View {
             // `signedIn` on every loop iteration, so a mid-session sign-in
             // reaches it on its own — nothing to key here.
             CircleSync.shared.start()
+            // Convoy gap alerts (#656) judge the convoy whichever tab is on
+            // screen, for the same reason.
+            ConvoyGapAlerts.shared.start()
             // Cold launch counts as "foreground" too, but `.onChange(of:
             // scenePhase)` below never fires for a view's starting value —
             // only later transitions — so the very first sweep has to be
