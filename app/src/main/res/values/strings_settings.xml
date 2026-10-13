@@ -253,4 +253,6 @@
     <string name="settings_traffic_bad_key">HERE refused this key. Check it was copied whole and that its project has the Traffic API.</string>
     <string name="settings_traffic_quota">This key\'s allocation is used up, or HERE is limiting it. Try again later.</string>
     <string name="settings_traffic_unreachable">Couldn\'t reach HERE. Check your connection and try again.</string>
+    <string name="settings_traffic_over_title">Go over the free allocation</string>
+    <string name="settings_traffic_over_body">Off: traffic pauses at %2$d requests a month so HERE never bills you. Used this month: %1$d.</string>
 </resources>

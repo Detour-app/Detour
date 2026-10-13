@@ -34,6 +34,8 @@ object TrafficRound {
      * due — not navigating, a refused key, a backoff running — so a caller can
      * call this on any cadence without spending the rider's quota.
      *
+     * [spend] trims the round to what the rider's monthly budget still allows.
+     *
      * [nowMs] is read twice: once to stamp the requests, once for the answers.
      */
     suspend fun run(
@@ -42,9 +44,13 @@ object TrafficRound {
         route: List<LatLon>,
         navigating: Boolean,
         nowMs: () -> Long,
+        spend: (wanted: Int, nowMs: Long) -> Int = { wanted, _ -> wanted },
     ): TrafficCorridor.State {
         val startedAt = nowMs()
+        // [spend] is the monthly budget ([TrafficBudget]): it counts what it
+        // grants, so it is asked only when something is due.
         val due = TrafficCorridor.due(state, route, navigating, startedAt)
+            .let { it.take(if (it.isEmpty()) 0 else spend(it.size, startedAt)) }
         if (due.isEmpty()) return state
         val folds = coroutineScope {
             due.map { request -> async { answer(client, request) } }.awaitAll()
