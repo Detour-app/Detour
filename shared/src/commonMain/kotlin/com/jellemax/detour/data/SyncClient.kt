@@ -3,6 +3,7 @@ package com.jellemax.detour.data
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
@@ -153,7 +154,7 @@ object SyncClient {
             put("traces", buildJsonArrayOfStrings(uploadedLines))
             put("badges", jsonObjectOf(BadgeStore.rawJson()))
             put("tripTitles", TripTitleStore.toUpload(TripTitleStore.loadEntries()))
-            put("savedPlaces", jsonArrayOf(SavedPlaces.rawJson()))
+            putSavedPlaces()
             // Coverage is the only stat the server can't derive from the trips it
             // already holds — it needs the boundaries, which only we have.
             put("stats", BadgeStore.stats(Coverage.compute()).toJson())
@@ -231,6 +232,14 @@ object SyncClient {
         val serverFog = (merged["shareFog"] as? JsonPrimitive)?.booleanOrNull
         shareFogFromServer(serverFog, fogEditsAtUpload, Settings.shareFogEdits())
             ?.let(Settings::adoptServerShareFog)
+    }
+
+    /** The shortcuts, and the ones removed here — the latter for the same
+     *  reason as `deletedTripStartTimes`: without it the server's copy of a
+     *  removed shortcut comes back in the merge (#695). */
+    private fun JsonObjectBuilder.putSavedPlaces() {
+        put("savedPlaces", jsonArrayOf(SavedPlaces.rawJson()))
+        put("deletedSavedPlaceIds", buildJsonArrayOfLongs(SavedPlaces.deletedIds()))
     }
 
     /**
