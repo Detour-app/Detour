@@ -46,10 +46,6 @@ struct MapScreen: View {
     /// in MapScreen.kt.
     private static let circleFixPollSeconds = 120
 
-    /// How often the break pills re-check their age while nothing else
-    /// changes. Same as Android's `BREAK_AGE_TICK_MS` in MapBreakRegroup.kt.
-    private static let breakAgeTickSeconds = 15
-
     var body: some View {
         ZStack(alignment: .bottom) {
             MapView(
@@ -184,8 +180,8 @@ struct MapScreen: View {
         }
         .task {
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(Self.breakAgeTickSeconds))
                 breakClockMs = nowMs()
+                try? await Task.sleep(for: .milliseconds(ConvoyBreakRegroupStateKt.BREAK_AGE_TICK_MS))
             }
         }
         .safeAreaInset(edge: .top) { modePicker }

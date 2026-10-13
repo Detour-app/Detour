@@ -314,8 +314,7 @@ final class ConvoyLiveClient: ObservableObject {
 
     /// Asks the convoy for a break from `location` - see
     /// `ConvoyRelay.sendBreakRequest`. Stamped with the wall clock, the one
-    /// `ConvoyRelay` stamps everyone else's request with on arrival. Same as
-    /// Android's `ConvoyLiveClient.sendBreakRequest`.
+    /// `ConvoyRelay` stamps everyone else's request with on arrival.
     func sendBreakRequest(_ location: LatLon) {
         relay.sendBreakRequest(myId: SettingsValues.shared.authRiderId, location: location, nowMs: nowMs())
     }

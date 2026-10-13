@@ -30,7 +30,7 @@ func convoyBreakRegroupState(
 
 extension ConvoyBreakRegroupState {
     /// The break markers and the meeting point, as titled pins for `MapView`,
-    /// labelled the way Android's `setConvoyMarks` labels them.
+    /// labelled like the phone map's `setConvoyMarks`.
     var mapPins: [MapPin] {
         let breakPins = breaks.map { pill in
             MapPin(
