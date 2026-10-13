@@ -83,6 +83,20 @@ public class Startup(IConfiguration configuration)
         services.Configure<KestrelServerOptions>(options =>
             options.Limits.MaxRequestBodySize = DetourLimits.MaxRequestBodyBytes);
 
+        // The other direction: a sync response is the same whole history coming back, and the
+        // friends' fog and the map-data endpoints are large JSON too. Behind Cloudflare the edge
+        // compresses for the client, but a LAN or direct self-host would otherwise download all
+        // of it at full size on every sync. The clients already send Accept-Encoding: gzip.
+        //
+        // EnableForHttps because the forwarded scheme makes a proxied request read as https, and
+        // the middleware skips https by default. JSON only: a streamed response (SSE) must not
+        // sit in a compressor's buffer, and the WebSocket upgrade has no body to compress.
+        services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.MimeTypes = ["application/json", "application/problem+json"];
+        });
+
         // Live position, destination votes and circle presence events. Everything else keeps
         // working when this cannot start — group management and the low-cadence REST position
         // path do not depend on it.
@@ -148,6 +162,10 @@ public class Startup(IConfiguration configuration)
         // is exactly the one whose decompressed size has to be bounded, and the bound is what
         // this installs.
         app.UseRequestDecompression();
+
+        // Before the exception handler and the controllers, so it wraps every JSON body they
+        // write, error responses included.
+        app.UseResponseCompression();
 
         app.UseMiddleware<TraceIdMiddleware>();
 

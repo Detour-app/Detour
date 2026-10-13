@@ -108,8 +108,19 @@ object RouteTileCache {
         }
     }
 
-    /** How far a saved-area download has got. [fraction] is 0..1 by resource count. */
-    data class AreaProgress(val fraction: Float, val bytes: Long, val complete: Boolean)
+    /**
+     * How far a saved-area download has got. [fraction] is 0..1 by resource
+     * count. [complete] ends the download, whichever way: [failed] when nothing
+     * usable came of it ([bytes] is then meaningless), [capped] when it stopped
+     * at [OfflineArea.MAX_BYTES] with tiles still missing.
+     */
+    data class AreaProgress(
+        val fraction: Float,
+        val bytes: Long,
+        val complete: Boolean,
+        val failed: Boolean = false,
+        val capped: Boolean = false,
+    )
 
     /**
      * Downloads [box] at the corridor's zoom range as the one saved area,
@@ -131,10 +142,11 @@ object RouteTileCache {
                 override fun onCreate(offlineRegion: OfflineRegion) {
                     offlineRegion.setObserver(object : OfflineRegion.OfflineRegionObserver {
                         override fun onStatusChanged(status: OfflineRegionStatus) {
-                            val done = status.isComplete || status.completedResourceSize >= OfflineArea.MAX_BYTES
+                            val capped = !status.isComplete && status.completedResourceSize >= OfflineArea.MAX_BYTES
+                            val done = status.isComplete || capped
                             val required = status.requiredResourceCount.coerceAtLeast(1)
                             val fraction = status.completedResourceCount.toFloat() / required
-                            onProgress(AreaProgress(fraction, status.completedResourceSize, done))
+                            onProgress(AreaProgress(fraction, status.completedResourceSize, done, capped = capped))
                             if (done) offlineRegion.setDownloadState(OfflineRegion.STATE_INACTIVE)
                         }
 
@@ -144,6 +156,7 @@ object RouteTileCache {
 
                         override fun mapboxTileCountLimitExceeded(limit: Long) {
                             offlineRegion.setDownloadState(OfflineRegion.STATE_INACTIVE)
+                            onProgress(AreaProgress(0f, 0L, complete = true, failed = true))
                         }
                     })
                     offlineRegion.setDownloadState(OfflineRegion.STATE_ACTIVE)
@@ -151,6 +164,7 @@ object RouteTileCache {
 
                 override fun onError(error: String) {
                     Log.w(TAG, "could not create area region: $error")
+                    onProgress(AreaProgress(0f, 0L, complete = true, failed = true))
                 }
             }
             manager.createOfflineRegion(definition, AREA_TAG.encodeToByteArray(), created)

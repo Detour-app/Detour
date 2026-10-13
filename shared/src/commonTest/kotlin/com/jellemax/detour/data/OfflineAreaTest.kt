@@ -59,4 +59,10 @@ class OfflineAreaTest {
         val past = LatLonBox(north = 90.0, south = -90.0, east = 190.0, west = -190.0)
         assertEquals(1, OfflineArea.tileCount(past, minZoom = 0, maxZoom = 0))
     }
+
+    @Test
+    fun aBoxCrossingTheAntimeridianNeverFits() {
+        val crossing = LatLonBox(north = 10.0, south = 5.0, east = -179.0, west = 179.0)
+        assertFalse(OfflineArea.fits(crossing))
+    }
 }

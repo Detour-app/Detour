@@ -207,15 +207,33 @@ object TraceStore {
     /** Raw JSONL lines, for server sync. */
     fun rawLines(): List<String> = accountFile(FILE_NAME).readLines().filter { it.isNotBlank() }
 
-    /** Overwrite the store with merged lines from the sync server. */
-    fun replaceLines(lines: List<String>) {
+    /**
+     * Overwrite the store with merged lines from the sync server, keeping every
+     * line appended since [uploaded] was read. A recording trip flushes a line
+     * every 200 points and the /sync round trip can take minutes; replacing
+     * with the server's copy alone dropped a line flushed in between, which the
+     * server never received either (#693).
+     *
+     * The file is re-read here, with no suspension before the write, so the
+     * window shrinks from the round trip to this write. [append] takes no lock,
+     * so it is narrower, not gone.
+     */
+    fun replaceLines(lines: List<String>, uploaded: Set<String>) {
         val t = Perf.start()
-        val kept = lines.filter { it.isNotBlank() }
+        val kept = withUnsynced(lines, uploaded, rawLines())
         val text = kept.joinToString("\n", postfix = "\n")
         accountFile(FILE_NAME).writeText(text)
         _version.value++
         Perf.end(t, "TraceStore.replaceLines") {
             listOf("segments" to kept.size, "bytes" to text.length)
         }
+    }
+
+    /** [server]'s lines, then each [current] line that was neither in the
+     *  upload ([uploaded]) nor already returned by the server. */
+    internal fun withUnsynced(server: List<String>, uploaded: Set<String>, current: List<String>): List<String> {
+        val serverLines = server.filter { it.isNotBlank() }
+        val returned = serverLines.toHashSet()
+        return serverLines + current.filter { it.isNotBlank() && it !in uploaded && it !in returned }
     }
 }

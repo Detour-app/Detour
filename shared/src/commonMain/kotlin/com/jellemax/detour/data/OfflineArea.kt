@@ -48,8 +48,9 @@ object OfflineArea {
     /** What [box] would download, in bytes: [FIXED_BYTES] plus [tileCount] x [BYTES_PER_TILE]. */
     fun estimateBytes(box: LatLonBox): Long = FIXED_BYTES + tileCount(box) * BYTES_PER_TILE
 
-    /** Whether [box] fits under [MAX_BYTES]. */
-    fun fits(box: LatLonBox): Boolean = estimateBytes(box) <= MAX_BYTES
+    /** Whether [box] fits under [MAX_BYTES]. A box crossing the antimeridian
+     *  (west past east) never does: its tile span would come out negative. */
+    fun fits(box: LatLonBox): Boolean = box.west <= box.east && estimateBytes(box) <= MAX_BYTES
 
     private const val MAX_LAT = 85.05112878
 

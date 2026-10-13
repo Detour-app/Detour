@@ -8,6 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +40,8 @@ internal fun OfflineAreaRow() {
     val box by MapViewport.box.collectAsStateWithLifecycle()
     var savedBytes by remember { mutableStateOf<Long?>(null) }
     var fraction by remember { mutableStateOf<Float?>(null) }
-    remember { RouteTileCache.areaBytes(context) { savedBytes = it } }
+    var capped by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { RouteTileCache.areaBytes(context) { savedBytes = it } }
 
     val area = box
     val fits = area != null && OfflineArea.fits(area)
@@ -52,21 +54,32 @@ internal fun OfflineAreaRow() {
             Text(stringResource(R.string.settings_offline_area), style = MaterialTheme.typography.bodyLarge)
             OfflineAreaNote(offlineAreaStatus(area, fraction))
             savedBytes?.let { OfflineAreaNote(stringResource(R.string.settings_offline_area_saved, it / BYTES_PER_MB)) }
+            if (capped) OfflineAreaNote(stringResource(R.string.settings_offline_area_capped))
         }
         Column(horizontalAlignment = Alignment.End) {
             TextButton(
                 onClick = {
                     val chosen = area ?: return@TextButton
                     fraction = 0f
+                    capped = false
                     RouteTileCache.downloadArea(context, chosen, darkTheme) { p ->
-                        savedBytes = p.bytes
+                        if (!p.failed) savedBytes = p.bytes
+                        capped = p.capped
                         fraction = p.fraction.takeUnless { p.complete }
                     }
                 },
                 enabled = fits && fraction == null,
             ) { Text(stringResource(R.string.settings_offline_area_download)) }
             if (savedBytes != null) {
-                TextButton(onClick = { RouteTileCache.clearArea(context) { savedBytes = null; fraction = null } }) {
+                TextButton(
+                    onClick = {
+                        RouteTileCache.clearArea(context) {
+                            savedBytes = null
+                            fraction = null
+                            capped = false
+                        }
+                    },
+                ) {
                     Text(stringResource(R.string.settings_offline_area_delete))
                 }
             }

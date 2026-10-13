@@ -1,8 +1,12 @@
 package com.jellemax.detour.data
 
+import okio.FileSystem
+import okio.IOException
 import okio.Path
+import okio.Path.Companion.toPath
 import okio.buffer
 import okio.use
+import kotlin.random.Random
 
 /**
  * The handful of whole-file operations the stores actually perform, over okio.
@@ -65,9 +69,34 @@ internal fun Path.readText(): String = fileSystem.read(this) { readUtf8() }
 internal fun Path.readLines(): List<String> =
     if (!exists()) emptyList() else readText().lineSequence().toList()
 
-internal fun Path.writeText(text: String) {
-    parent?.let { fileSystem.createDirectories(it) }
-    fileSystem.write(this) { writeUtf8(text) }
+internal fun Path.writeText(text: String) = fileSystem.writeAtomically(this, text)
+
+/**
+ * Replace [target] with [text] so a reader only ever sees the old file or the
+ * new one, never a prefix of the new one (#694).
+ *
+ * A plain `write` truncates first, so a process kill mid-write left a cut-off
+ * trips.json that `load()` read as no trips at all. Here the text goes to a
+ * sibling temp file, is flushed (an fsync on the JVM), and only then renamed
+ * over the target. The temp name is unique per call, so two writers racing on
+ * one store each rename a whole file and the last one wins; a kill between
+ * write and rename leaves a stray `.tmp` behind, never a broken target.
+ */
+internal fun FileSystem.writeAtomically(target: Path, text: String) {
+    val dir = target.parent
+    dir?.let { createDirectories(it) }
+    val tmpName = "${target.name}.${Random.nextLong().toULong()}.tmp"
+    val tmp = dir?.div(tmpName) ?: tmpName.toPath()
+    try {
+        openReadWrite(tmp, mustCreate = true).use { handle ->
+            handle.sink().buffer().use { it.writeUtf8(text) }
+            handle.flush()
+        }
+        atomicMove(tmp, target)
+    } catch (e: IOException) {
+        delete(tmp, mustExist = false)
+        throw e
+    }
 }
 
 internal fun Path.appendText(text: String) {

@@ -91,6 +91,7 @@
     <string name="settings_offline_area_no_map">Open de kaart en kijk naar het gebied dat je wilt bewaren, kom dan terug.</string>
     <string name="settings_offline_area_progress">Downloaden… %1$d%%</string>
     <string name="settings_offline_area_saved">Bewaard: %1$d MB</string>
+    <string name="settings_offline_area_capped">Gestopt bij de limiet, dus de randen van dit beeld ontbreken mogelijk.</string>
     <string name="settings_offline_area_download">Downloaden</string>
     <string name="settings_offline_area_delete">Verwijderen</string>
 

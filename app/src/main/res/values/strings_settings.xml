@@ -94,6 +94,7 @@
     <string name="settings_offline_area_no_map">Open the map and look at the area you want to keep, then come back.</string>
     <string name="settings_offline_area_progress">Downloading… %1$d%%</string>
     <string name="settings_offline_area_saved">Saved: %1$d MB</string>
+    <string name="settings_offline_area_capped">Stopped at the size limit, so the edges of this view may be missing.</string>
     <string name="settings_offline_area_download">Download</string>
     <string name="settings_offline_area_delete">Delete</string>
 
