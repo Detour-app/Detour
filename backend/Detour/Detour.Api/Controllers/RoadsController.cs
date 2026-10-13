@@ -19,8 +19,13 @@ namespace Detour.Api.Controllers;
 [AllowAnonymous]
 public class RoadsController(IRoadWayRepository repository) : ControllerBase
 {
-    /// <summary>Same reasoning and value as <c>CamerasController.MaxSpanDegrees</c>.</summary>
-    private const double MaxSpanDegrees = 2.0;
+    /// <summary>Same reasoning as <c>CamerasController.MaxSpanDegrees</c>, tighter value (#691):
+    /// this table holds every drivable way in the region, so a 2° box was most of a country per
+    /// request. Wider than <c>SpeedLimitsController</c>'s cap because spin asks for more:
+    /// <c>RoadRoulette.randomRoadPoint</c>'s last widening step fetches a 9.6 km radius, which is
+    /// 0.17° of latitude and, at Nordkapp (71.2°N), 0.54° of longitude. 0.6° covers that across
+    /// mainland Europe.</summary>
+    private const double MaxSpanDegrees = 0.6;
 
     [HttpGet]
     [EndpointSummary("Drivable ways whose bounding box overlaps the query box, optionally restricted to a set of highway classes.")]

@@ -1,9 +1,13 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.GroupMember
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.ConvoyGapDetector
+import com.jellemax.detour.drive.ConvoyGapFeed
+import com.jellemax.detour.drive.FriendPosition
 
 /** Which alert a convoy gap banner line shows. One per rider: a lost signal
  *  freezes the rider's other alerts, and a stop says more than the gap it opens. */
@@ -45,4 +49,46 @@ fun convoyGapSpokenLine(event: ConvoyGapDetector.Event, members: List<GroupMembe
         is ConvoyGapDetector.Event.SignalLost -> "Lost $name's signal"
         is ConvoyGapDetector.Event.Rejoined -> null
     }
+}
+
+/** This device in a convoy: its rider [id] and, once it has one, its own [fix]. */
+data class ConvoyGapSelf(val id: RiderId, val fix: ConvoyGapDetector.Fix?)
+
+/** One judged moment of a convoy: the feed's next [state], the banner [lines]
+ *  and the one sentence to speak, or null when nothing new happened. */
+data class ConvoyGapTick(
+    val state: ConvoyGapFeed.State,
+    val lines: List<ConvoyGapLine>,
+    val utterance: String?,
+)
+
+/**
+ * Judges [convoy] once, for every surface that shows gap alerts (#647, #655,
+ * #656). [peers] are the relay's latest frames, [self] this device (its fix
+ * is null before the first one), [route] the one gaps are measured
+ * along (empty when this device is not navigating) and [nowMs] the wall clock
+ * the frames were stamped against on arrival.
+ *
+ * A convoy that is unknown, or whose host is unknown, gets no lines and
+ * leaves [state] alone. Two riders alerted in the same tick are joined into
+ * one utterance: `NavVoice` flushes its queue on every speak, so the second
+ * sentence would otherwise cut the first.
+ */
+fun convoyGapTick(
+    state: ConvoyGapFeed.State,
+    convoy: Group?,
+    self: ConvoyGapSelf,
+    peers: Collection<FriendPosition>,
+    route: List<LatLon>,
+    nowMs: Long,
+): ConvoyGapTick {
+    val roster = convoy?.let { ConvoyGapFeed.Roster.of(it, self.id) }
+    if (convoy == null || roster == null) return ConvoyGapTick(state, emptyList(), null)
+    val frames = peers.map { ConvoyGapDetector.Fix(it.riderId, LatLon(it.lat, it.lon), it.speedKmh, it.tsMs) } +
+        listOfNotNull(self.fix)
+    val step = ConvoyGapFeed.step(state, frames, roster, route, nowMs)
+    val utterance = step.events.mapNotNull { convoyGapSpokenLine(it, convoy.members) }
+        .takeIf { it.isNotEmpty() }
+        ?.joinToString(". ")
+    return ConvoyGapTick(step.state, convoyGapLinesFrom(step.state.detector.riders, convoy.members, self.id), utterance)
 }

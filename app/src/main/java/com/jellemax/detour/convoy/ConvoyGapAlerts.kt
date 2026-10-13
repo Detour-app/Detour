@@ -8,8 +8,8 @@ import com.jellemax.detour.drive.ConvoyGapDetector
 import com.jellemax.detour.drive.ConvoyGapFeed
 import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.presentation.ConvoyGapLine
-import com.jellemax.detour.presentation.convoyGapLinesFrom
-import com.jellemax.detour.presentation.convoyGapSpokenLine
+import com.jellemax.detour.presentation.ConvoyGapSelf
+import com.jellemax.detour.presentation.convoyGapTick
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ui.SpinResultHolder
 import kotlinx.coroutines.CoroutineScope
@@ -90,31 +90,21 @@ object ConvoyGapAlerts {
         convoyId: String,
         peers: Map<RiderId, FriendPosition>,
     ): ConvoyGapFeed.State {
-        val convoy = ConvoysStore.state.value.convoys.firstOrNull { it.id == convoyId }
         val selfId = Account.riderId.value
-        val roster = convoy?.let { ConvoyGapFeed.Roster.of(it, selfId) }
-        if (convoy == null || roster == null) {
-            _lines.value = emptyList()
-            return state
-        }
-        val members = convoy.members
         val own = TripTrackingService.lastFix.value?.let {
             ConvoyGapDetector.Fix(selfId, LatLon(it.lat, it.lon), it.speedMps * 3.6, it.timeMs)
         }
-        val frames = peers.values.map {
-            ConvoyGapDetector.Fix(it.riderId, LatLon(it.lat, it.lon), it.speedKmh, it.tsMs)
-        } + listOfNotNull(own)
         val nav = SpinResultHolder.state.value
         val route = nav.route?.polyline?.takeIf { nav.navigating }.orEmpty()
         // Wall clock, not the drive clock: peers' frames arrive in real time
         // whatever factor a replay on this device runs at.
-        val step = ConvoyGapFeed.step(state, frames, roster, route, System.currentTimeMillis())
-        _lines.value = convoyGapLinesFrom(step.state.detector.riders, members, selfId)
-        // One utterance per tick: NavVoice flushes its queue on every speak, so
-        // two riders lost together would otherwise be heard as the last one only.
-        step.events.mapNotNull { convoyGapSpokenLine(it, members) }
-            .takeIf { it.isNotEmpty() }
-            ?.let { _spoken.tryEmit(it.joinToString(". ")) }
+        val step = convoyGapTick(
+            state,
+            ConvoysStore.state.value.convoys.firstOrNull { it.id == convoyId },
+            ConvoyGapSelf(selfId, own), peers.values, route, System.currentTimeMillis(),
+        )
+        _lines.value = step.lines
+        step.utterance?.let { _spoken.tryEmit(it) }
         return step.state
     }
 }

@@ -9,7 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-class ConvoyGapStateTest {
+class ConvoyGapLineTest {
 
     private val ann = RiderId("ann")
     private val bob = RiderId("bob")

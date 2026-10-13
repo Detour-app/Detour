@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Detour.Api.Configuration;
+using Detour.Domain;
 using Detour.Domain.Users;
 using JV.ResultUtilities;
 using JV.ResultUtilities.Exceptions;
@@ -57,7 +58,7 @@ public class CurrentUser(
         _cached = await users.GetBySubjectAsync(subject, cancellationToken)
                   ?? await ProvisionAsync(principal, subject, cancellationToken);
 
-        SyncFromToken(_cached, principal);
+        await SyncFromTokenAsync(_cached, principal, cancellationToken);
         return _cached;
     }
 
@@ -91,10 +92,25 @@ public class CurrentUser(
             throw new ResultException(result.ValidationMessages);
         }
 
-        await users.SaveAsync(user, cancellationToken);
-        await users.FlushChangesAsync(cancellationToken);
-        logger.LogInformation("Provisioned local account for subject {Subject}", subject);
-        return user;
+        // Not SaveAsync + flush: a concurrent first request for the same subject would hit the
+        // unique index and 500, and inside a write's transaction the error also poisons it.
+        // Whichever request inserts, every one of them reads back the same row (#697).
+        if (await users.InsertIfAbsentAsync(user, cancellationToken))
+            logger.LogInformation("Provisioned local account for subject {Subject}", subject);
+
+        var stored = await users.GetBySubjectAsync(subject, cancellationToken);
+        if (stored is not null)
+            return stored;
+
+        // Nothing holds this subject, so the clash was the handle: a row whose identity-provider
+        // account is gone (deleted there but not here) still owns it. A clear 400 names the
+        // handle; an administrator frees it by deleting that row.
+        logger.LogWarning(
+            "Cannot provision subject {Subject}: handle {Username} is held by another account",
+            subject,
+            user.Username);
+        throw new ResultException(
+            Result.Error(ValidationKeys.User.AlreadyExistsWithName, user.Username).ValidationMessages);
     }
 
     /// <summary>
@@ -102,7 +118,10 @@ public class CurrentUser(
     /// copy. Revoking the administrator role has to take effect on the next token, not whenever
     /// this row happens to be rewritten for some other reason.
     /// </summary>
-    private void SyncFromToken(User user, ClaimsPrincipal principal)
+    private async Task SyncFromTokenAsync(
+        User user,
+        ClaimsPrincipal principal,
+        CancellationToken cancellationToken)
     {
         var isAdministrator = principal.IsInRole(idpSettings.Value.AdministratorRole);
         if (user.IsAdministrator != isAdministrator)
@@ -114,7 +133,18 @@ public class CurrentUser(
 
         var username = principal.FindFirstValue(DetourClaims.PreferredUsername);
         if (!string.IsNullOrWhiteSpace(username) && !string.Equals(user.Username, username, StringComparison.OrdinalIgnoreCase))
-            user.Rename(username);
+        {
+            // A stale row can still hold the new handle (its identity-provider account deleted
+            // there but not here). Renaming onto it would fail the unique index on every request
+            // from then on, so the rider keeps the old handle until an administrator frees it.
+            if (await users.ExistsByUsernameAsync(username, cancellationToken))
+                logger.LogWarning(
+                    "Not renaming {UserId} to {Username}: the handle is held by another account",
+                    user.Id,
+                    username);
+            else
+                user.Rename(username);
+        }
 
         user.Touch();
     }
