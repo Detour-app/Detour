@@ -155,6 +155,22 @@ public class ConvoyInviteTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_removed_guest_cannot_rejoin_with_a_fresh_link_either()
+    {
+        var host = await _factory.SignInAsync();
+        var guest = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        (await Join(guest, await CreateLink(host, convoy))).EnsureSuccessStatusCode();
+        (await host.DeleteAsync($"/api/convoys/{convoy}/guests/{guest.UserId}")).EnsureSuccessStatusCode();
+
+        var fresh = await CreateLink(host, convoy);
+
+        (await Join(guest, fresh)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ConvoyIds(guest)).Should().NotContain(convoy);
+        (await Join(await _factory.SignInAsync(), fresh)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task A_guest_who_left_on_their_own_can_come_back()
     {
         var host = await _factory.SignInAsync();
@@ -243,6 +259,66 @@ public class ConvoyInviteTests(PostgresFixture postgres) : IAsyncLifetime
         (await host.DeleteAsync($"/api/groups/{convoy}/membership")).EnsureSuccessStatusCode();
 
         (await Join(guest, invite)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task The_host_leaving_hands_the_convoy_to_the_longest_standing_rider()
+    {
+        var host = await _factory.SignInAsync();
+        var first = await _factory.SignInAsync();
+        var second = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+        (await Join(first, invite)).EnsureSuccessStatusCode();
+        (await Join(second, invite)).EnsureSuccessStatusCode();
+
+        (await host.DeleteAsync($"/api/groups/{convoy}/membership")).EnsureSuccessStatusCode();
+
+        (await OwnerOf(second, convoy)).Should().Be(first.UserId);
+        (await second.PostAsJsonAsync($"/api/convoys/{convoy}/invite-link", new { })).StatusCode
+            .Should().Be(HttpStatusCode.Forbidden);
+        var fresh = await CreateLink(first, convoy);
+        (await Guests(first, convoy)).GetProperty("guests").GetArrayLength().Should().Be(1);
+        (await Join(await _factory.SignInAsync(), fresh)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_host_who_left_only_an_invitee_behind_is_replaced_when_they_accept()
+    {
+        var host = await _factory.SignInAsync();
+        var friend = await _factory.SignInAsync();
+        await Befriend(host, friend);
+        var convoy = await CreateConvoy(host);
+        (await host.PostAsJsonAsync($"/api/groups/{convoy}/invitations", new { username = friend.Username }))
+            .EnsureSuccessStatusCode();
+
+        (await host.DeleteAsync($"/api/groups/{convoy}/membership")).EnsureSuccessStatusCode();
+        (await friend.PostAsJsonAsync($"/api/groups/{convoy}/invitations/respond", new { accept = true }))
+            .EnsureSuccessStatusCode();
+
+        (await OwnerOf(friend, convoy)).Should().Be(friend.UserId);
+        (await friend.PostAsJsonAsync($"/api/convoys/{convoy}/invite-link", new { })).StatusCode
+            .Should().Be(HttpStatusCode.Created);
+    }
+
+    [Fact]
+    public async Task A_host_who_left_only_an_invitee_behind_is_replaced_by_the_next_link_guest()
+    {
+        var host = await _factory.SignInAsync();
+        var friend = await _factory.SignInAsync();
+        await Befriend(host, friend);
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+        (await host.PostAsJsonAsync($"/api/groups/{convoy}/invitations", new { username = friend.Username }))
+            .EnsureSuccessStatusCode();
+
+        (await host.DeleteAsync($"/api/groups/{convoy}/membership")).EnsureSuccessStatusCode();
+        var stranger = await _factory.SignInAsync();
+        (await Join(stranger, invite)).EnsureSuccessStatusCode();
+
+        (await OwnerOf(stranger, convoy)).Should().Be(stranger.UserId);
+        (await stranger.PostAsJsonAsync($"/api/convoys/{convoy}/invite-link", new { })).StatusCode
+            .Should().Be(HttpStatusCode.Created);
     }
 
     [Fact]
@@ -336,6 +412,14 @@ public class ConvoyInviteTests(PostgresFixture postgres) : IAsyncLifetime
         var response = await host.GetAsync($"/api/convoys/{convoy}/guests");
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
+    private static async Task<Guid> OwnerOf(SignedInClient client, Guid convoy)
+    {
+        var convoys = await client.GetFromJsonAsync<JsonElement>("/api/convoys");
+        return convoys.EnumerateArray()
+            .Single(c => c.GetProperty("id").GetGuid() == convoy)
+            .GetProperty("ownerId").GetGuid();
     }
 
     private static async Task<List<Guid>> ConvoyIds(SignedInClient client)

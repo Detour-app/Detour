@@ -62,7 +62,10 @@ internal fun TrafficKeySection() {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.settings_traffic_over_title), style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        stringResource(R.string.settings_traffic_over_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
                     Text(
                         stringResource(R.string.settings_traffic_over_body, usage.count, TrafficBudget.FREE_TIER),
                         style = MaterialTheme.typography.bodySmall,

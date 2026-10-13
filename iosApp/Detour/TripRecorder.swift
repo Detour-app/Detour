@@ -184,6 +184,9 @@ final class TripRecorder: NSObject, ObservableObject {
 
     func endTrip() {
         guard let finished = stats else { return }
+        // Read before the reset below clears it, so a navigated ride keeps
+        // its destination.
+        let finishedDestination = destination
         stopMotionSensors()
         flushTrace()
 
@@ -215,8 +218,8 @@ final class TripRecorder: NSObject, ObservableObject {
             topSpeedMps: finished.topSpeedMps,
             maxLeanAngleDeg: finished.maxLeanAngleDeg,
             maxGForce: finished.maxGForce,
-            destinationLat: destination.map { KotlinDouble(value: $0.lat) },
-            destinationLon: destination.map { KotlinDouble(value: $0.lon) },
+            destinationLat: finishedDestination.map { KotlinDouble(value: $0.lat) },
+            destinationLon: finishedDestination.map { KotlinDouble(value: $0.lon) },
             mode: finished.mode,
             // Hard events and stops are counted here, so they agree with the
             // pins in `moments`; speeding, road types, twistiness and OBD2 are

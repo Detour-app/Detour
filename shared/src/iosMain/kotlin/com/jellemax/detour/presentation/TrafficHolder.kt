@@ -47,7 +47,12 @@ class TrafficHolder {
             }
             val client = HereTrafficClient.forKey(key) ?: return@withContext null
             val ahead = routeAhead(route.polyline, progress)
-            corridor = TrafficRound.run(corridor, client, ahead, navigating = true, nowMs = ::nowMs, spend = Settings::spendTrafficRequests)
+            corridor = TrafficRound.run(
+                corridor, client, ahead,
+                navigating = true,
+                nowMs = ::nowMs,
+                spend = Settings::spendTrafficRequests,
+            )
             trafficOnRoute(corridor, ahead, nowMs())
         }
 
