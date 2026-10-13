@@ -47,7 +47,7 @@ public class SyncService(
 
         await MergeTripsAsync(user.Id, request, cancellationToken);
         await MergeTracesAsync(user.Id, request.Traces, cancellationToken);
-        await MergeSavedPlacesAsync(user.Id, request.SavedPlaces, cancellationToken);
+        await MergeSavedPlacesAsync(user.Id, request, cancellationToken);
         await MergeBadgesAsync(user.Id, request.Badges, cancellationToken);
         await MergeTripTitlesAsync(user.Id, request.TripTitles, cancellationToken);
 
@@ -217,6 +217,23 @@ public class SyncService(
     }
 
     private async Task MergeSavedPlacesAsync(
+        Guid userId,
+        SyncRequest request,
+        CancellationToken cancellationToken)
+    {
+        await UpsertSavedPlacesAsync(userId, request.SavedPlaces, cancellationToken);
+
+        // After the upserts, as for trips: a place added and removed between two syncs is sent
+        // in both lists and has to end up gone (#695).
+        var deleted = request.DeletedSavedPlaceIds ?? [];
+        if (deleted.Count > 0)
+        {
+            await savedPlaces.FlushChangesAsync(cancellationToken);
+            await savedPlaces.DeleteByClientIdsAsync(userId, [.. deleted.Distinct()], cancellationToken);
+        }
+    }
+
+    private async Task UpsertSavedPlacesAsync(
         Guid userId,
         IReadOnlyList<SavedPlacePayload>? incoming,
         CancellationToken cancellationToken)

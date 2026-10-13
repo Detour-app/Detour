@@ -225,6 +225,18 @@ public class SavedPlaceRepository(ICustomDbContextFactory<DetourDbContext> facto
             .Where(p => p.UserId == userId && clientPlaceIds.Contains(p.ClientPlaceId))
             .ToListAsync(cancellationToken);
     }
+
+    public Task<int> DeleteByClientIdsAsync(
+        Guid userId,
+        IReadOnlyCollection<long> clientPlaceIds,
+        CancellationToken cancellationToken)
+    {
+        if (clientPlaceIds.Count == 0)
+            return Task.FromResult(0);
+
+        return Set.Where(p => p.UserId == userId && clientPlaceIds.Contains(p.ClientPlaceId))
+            .ExecuteDeleteAsync(cancellationToken);
+    }
 }
 
 public class TripTitleRepository(ICustomDbContextFactory<DetourDbContext> factory)
