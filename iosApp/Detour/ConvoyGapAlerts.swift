@@ -16,7 +16,9 @@ import DetourShared
 /// socket, and with no frames arriving every other rider would read as a lost
 /// signal. Every change of either starts over from nothing, as on the phone —
 /// read once a tick here rather than observed, so a drop shorter than a tick
-/// is not seen as one.
+/// is not seen as one. That, the English-only banner and this file's own
+/// voice differ from the phone on purpose: docs/refactor/mapscreen/
+/// 15-divergence-register.md, entry 26.
 @MainActor
 final class ConvoyGapAlerts: ObservableObject {
 

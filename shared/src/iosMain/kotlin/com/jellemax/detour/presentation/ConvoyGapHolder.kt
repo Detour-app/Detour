@@ -20,7 +20,8 @@ import com.jellemax.detour.drive.FriendPosition
  * goes in as plain values: [ConvoyGapDetector.Fix] holds a [RiderId], which
  * Swift cannot build. The caller owns the timer ([ConvoyGapFeed.TICK_MS]) and
  * when it runs at all (a convoy joined, the socket up), and calls [reset]
- * whenever either changes.
+ * whenever either changes. Where iOS and the phone differ around this call is
+ * `docs/refactor/mapscreen/15-divergence-register.md` entry 26.
  */
 class ConvoyGapHolder {
 
