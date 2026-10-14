@@ -260,6 +260,7 @@ internal class TripSession(
         wasAuto: Boolean,
         destLat: Double?,
         destLon: Double?,
+        spinRouteId: Long?,
     ): kotlinx.coroutines.Job? {
         // An auto trip with no mapped vehicle that never left walking pace
         // wasn't a drive; don't save it under whatever mode the tab happened
@@ -311,6 +312,7 @@ internal class TripSession(
                 fuelEstimated = fuelWasEstimated,
             ),
             moments = synchronized(momentsLock) { moments.moments },
+            spinRouteId = spinRouteId,
         )
         // Two separate coroutines, not one: onDestroy's runBlocking joins
         // saveJob to guarantee the trip survives process death, and that join

@@ -69,6 +69,7 @@ import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.ConvoysStore
+import com.jellemax.detour.data.FollowedRoute
 import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
@@ -844,7 +845,7 @@ fun MapScreen(
         s.tappedRider = null
         s.pendingRiderFrame = null
         fun beginGuidance(to: LatLon?) { // #422: no trip until there is a route to guide
-            if (stats == null) permissions.recordTrip(to) // #500: asks for precise first
+            if (stats == null) permissions.recordTrip(to, FollowedRoute.claim(s.destination, s.route)) // #500, #590
             s.navigating = true
             // #439: fetch the map along the line now, while there is signal to do it.
             s.route?.let { RouteTileCache.prefetch(context, it.polyline, darkTheme) }

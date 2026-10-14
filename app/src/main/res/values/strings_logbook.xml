@@ -75,6 +75,7 @@
     <string name="trip_play_replay">Play replay</string>
     <string name="trip_highlights">Highlights</string>
     <string name="trip_more_options">More trip options</string>
+    <string name="trip_ridden_spin">Rode %1$s from Routes</string>
 
     <!-- TripDeepDive.kt -->
     <string name="deepdive_very_sharp">very sharp</string>
