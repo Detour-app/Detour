@@ -174,4 +174,14 @@
     <string name="map_traffic_delay">+%1$d min file</string>
     <string name="map_traffic_delay_label">op de route vooruit</string>
     <string name="map_traffic_closed">Weg verderop afgesloten</string>
+    <string name="map_offline_area">Dit gebied downloaden</string>
+    <string name="map_offline_area_estimate">Bewaart wat de kaart nu toont, tot straatniveau: ongeveer %1$d MB. Vervangt het vorige.</string>
+    <string name="map_offline_area_too_big">Dit beeld is te groot: ongeveer %1$d MB, en de limiet is %2$d MB. Zoom eerst in.</string>
+    <string name="map_offline_area_no_map">De kaart is nog niet getekend.</string>
+    <string name="map_offline_area_progress">Downloaden… %1$d%%</string>
+    <string name="map_offline_area_saved">Bewaard: %1$d MB</string>
+    <string name="map_offline_area_capped">Gestopt bij de limiet, dus de randen van dit beeld ontbreken mogelijk.</string>
+    <string name="map_offline_area_download">Downloaden</string>
+    <string name="map_offline_area_delete">Verwijderen</string>
+    <string name="map_close">Sluiten</string>
 </resources>

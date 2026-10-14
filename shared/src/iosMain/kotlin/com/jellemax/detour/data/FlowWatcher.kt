@@ -6,6 +6,7 @@ import com.jellemax.detour.drive.GroupSpin
 import com.jellemax.detour.drive.IncomingAudioChunk
 import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.TrafficBudget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -330,6 +331,19 @@ class PlaceEventWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+/** HERE requests this month (#682). The [TrafficBudget.Usage] itself rather
+ *  than its count: an [IntWatcher] would need a mapped flow, and a data class
+ *  of two `Int`s reaches Swift typed. */
+class TrafficUsageWatcher internal constructor(
+    private val flow: StateFlow<TrafficBudget.Usage>,
+) : Watcher() {
+    var value: TrafficBudget.Usage = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 /** The settings a SwiftUI screen binds to. */
 object SettingsFlows {
     fun tripMode() = TravelModeWatcher(Settings.tripMode)
@@ -354,6 +368,8 @@ object SettingsFlows {
 
     /** Non-blank means tested and on — see `TrafficKeyPresenter`. */
     fun hereTrafficKey() = StringWatcher(Settings.hereTrafficKey)
+    fun trafficOverFreeTier() = BoolWatcher(Settings.trafficOverFreeTier)
+    fun trafficUsage() = TrafficUsageWatcher(Settings.trafficUsage)
     fun authUsername() = StringWatcher(Settings.authUsername)
     fun authRiderId() = RiderIdWatcher(Settings.authRiderId)
 
