@@ -1,5 +1,6 @@
 package com.jellemax.detour.map
 
+import com.jellemax.detour.data.HeadingHint
 import com.jellemax.detour.data.NavEngine
 
 /**
@@ -26,12 +27,45 @@ internal object NavPolicy {
      *  rather than immediately. */
     const val REROUTE_COOLDOWN_MS = 15_000L
 
+    /** Below this speed GPS course is noise, so no request carries a heading. */
+    const val HEADING_MIN_SPEED_MPS = 2.0
+
     /**
-     * `heading_penalty` (seconds) for a reroute request, by current speed.
+     * Oldest fix whose course may steer the *first* route of a session.
      *
-     * A reroute passes the rider's GPS course to the router as a heading hint so
-     * the new line continues forward instead of turning them around; this is how
-     * hard the router is pushed to obey it. Slow enough to stop safely and a
+     * A reroute is decided on the fix that just arrived; Start is pressed
+     * whenever, and [com.jellemax.detour.tracking.TripTrackingService.lastFix]
+     * is never cleared, so the newest fix can be from a drive that ended an hour
+     * ago. Steering a fresh route by that course would be worse than sending none.
+     * 10 s tolerates a few missed 1 Hz fixes; past it the request goes out bare,
+     * which is what every initial route did before #719.
+     */
+    const val START_HEADING_MAX_AGE_MS = 10_000L
+
+    /**
+     * The heading hint for a route request from a rider moving at [speedMps] on
+     * course [bearingDeg]: null while parked or before GPS has a course.
+     *
+     * Reroutes and the initial route both use it (#719), on phone and car, so
+     * the line a session opens with never leaves via an onramp or a turn-around
+     * the first reroute would have avoided.
+     */
+    fun headingHint(bearingDeg: Float?, speedMps: Double): HeadingHint? =
+        bearingDeg?.takeIf { speedMps >= HEADING_MIN_SPEED_MPS }
+            ?.let { HeadingHint(it.toDouble(), rerouteHeadingPenaltySec(speedMps)) }
+
+    /** [headingHint] for the first route of a session, from a fix [fixAgeMs]
+     *  old: none once the fix is past [START_HEADING_MAX_AGE_MS]. */
+    fun startHeadingHint(bearingDeg: Float?, speedMps: Double, fixAgeMs: Long): HeadingHint? =
+        if (fixAgeMs > START_HEADING_MAX_AGE_MS) null else headingHint(bearingDeg, speedMps)
+
+    /**
+     * `heading_penalty` (seconds) for a route request, by current speed.
+     *
+     * A request made while moving (a reroute, or Start pressed on the move) passes
+     * the rider's GPS course to the router as a heading hint so the line continues
+     * forward instead of turning them around; this is how hard the router is
+     * pushed to obey it. Slow enough to stop safely and a
      * genuine U-turn can still win when it saves real distance. On a 70/90 km/h
      * road a turn-around is unusable, so the penalty there is large enough that
      * GraphHopper only takes one when there is no other way back to the route.

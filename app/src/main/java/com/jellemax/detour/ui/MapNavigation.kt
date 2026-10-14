@@ -9,7 +9,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.ble.BleNavServer
-import com.jellemax.detour.data.HeadingHint
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
@@ -120,8 +119,7 @@ internal fun MapNavigationSession(
                 // opening with a U-turn, and the penalty scales up with speed so
                 // it never asks for one on a 70/90 road. Skipped while parked or
                 // before GPS has a course.
-                val heading = fix.bearingDeg?.toDouble()?.takeIf { fix.speedMps >= 2.0 }
-                    ?.let { HeadingHint(it, NavPolicy.rerouteHeadingPenaltySec(fix.speedMps)) }
+                val heading = NavPolicy.headingHint(fix.bearingDeg, fix.speedMps)
                 scope.launch {
                     try {
                         s.route = fetchNavRoute(serverConfig, pos, target, mode, heading)
