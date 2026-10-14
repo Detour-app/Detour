@@ -237,6 +237,9 @@ private fun shareGpxIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).apply 
  * [onOpenRoute] opens the saved spin the trip rode, by its route id (#590).
  */
 @OptIn(ExperimentalMaterial3Api::class)
+// Baselined before #590. The baseline is human-merge only, so the new
+// onOpenRoute parameter is suppressed here instead of re-keying its entries.
+@Suppress("CyclomaticComplexMethod", "LongMethod")
 @Composable
 fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit) {
     val context = LocalContext.current
