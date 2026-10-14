@@ -2232,6 +2232,44 @@ check 'Android regroup point string' 1 \
 
 ---
 
+## 27. A searched destination on iOS: routed once at pick, never rerouted
+
+**New with `#721`** — recorded because `iosApp/Detour/MapScreen.swift` `routeToSearched` claims
+it does what the phone's Start does, and the issue left reroute out on purpose.
+
+**What.** A rider picks a place from search and presses Start.
+
+**Copies.** The request is not duplicated: both surfaces call shared `RoutingClient.route` with
+shared `Settings.navRoutePreferences()` (iOS through `SettingsValues.navRoutePreferences`), so
+the avoid options and the curvy preset match. What differs is when it is asked for and what
+happens after:
+
+- When. Android routes on Start, through `fetchNavRoute` in `app/…/map/NavStart.kt`, from the fix
+  at that moment. iOS routes once when the place is picked, through
+  `SpinModel.setDestinationRouting`, and Start uses that route. Neither sends a heading on the
+  first route today (#719). A rider who
+  picks a place and then rides on before pressing Start starts on a line from where they picked
+  it.
+- Reroute. Android reroutes off the route through `NavPolicy` with the same preferences.
+  `iosApp/Detour/NavScreen.swift` has no reroute at all: a rider who leaves the route keeps the
+  stale line. This was already true of spin and regroup routes on iOS.
+
+**Verdict: survive — Android's flow.** Not a product question. iOS reroute should reuse
+`NavPolicy`'s rule through `shared/` rather than copy it (#721's scope note), which first means
+moving that rule out of `app/`.
+
+**Fence.**
+
+```sh
+# Entry 27 — searched destination. A changed count means iOS gained a reroute or dropped the nav prefs.
+check 'iOS search routes with nav preferences' 1 \
+    "$(grep -c 'preferences: SettingsValues.shared.navRoutePreferences' iosApp/Detour/MapScreen.swift)"
+check 'iOS NavScreen has no reroute' 0 \
+    "$(grep -ci 'reroute' iosApp/Detour/NavScreen.swift)"
+```
+
+---
+
 ---
 
 ## §A — Summary, ranked by how user-visible the decision is
