@@ -134,6 +134,7 @@ class TripTrackingService : Service() {
         const val EXTRA_DEST_LON = "dest_lon"
         private const val EXTRA_END_NOW = "end_now"
         private const val EXTRA_FROM_CAR = "from_car"
+        private const val EXTRA_SPIN_ROUTE_ID = "spin_route_id"
         private const val ACTION_START_TRIP = "com.jellemax.detour.START_TRIP"
         private const val ACTION_END_TRIP = "com.jellemax.detour.END_TRIP"
         private const val ACTION_NAV_ENDED = "com.jellemax.detour.NAV_ENDED"
@@ -411,12 +412,17 @@ class TripTrackingService : Service() {
 
         /** Start a trip for a navigation session (in-app, or a handoff to
          *  Google Maps / Waze). Navigating is driving, so a drive is recorded
-         *  either way; [navigationEnded] ends it when the session does. */
-        fun start(context: Context, destLat: Double?, destLon: Double?, fromCar: Boolean = false) {
+         *  either way; [navigationEnded] ends it when the session does.
+         *  [spinRouteId] is the saved spin being ridden, if any (#590). */
+        fun start(
+            context: Context, destLat: Double?, destLon: Double?,
+            fromCar: Boolean = false, spinRouteId: Long? = null,
+        ) {
             val intent = Intent(context, TripTrackingService::class.java).apply {
                 action = ACTION_START_TRIP
                 destLat?.let { putExtra(EXTRA_DEST_LAT, it) }
                 destLon?.let { putExtra(EXTRA_DEST_LON, it) }
+                spinRouteId?.let { putExtra(EXTRA_SPIN_ROUTE_ID, it) }
                 putExtra(EXTRA_FROM_CAR, fromCar)
             }
             if (!canStart(context)) return
@@ -470,6 +476,7 @@ class TripTrackingService : Service() {
     private var lastGpsSpeedMps = 0.0
     private var destLat: Double? = null
     private var destLon: Double? = null
+    private var spinRouteId: Long? = null
     private val tracePoints = ArrayList<TraceStore.TracePoint>()
     private var origin: LatLon? = null
     private var awayFromOrigin = false
@@ -853,6 +860,8 @@ class TripTrackingService : Service() {
                             ?.getDoubleExtra(EXTRA_DEST_LAT, 0.0)
                         destLon = intent.takeIf { it.hasExtra(EXTRA_DEST_LON) }
                             ?.getDoubleExtra(EXTRA_DEST_LON, 0.0)
+                        spinRouteId = intent.takeIf { it.hasExtra(EXTRA_SPIN_ROUTE_ID) }
+                            ?.getLongExtra(EXTRA_SPIN_ROUTE_ID, 0L)
                     }
                 }
             }
@@ -925,11 +934,12 @@ class TripTrackingService : Service() {
         stopMotionSensors()
         session.cancelFetchJobs()
         flushTrace()
-        val saveJob = session.end(stats, wasAuto, destLat, destLon)
+        val saveJob = session.end(stats, wasAuto, destLat, destLon, spinRouteId)
         _stats.value = null
         vehicleLinks.reconcileObd2Connections()
         destLat = null
         destLon = null
+        spinRouteId = null
         autoStarted = false
         navStarted = false
         endDetector.onTripEnded()
