@@ -282,18 +282,21 @@ private fun rememberPreciseForRecording(snackbarHostState: SnackbarHostState): P
  */
 private class PreciseForRecording(private val context: Context) {
     private var pendingTo: LatLon? = null
+    private var pendingSpinRouteId: Long? = null
     var isPending = false
         private set
     /** Set after every composition, so they always reach the current launchers. */
     var askForPrecise: () -> Unit = {}
     var onRefused: () -> Unit = {}
 
-    fun recordTrip(to: LatLon?) {
+    /** [spinRouteId] is the saved spin this navigation rides, if any (#590). */
+    fun recordTrip(to: LatLon?, spinRouteId: Long?) {
         if (hasPreciseLocation(context)) {
-            TripTrackingService.start(context, to?.lat, to?.lon)
+            TripTrackingService.start(context, to?.lat, to?.lon, spinRouteId = spinRouteId)
             return
         }
         pendingTo = to
+        pendingSpinRouteId = spinRouteId
         isPending = true
         askForPrecise()
     }
@@ -313,12 +316,15 @@ private class PreciseForRecording(private val context: Context) {
     fun dropPendingTrip() {
         isPending = false
         pendingTo = null
+        pendingSpinRouteId = null
     }
 
     /** Starts the waiting trip if precise is now granted; false if it is not. */
     fun startPendingIfPrecise(): Boolean {
         if (!hasPreciseLocation(context)) return false
-        if (isPending) TripTrackingService.start(context, pendingTo?.lat, pendingTo?.lon)
+        if (isPending) {
+            TripTrackingService.start(context, pendingTo?.lat, pendingTo?.lon, spinRouteId = pendingSpinRouteId)
+        }
         dropPendingTrip()
         return true
     }
@@ -382,8 +388,9 @@ internal class MapPermissions(
     val continueFromExplainer: () -> Unit,
     /** Starts recording a trip toward the destination — first asking for
      *  precise location if only approximate is granted, and recording
-     *  nothing if the rider refuses (#500). */
-    val recordTrip: (LatLon?) -> Unit,
+     *  nothing if the rider refuses (#500). The second argument is the saved
+     *  spin being ridden, if any (#590). */
+    val recordTrip: (LatLon?, Long?) -> Unit,
     /** As [recordTrip] for a handoff to another navigation app, which opens on
      *  top at once: records without asking, or not at all without precise. */
     val recordHandedOffTrip: (LatLon?) -> Unit,

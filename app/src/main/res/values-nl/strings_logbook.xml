@@ -75,6 +75,7 @@
     <string name="trip_play_replay">Rit afspelen</string>
     <string name="trip_highlights">Hoogtepunten</string>
     <string name="trip_more_options">Meer ritopties</string>
+    <string name="trip_ridden_spin">%1$s uit Routes gereden</string>
 
     <!-- TripDeepDive.kt -->
     <string name="deepdive_very_sharp">zeer scherp</string>

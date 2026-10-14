@@ -61,6 +61,12 @@ object SavedSpins {
         route.origin == RouteOrigin.SPIN && route.stops.size > 2 &&
             route.stops.first().at == route.stops.last().at
 
+    /** The saved spin [trip] rode (#590), looked up in [routes]; null when it
+     *  rode none, or when that spin has since been deleted or lives on another
+     *  device, so the trip shows no link rather than a dead one. */
+    fun riddenBy(trip: Trip, routes: List<SavedRoute>): SavedRoute? =
+        trip.spinRouteId?.let { id -> routes.firstOrNull { it.id == id } }
+
     /** Whether [at] is close enough to [route]'s start to ride it without
      *  asking how to join it. */
     fun atStart(route: SavedRoute, at: LatLon, radiusMeters: Double): Boolean =
