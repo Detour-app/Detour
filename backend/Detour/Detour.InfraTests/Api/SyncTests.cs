@@ -119,6 +119,43 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_deleted_saved_place_stays_deleted()
+    {
+        // #695: the device that removed the shortcut stops uploading it, and before the field
+        // existed the server kept its copy and handed it back on every sync.
+        var client = NewRider();
+        await Sync(client, new
+        {
+            savedPlaces = new[] { new { id = 7L, name = "Home" }, new { id = 8L, name = "Work" } },
+        });
+
+        var afterDelete = await Sync(client, new
+        {
+            savedPlaces = new[] { new { id = 8L, name = "Work" } },
+            deletedSavedPlaceIds = new[] { 7L },
+        });
+        afterDelete.SavedPlaces.Should().ContainSingle();
+
+        var later = await Sync(client, new { });
+        later.SavedPlaces.Should().ContainSingle();
+        later.SavedPlaces[0].GetProperty("id").GetInt64().Should().Be(8);
+    }
+
+    [Fact]
+    public async Task A_saved_place_present_in_both_lists_ends_up_deleted()
+    {
+        var client = NewRider();
+
+        var merged = await Sync(client, new
+        {
+            savedPlaces = new[] { new { id = 9L, name = "Cafe" } },
+            deletedSavedPlaceIds = new[] { 9L },
+        });
+
+        merged.SavedPlaces.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task The_earliest_badge_instant_wins()
     {
         var client = NewRider();

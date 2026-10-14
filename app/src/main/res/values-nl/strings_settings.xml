@@ -250,4 +250,6 @@
     <string name="settings_traffic_bad_key">HERE weigert deze sleutel. Controleer of hij volledig is gekopieerd en of het project de Traffic API heeft.</string>
     <string name="settings_traffic_quota">Het tegoed van deze sleutel is op, of HERE beperkt hem. Probeer het later opnieuw.</string>
     <string name="settings_traffic_unreachable">HERE is niet bereikbaar. Controleer je verbinding en probeer het opnieuw.</string>
+    <string name="settings_traffic_over_title">Gratis tegoed overschrijden</string>
+    <string name="settings_traffic_over_body">Uit: verkeer pauzeert na %2$d verzoeken per maand, zodat HERE nooit rekent. Deze maand gebruikt: %1$d.</string>
 </resources>

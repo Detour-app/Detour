@@ -4,6 +4,7 @@ import com.jellemax.detour.data.HereTrafficClient
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.nowMs
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.drive.TrafficCorridor
 import com.jellemax.detour.drive.TrafficRound
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +47,12 @@ class TrafficHolder {
             }
             val client = HereTrafficClient.forKey(key) ?: return@withContext null
             val ahead = routeAhead(route.polyline, progress)
-            corridor = TrafficRound.run(corridor, client, ahead, navigating = true, nowMs = ::nowMs)
+            corridor = TrafficRound.run(
+                corridor, client, ahead,
+                navigating = true,
+                nowMs = ::nowMs,
+                spend = Settings::spendTrafficRequests,
+            )
             trafficOnRoute(corridor, ahead, nowMs())
         }
 
