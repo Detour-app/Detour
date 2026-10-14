@@ -7,8 +7,7 @@ import DetourShared
 /// has, its own under `selfId`. The rules — who is host, how long a request
 /// stays, who has arrived — are `convoyBreakRegroupStateFrom`'s in shared,
 /// reached through `ConvoyBreakRegroupStates` because Swift cannot build its
-/// `RiderId`-keyed maps. Mirrors the state call in Android's
-/// `MapBreakRegroup.kt`.
+/// `RiderId`-keyed maps.
 @MainActor
 func convoyBreakRegroupState(
     live: ConvoyLiveClient,
@@ -29,8 +28,9 @@ func convoyBreakRegroupState(
 }
 
 extension ConvoyBreakRegroupState {
-    /// The break markers and the meeting point, as titled pins for `MapView`,
-    /// labelled like the phone map's `setConvoyMarks`.
+    /// The break markers and the meeting point, as titled pins for `MapView`.
+    /// The labels are a copy of Android's, kept in step by divergence register
+    /// entry 26.
     var mapPins: [MapPin] {
         let breakPins = breaks.map { pill in
             MapPin(
@@ -46,7 +46,7 @@ extension ConvoyBreakRegroupState {
 }
 
 /// Break please, the host's Regroup here, the break pills and the regroup card
-/// (#658) — the iOS side of Android's `MapBreakRegroup.kt`. The caller shows it
+/// (#658). The caller shows it
 /// only while a convoy is joined; this draws `state` and sends through
 /// `ConvoyLiveClient`.
 struct ConvoyBreakRegroupPanel: View {

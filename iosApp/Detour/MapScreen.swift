@@ -341,8 +341,7 @@ struct MapScreen: View {
 
     /// The regroup card's Route: the meeting point becomes the destination and,
     /// once the router gives turns for it, navigation starts — what the Start
-    /// button does for any other destination. Android's `onRouteTo` does the
-    /// same through `startNavigation`.
+    /// button does for any other destination (divergence register entry 26).
     private func routeToRegroup(_ target: LatLon) {
         guard let here = recorder.lastFix?.coordinate else {
             spin.setDestination(target)
