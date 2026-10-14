@@ -185,7 +185,7 @@ internal fun routeViaRequest(
         putJsonArray("details") { add("max_speed"); add("roundabout") }
         put("ch.disable", true)
         if (heading != null) {
-            putJsonArray("heading") { add(headingDegInt(heading.deg)) }
+            putJsonArray("headings") { add(headingDegInt(heading.deg)) }
             put("heading_penalty", heading.penaltySec)
         }
         putJsonObject("custom_model") { put("priority", rules) }
@@ -267,7 +267,7 @@ object RoutingClient {
             putJsonObject("custom_model") {
                 put("priority", rules)
             }
-            headingDeg?.let { h -> putJsonArray("heading") { add(h.toInt()) } }
+            headingDeg?.let { h -> putJsonArray("headings") { add(h.toInt()) } }
         }
         return fetchRoute(requireRoutingBase(config) + "/route", body.string())
     }
