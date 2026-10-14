@@ -289,8 +289,10 @@ Convoys and circles are the same entity distinguished by kind. Shared behaviour:
 - **Leave** removes the membership, deletes the leaver's shared places and last
   known position for that group, and drops any live connection they still hold on
   it, immediately.
-- **List** returns the caller's groups of one kind, each with its members and
-  their statuses. Each member carries both their account id and their handle —
+- **List** returns the caller's groups of one kind, each with its owner's
+  account id (`ownerId`; for a convoy, the host) and its members and their
+  statuses. Every member sees the owner, not only the owner, so a client can
+  offer host-only actions to the host alone. Each member carries both their account id and their handle —
   the only one of this group of payloads that does, which is what lets
   positions, places and presence events below name a rider by id alone and
   leave the display label to be resolved from here. (The friends list in
@@ -549,6 +551,22 @@ for what breaks in the app without them.
 | Routing engine (GraphHopper) | Curvy motorcycle round trips, plus car routes, from an offline map extract |
 | Geocoder (Photon) | Address and place search, self-hosted so it is fast, private and not rate-limited |
 
+What the app requires of the routing engine, since a self-hoster's GraphHopper
+is configured outside this backend:
+
+- Profiles named `car` and `moto`; the app sends the name as `profile`.
+- Encoded values for the request-time rules the app sends, read from `/info`
+  before any rule goes out: `toll`, `surface` and `road_environment` for the
+  avoid options (#586), and `road_class` plus `curvature` for the curvy A→B
+  presets (#650). A missing value turns the option off in the app rather than
+  failing the route.
+- Curvy presets (fast, balanced, twisty) are custom-model priority rules sent
+  as `custom_model` in `POST /route` with `profile: moto` and
+  `"ch.disable": true`; fast sends no rules and stays a plain `GET /route`. The
+  rules and how to try them by hand are in
+  [`docker/prod/README.md`](../docker/prod/README.md#curvy-routing-presets) and
+  [`docker/prod/config/graphhopper/presets/`](../docker/prod/config/graphhopper/presets/).
+
 Also deliberately absent, and a **new** decision rather than a port if it is ever
 added: mobile push notifications. No device tokens, no vendor push service
 anywhere in the system.
@@ -759,11 +777,14 @@ This endpoint is read-only: data is loaded by an operator running
 
 `GET /api/speedlimits` is unauthenticated, for the same reason §15.6 is — posted speed limits
 are public safety information, not rider data. It is covered by the global per-IP limiter only,
-for the same reason and with the same span cap as §15.6's `/api/cameras`.
+for the same reason §15.6's `/api/cameras` is, which is why its span is capped too.
 
 Query parameters are the same bounding box: `minLat`, `minLon`, `maxLat`, `maxLon`, validated the
-same way, capped at the same 2° span — comfortably larger than the ~0.03° span
-`RoadRoulette.SPEED_PREFETCH_RADIUS_M` (`shared/`) ever requests. A request that fails any of
+same way, but capped at 0.25° on either axis rather than 2° (#691): this table holds every limited
+way in the region, so a 2° box was most of a country per unauthenticated request. 0.25° is still
+about three times the widest span `RoadRoulette.SPEED_PREFETCH_RADIUS_M` (`shared/`) ever
+requests. `/api/roads` takes the same bounding box capped at 0.6°, because spin's widest road
+search (a 9.6 km radius) spans up to 0.54° of longitude at Nordkapp. A request that fails any of
 these checks is a 400.
 
 ```json

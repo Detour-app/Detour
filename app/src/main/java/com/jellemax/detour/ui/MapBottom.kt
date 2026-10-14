@@ -132,6 +132,8 @@ internal fun BoxScope.MapBottomSlot(
     onCancelCandidates: () -> Unit,
     onShare: (() -> Unit)?,
     onGoWithLead: (() -> Unit)?,
+    onSaveCandidate: (RouteCandidate) -> Unit,
+    onSaveLoop: (() -> Unit)?,
     mode: TravelMode,
     onSelectMode: (TravelMode) -> Unit,
     radiusKm: Float,
@@ -278,6 +280,7 @@ internal fun BoxScope.MapBottomSlot(
                         // Null on every device but the sharer's, so only one
                         // of them draws a button that closes the round.
                         onGoWithLead = onGoWithLead,
+                        onSave = onSaveCandidate,
                     )
                     HomeBottomCard.COLLAPSED -> Unit
                     HomeBottomCard.EXPANDED -> SpinSheet(
@@ -302,6 +305,7 @@ internal fun BoxScope.MapBottomSlot(
                         onCollapse = onCollapse,
                         onNavigateInApp = onNavigateInApp,
                         onNavigate = onNavigate,
+                        onSaveLoop = onSaveLoop,
                     )
                 }
             }

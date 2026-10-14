@@ -1,16 +1,20 @@
 package com.jellemax.detour.net
 
+import com.jellemax.detour.convoy.ConvoyGapAlerts
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.RelayPlaceEvent
 import com.jellemax.detour.data.RiderId
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.drive.BearerSource
+import com.jellemax.detour.drive.BreakRequest
 import com.jellemax.detour.drive.ConvoyRelay
 import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.drive.GroupSpin
 import com.jellemax.detour.drive.IncomingAudioChunk
+import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.drive.SpinCandidate
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CoroutineScope
@@ -124,6 +128,8 @@ object ConvoyLiveClient {
     val spinVotes: StateFlow<Map<RiderId, Int>> get() = relay.spinVotes
     val audioChunks: SharedFlow<IncomingAudioChunk> get() = relay.audioChunks
     val placeEvents: SharedFlow<RelayPlaceEvent> get() = relay.placeEvents
+    val breakRequests: StateFlow<Map<RiderId, BreakRequest>> get() = relay.breakRequests
+    val regroupPin: StateFlow<RegroupPin?> get() = relay.regroupPin
 
     /** Forwards [TripTrackingService.lastFix] to [relay] for the life of the
      *  process, not just while a convoy/circle is joined - [ConvoyRelay.sendLocation]
@@ -170,6 +176,9 @@ object ConvoyLiveClient {
      *  to give that store instead. */
     init {
         ConvoysStore.watchPeers(scope, relay.peers)
+        // Same scope, same reason: a rider falling behind while nobody has the
+        // map open must still have been judged when somebody does look (#647).
+        ConvoyGapAlerts.watch(scope, relay.convoyId, relay.connected, relay.peers)
     }
 
     /** Effective live-relay URL - see [OkHttpRelaySocket.liveUrl], which
@@ -238,6 +247,18 @@ object ConvoyLiveClient {
     fun sendSpinVote(index: Int) = relay.sendSpinVote(Account.riderId.value, index)
 
     fun clearSpinOffer() = relay.clearSpinOffer()
+
+    /** Asks the convoy for a break from [location] - see
+     *  [ConvoyRelay.sendBreakRequest]. Stamped with the wall clock, the one
+     *  [ConvoyRelay] stamps everyone else's request with on arrival. */
+    fun sendBreakRequest(location: LatLon) =
+        relay.sendBreakRequest(Account.riderId.value, location, System.currentTimeMillis())
+
+    /** Host only - see [ConvoyRelay.sendRegroupPin]. */
+    fun sendRegroupPin(location: LatLon, label: String?) =
+        relay.sendRegroupPin(Account.riderId.value, location, label)
+
+    fun sendRegroupPinClear() = relay.sendRegroupPinClear()
 
     /** Delegates to [ConvoyRelay.spinRoundOutcome] - see its own doc. What
      *  `MapScreen`'s own vote-round effect calls, in place of the hand-rolled

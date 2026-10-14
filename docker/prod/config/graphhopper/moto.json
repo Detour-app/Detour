@@ -26,9 +26,10 @@
 // config.yml's graph.encoded_values or the build fails.
 //
 // GraphHopper 11 also ships its own motorcycle.json + curvature.json, which are
-// better tuned than this but need the `curvature` encoded value and ideally
-// graph.urban_density. Worth evaluating; deliberately not adopted here, so this
-// upgrade changes the GraphHopper version and nothing about the routes.
+// better tuned than this and ideally want graph.urban_density. Not adopted
+// here. The graph now carries `curvature`, but only the curvy A->B presets read
+// it, as request-time rules on top of this file (presets/ and README.md,
+// "Curvy routing presets") — so the default `moto` route is unchanged.
 
 {
   "priority": [

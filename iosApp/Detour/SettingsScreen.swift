@@ -9,6 +9,7 @@ import DetourShared
 struct SettingsScreen: View {
 
     @StateObject private var model = SettingsModel()
+    @StateObject private var traffic = TrafficKeyModel()
     @State private var serverURL = ""
     // Carried through load/save untouched: this screen has no editors for the
     // per-service addresses yet, and saving defaults over values set
@@ -29,6 +30,7 @@ struct SettingsScreen: View {
             Form {
                 mapSection
                 routingSection
+                trafficSection
                 cameraSection
                 tripsSection
                 serverSection
@@ -136,6 +138,43 @@ struct SettingsScreen: View {
             }
         }
         .task { await model.refreshRoutingSupport() }
+    }
+
+    /// The HERE traffic key (#654): a secret field, Test key, and Remove key.
+    /// The rule — test once, store only on a pass — is `TrafficKeyPresenter`'s
+    /// in `:shared`; this only draws it.
+    private var trafficSection: some View {
+        Section {
+            SecureField("HERE API key", text: Binding(
+                get: { traffic.draft },
+                set: { traffic.edit($0) }
+            ))
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            if let line = traffic.statusLine {
+                Text(line)
+                    .font(.footnote)
+                    .foregroundStyle(traffic.failed ? .red : .secondary)
+            }
+            Button("Test key") { Task { await traffic.test() } }
+                .disabled(!traffic.canTest)
+            if !traffic.storedKey.isEmpty {
+                Button("Remove key", role: .destructive) { traffic.remove() }
+            }
+        } header: {
+            Text("HERE traffic")
+        } footer: {
+            Text("""
+                Live traffic on your route, with your own free HERE key. Create a \
+                free account at developer.here.com, make an API key for a project \
+                with the Traffic API, and paste it here. HERE's free plan covers a \
+                limited number of requests a month and may ask for a card at \
+                sign-up; check their pricing page for the current numbers. The app \
+                calls HERE directly with your key, so HERE sees your IP address, \
+                your key and the area around your route. The key stays on this \
+                phone: it is not synced, backed up or exported.
+                """)
+        }
     }
 
     /// Camera-warning settings (#496); `CameraWarner` in `:shared` reads them.
@@ -342,5 +381,74 @@ final class SettingsModel: ObservableObject {
         tollsSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.TOLL)
         ferriesSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.ROAD_ENVIRONMENT)
         unpavedSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.SURFACE)
+    }
+}
+
+/// The HERE key section's state (#654): the stored key, the field's draft and
+/// the shared presenter's verdict, through `TrafficKeyHolder`.
+@MainActor
+final class TrafficKeyModel: ObservableObject {
+
+    @Published private(set) var storedKey = ""
+    @Published private(set) var draft = ""
+    @Published private(set) var status: TrafficKeyStatus = .idle
+
+    private let holder = TrafficKeyHolder()
+    private let stored = SettingsFlows.shared.hereTrafficKey()
+    private let statusWatch: TrafficKeyStatusWatcher
+
+    init() {
+        statusWatch = holder.status()
+        // A pass stores the (trimmed) key and Remove blanks it; the field
+        // shows what is now stored either way.
+        stored.watch { [weak self] in
+            guard let self else { return }
+            self.storedKey = self.stored.value
+            self.draft = self.stored.value
+        }
+        statusWatch.watch { [weak self] in
+            guard let self else { return }
+            self.status = self.statusWatch.value
+        }
+    }
+
+    deinit {
+        stored.cancel()
+        statusWatch.cancel()
+    }
+
+    var canTest: Bool {
+        !draft.trimmingCharacters(in: .whitespaces).isEmpty && status != .testing
+    }
+
+    var failed: Bool { status == .badKey || status == .quota || status == .unreachable }
+
+    /// The line under the field. Silent while idle with nothing stored: a
+    /// rider who never wanted traffic should not be told it is off.
+    var statusLine: String? {
+        switch status {
+        case .idle:
+            let saved = !storedKey.isEmpty && draft.trimmingCharacters(in: .whitespaces) == storedKey
+            return saved ? "Key saved. Traffic is on." : nil
+        case .testing: return "Testing…"
+        case .ok: return "Key works. Traffic is on."
+        case .badKey: return "HERE refused this key. Check it was copied whole and that its project has the Traffic API."
+        case .quota: return "This key's allocation is used up, or HERE is limiting it. Try again later."
+        case .unreachable: return "Couldn't reach HERE. Check your connection and try again."
+        default: return nil
+        }
+    }
+
+    func edit(_ value: String) {
+        draft = value
+        holder.edited()
+    }
+
+    func test() async {
+        try? await holder.test(key: draft)
+    }
+
+    func remove() {
+        holder.remove()
     }
 }

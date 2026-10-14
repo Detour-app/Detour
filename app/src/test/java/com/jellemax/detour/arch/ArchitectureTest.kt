@@ -107,9 +107,15 @@ class ArchitectureTest {
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
             // +2: #549 camera banner and the island's gap under it
             // +16: #427 Back cancels candidates, restored candidates re-framed
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1436,
+            // +3: #439 route tile prefetch at nav start
+            // +4: #645 traffic loop call and its comment, traffic banner, withTrafficDelay import
+            // +5: #589 save-spin callbacks and the saved-loop sheet open
+            // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
+            // +3: #647 convoy gap voice and banner (both in MapConvoyGap.kt)
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1462,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1277,
+            // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1006,
@@ -124,7 +130,7 @@ class ArchitectureTest {
     @Test
     fun `shared functions stay under 100 lines - section 8`() {
         val pinned = mapOf(
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#sync" to 157,
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#syncLocked" to 113,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 150,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             // +3: #587 the three graph-dependent avoid options
