@@ -52,6 +52,11 @@ data class RegroupBanner(
  *  ten minutes is long enough for a group to find somewhere to pull in. */
 const val BREAK_SHOWN_MS = 10 * 60_000L
 
+/** How often a surface re-checks the age of the break pills while nothing else
+ *  changes. Well under a minute, so a request is gone within one tick of
+ *  [BREAK_SHOWN_MS]; read by the phone and iOS maps so neither holds its own. */
+const val BREAK_AGE_TICK_MS = 15_000L
+
 /** Within this of the pin a rider counts as there. A car park or a fuel
  *  station forecourt, plus GPS scatter, without reaching the next junction. */
 const val REGROUP_ARRIVED_M = 150.0

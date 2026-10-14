@@ -63,6 +63,11 @@ final class ConvoyLiveClient: ObservableObject {
     @Published private(set) var talking: Set<String> = []
     @Published private(set) var spinOffer: GroupSpin?
     @Published private(set) var spinVotes: [String: Int] = [:]
+    /// Break requests and the host's meeting point (#658), keyed and read the
+    /// same way as `peers`; `ConvoyBreakRegroupStates` turns them into what
+    /// `ConvoyBreakRegroupPanel` draws.
+    @Published private(set) var breakRequests: [String: BreakRequest] = [:]
+    @Published private(set) var regroupPin: RegroupPin?
     /// `relay.lastError`, overlaid with `guardMessage` — the "no live
     /// server configured" refusal below, which never calls `relay.run()` at
     /// all, so `relay` never sees that case itself (matching `ConvoyRelay`'s
@@ -108,6 +113,8 @@ final class ConvoyLiveClient: ObservableObject {
     private let talkingWatcher: StringSetWatcher
     private let spinOfferWatcher: GroupSpinWatcher
     private let spinVotesWatcher: SpinVotesWatcher
+    private let breakRequestsWatcher: BreakRequestsWatcher
+    private let regroupPinWatcher: RegroupPinWatcher
     private let lastErrorWatcher: OptionalStringWatcher
     private let audioChunkWatcher: AudioChunkWatcher
     private let placeEventWatcher: PlaceEventWatcher
@@ -127,6 +134,8 @@ final class ConvoyLiveClient: ObservableObject {
         talkingWatcher = watchers.talking()
         spinOfferWatcher = watchers.spinOffer()
         spinVotesWatcher = watchers.spinVotes()
+        breakRequestsWatcher = watchers.breakRequests()
+        regroupPinWatcher = watchers.regroupPin()
         lastErrorWatcher = watchers.lastError()
         audioChunkWatcher = watchers.audioChunks()
         placeEventWatcher = watchers.placeEvents()
@@ -157,6 +166,11 @@ final class ConvoyLiveClient: ObservableObject {
             // — `.intValue` is what actually unwraps it to Int.
             self.spinVotes = self.spinVotesWatcher.value.mapValues { $0.intValue }
         }
+        breakRequestsWatcher.watch { [weak self] in
+            guard let self else { return }
+            self.breakRequests = self.breakRequestsWatcher.value
+        }
+        regroupPinWatcher.watch { [weak self] in self?.regroupPin = self?.regroupPinWatcher.value }
         lastErrorWatcher.watch { [weak self] in self?.updateLastError() }
         audioChunkWatcher.watch { [weak self] in
             guard let chunk = self?.audioChunkWatcher.value else { return }
@@ -203,8 +217,8 @@ final class ConvoyLiveClient: ObservableObject {
     }
 
     deinit {
-        [connectedWatcher, peersWatcher, talkingWatcher, spinOfferWatcher, spinVotesWatcher, lastErrorWatcher,
-         audioChunkWatcher, placeEventWatcher, sessionEpoch].forEach { $0.cancel() }
+        [connectedWatcher, peersWatcher, talkingWatcher, spinOfferWatcher, spinVotesWatcher, breakRequestsWatcher,
+         regroupPinWatcher, lastErrorWatcher, audioChunkWatcher, placeEventWatcher, sessionEpoch].forEach { $0.cancel() }
         locationTask?.cancel()
     }
 
@@ -297,6 +311,20 @@ final class ConvoyLiveClient: ObservableObject {
     }
 
     func clearSpinOffer() { relay.clearSpinOffer() }
+
+    /// Asks the convoy for a break from `location` - see
+    /// `ConvoyRelay.sendBreakRequest`. Stamped with the wall clock, the one
+    /// `ConvoyRelay` stamps everyone else's request with on arrival.
+    func sendBreakRequest(_ location: LatLon) {
+        relay.sendBreakRequest(myId: SettingsValues.shared.authRiderId, location: location, nowMs: nowMs())
+    }
+
+    /// Host only - see `ConvoyRelay.sendRegroupPin`.
+    func sendRegroupPin(_ location: LatLon, label: String?) {
+        relay.sendRegroupPin(myId: SettingsValues.shared.authRiderId, location: location, label: label)
+    }
+
+    func sendRegroupPinClear() { relay.sendRegroupPinClear() }
 
     /// Delegates to `ConvoyRelay.currentLeadIndex` - see its own doc. What
     /// `MapScreen`'s "Go with the lead" button, and its own `resolveGroupSpin`,

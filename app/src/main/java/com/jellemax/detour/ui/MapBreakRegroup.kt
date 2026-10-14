@@ -38,14 +38,12 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.net.ConvoyLiveClient
+import com.jellemax.detour.presentation.BREAK_AGE_TICK_MS
 import com.jellemax.detour.presentation.BreakPill
 import com.jellemax.detour.presentation.RegroupBanner
 import com.jellemax.detour.presentation.convoyBreakRegroupStateFrom
 import com.jellemax.detour.presentation.formatDistanceKm
 import kotlinx.coroutines.delay
-
-/** How often the break pills re-check their age while nothing else changes. */
-private const val BREAK_AGE_TICK_MS = 15_000L
 
 /**
  * Break please, the host's Regroup here, the break pills and the regroup
