@@ -135,7 +135,8 @@ final class SpinModel: ObservableObject {
     }
 
     /// Asks for the searched place again after the curvy preset moved, from
-    /// where it was first routed — the phone's preview is from the pick too.
+    /// where it was first routed. The phone asks its preview from the fix at
+    /// the moment the slider moves instead (divergence register entry 27).
     /// The old line is dropped while it's asked for, so Start can't navigate
     /// a route the slider no longer shows.
     func rerouteSearched(preferences: RoutePreferences) async {

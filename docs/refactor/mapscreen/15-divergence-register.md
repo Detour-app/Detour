@@ -2253,7 +2253,9 @@ happens after:
 - Curviness slider (#660). Both show it through shared `CurvyRouteState`/`curvyControl`. Android's
   dock asks a separate `curvyRouteVia` preview for the cost line and Start fetches its own route;
   iOS has one request, so moving the slider re-routes the searched place from where it was picked
-  (`SpinModel.rerouteSearched`) and Start rides exactly the route the cost line describes. While
+  (`SpinModel.rerouteSearched`) and Start rides exactly the route the cost line describes. The
+  origin differs too: Android's preview (`app/…/ui/CurvyRouteControl.kt`) asks from the rider's
+  fix at the moment the slider moves, iOS re-routes from the point the place was picked. While
   that request is in flight iOS has no route, so Start only records. The slider's labels and
   cost-line wording are English literals in `iosApp/Detour/CurvyRouteRow.swift`; Android has
   `nav_curvy*` resources with Dutch. iOS shows the slider only for a searched place, not for a
