@@ -148,6 +148,24 @@
     <string name="map_camera_banner_speed">Speed camera</string>
     <string name="map_camera_banner_red_light">Red-light camera</string>
     <string name="map_camera_banner_combined">Speed and red-light camera</string>
+    <!-- Convoy gap banner (#647): one line per rider the convoy is missing. -->
+    <string name="map_convoy_gap_behind">%1$s fell behind</string>
+    <string name="map_convoy_gap_stopped">%1$s stopped</string>
+    <string name="map_convoy_gap_signal_lost">Lost %1$s\'s signal</string>
+    <!-- Convoy break and regroup (#649). -->
+    <string name="map_break_please">Break</string>
+    <string name="map_break_pill">%1$s wants a break</string>
+    <string name="map_break_pill_mine">You asked for a break</string>
+    <string name="map_break_marker">Break · %1$s</string>
+    <string name="map_break_you">You</string>
+    <string name="map_regroup_here">Regroup</string>
+    <string name="map_regroup_point">Regroup point</string>
+    <string name="map_regroup_at">Regroup at %1$s</string>
+    <string name="map_regroup_you_are_here">You\'re there</string>
+    <string name="map_regroup_arrived">There: %1$s</string>
+    <string name="map_regroup_on_the_way">On the way: %1$s</string>
+    <string name="map_regroup_route">Route</string>
+    <string name="map_regroup_clear">Clear</string>
     <!-- Traffic banner (#645): delay HERE puts on the route ahead, and a closure on it. -->
     <string name="map_traffic_delay">+%1$d min traffic</string>
     <string name="map_traffic_delay_label">on the route ahead</string>

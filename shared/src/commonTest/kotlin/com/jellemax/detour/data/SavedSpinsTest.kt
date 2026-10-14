@@ -4,6 +4,7 @@ import com.jellemax.detour.data.SavedSpins.LoopJoin
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** Saving a spin result and riding a saved loop again (#589). */
@@ -101,5 +102,21 @@ class SavedSpinsTest {
             listOf(nearHome, home, a, b, c, home),
             SavedSpins.loopRoutingPoints(listOf(home, a, b, c, home), nearHome, LoopJoin.NEAREST),
         )
+    }
+
+    private fun trip(spinRouteId: Long?) = Trip(
+        startTimeMs = 1_000L, endTimeMs = 2_000L, distanceMeters = 1.0, topSpeedMps = 1.0,
+        destinationLat = null, destinationLon = null, spinRouteId = spinRouteId,
+    )
+
+    @Test fun aTripLinksToTheSavedSpinItRode() {
+        val saved = SavedSpins.fromSpin(7L, "Sunday", TravelMode.MOTO, home, null, loopResult())
+        assertEquals(saved, SavedSpins.riddenBy(trip(7L), listOf(saved)))
+    }
+
+    @Test fun aDeletedSpinLeavesTheTripWithNoLink() {
+        val other = SavedSpins.fromSpin(8L, "Other", TravelMode.MOTO, home, null, loopResult())
+        assertNull(SavedSpins.riddenBy(trip(7L), listOf(other)))
+        assertNull(SavedSpins.riddenBy(trip(null), listOf(other)))
     }
 }

@@ -69,6 +69,7 @@ import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.ConvoysStore
+import com.jellemax.detour.data.FollowedRoute
 import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
@@ -844,7 +845,7 @@ fun MapScreen(
         s.tappedRider = null
         s.pendingRiderFrame = null
         fun beginGuidance(to: LatLon?) { // #422: no trip until there is a route to guide
-            if (stats == null) permissions.recordTrip(to) // #500: asks for precise first
+            if (stats == null) permissions.recordTrip(to, FollowedRoute.claim(s.destination, s.route)) // #500, #590
             s.navigating = true
             // #439: fetch the map along the line now, while there is signal to do it.
             s.route?.let { RouteTileCache.prefetch(context, it.polyline, darkTheme) }
@@ -903,6 +904,8 @@ fun MapScreen(
 
     // The camera chime and the trajectcontrole section, in MapHazardAlerts.kt.
     MapHazardAlerts(s = s, retained = retained, announceAloud = { announceAloud(it) })
+    // Convoy gap alerts speak past announceAloud's convoy gate (MapConvoyGap.kt).
+    MapConvoyGapVoice(speak = { navVoice.speak(it) })
 
     // Each fix only moves the targets; nothing touches the map here. This is
     // what lets the camera loop below run uninterrupted — the old code drove
@@ -1198,6 +1201,7 @@ fun MapScreen(
                 }
                 retained.traffic?.let { TrafficBanner(it) }
                 s.cameraCountdown?.let { CameraBanner(it, navigating = s.navigating) }
+                ConvoyGapBanner()
                 // Speed, the posted limit and the trajectcontrole average, in
                 // one island at the top-left — isHome.html's left:14/top:44,
                 // widened so the average keeps its slot.
@@ -1295,6 +1299,17 @@ fun MapScreen(
             ) {
                 PushToTalkButton(talking = convoyTalking.isNotEmpty())
             }
+
+            // Break please, Regroup here and the regroup banner (#649), in MapBreakRegroup.kt.
+            MapBreakRegroup(
+                s = s,
+                mapOverlays = mapOverlays,
+                onRouteTo = { at, name ->
+                    s.destination = at; s.destinationName = name; s.route = null
+                    startNavigation()
+                },
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp),
+            )
 
             MapBottomSlot(
                 stats = stats,

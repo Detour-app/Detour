@@ -1,6 +1,8 @@
 package com.jellemax.detour.data
 
 import com.jellemax.detour.drive.FuelType
+import com.jellemax.detour.drive.TrafficBudget
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonElement
@@ -60,6 +62,7 @@ object Settings {
      *  there is what stops the install being written out four times. */
     const val PREFS_NAME = "settings"
     const val PERF_TRACING_KEY = "perf_tracing"
+    private const val SHARE_FOG_PENDING_KEY = "share_fog_pending"
 
     private var store: Prefs? = null
     private val prefs: Prefs get() = store ?: error("Settings.init() not called")
@@ -255,6 +258,14 @@ object Settings {
      *  traffic runs. */
     private val _hereTrafficKey = MutableStateFlow("")
     val hereTrafficKey: StateFlow<String> = _hereTrafficKey
+
+    /** Rider opted out of the monthly HERE request cap ([TrafficBudget]). */
+    private val _trafficOverFreeTier = MutableStateFlow(false)
+    val trafficOverFreeTier: StateFlow<Boolean> = _trafficOverFreeTier
+
+    /** HERE requests made this month, persisted so a restart cannot reset it. */
+    private val _trafficUsage = MutableStateFlow(TrafficBudget.Usage())
+    val trafficUsage: StateFlow<TrafficBudget.Usage> = _trafficUsage
 
     /** Mount-to-bike misalignment, subtracted from every lean reading. Zero
      *  until the user runs calibration (bike upright, engine off) from
@@ -570,6 +581,20 @@ object Settings {
         if (trimmed.isEmpty()) secure.remove("here_traffic_key") else secure.put("here_traffic_key", trimmed)
     }
 
+    fun setTrafficOverFreeTier(value: Boolean) {
+        _trafficOverFreeTier.value = value
+        prefs.put("traffic_over_free_tier", value)
+    }
+
+    /** How many of [wanted] HERE requests may go out now; counts them. */
+    fun spendTrafficRequests(wanted: Int, nowMs: Long): Int {
+        val (granted, usage) = TrafficBudget.grant(_trafficUsage.value, wanted, nowMs, _trafficOverFreeTier.value)
+        _trafficUsage.value = usage
+        prefs.put("traffic_usage_month", usage.month.toLong())
+        prefs.put("traffic_usage_count", usage.count.toLong())
+        return granted
+    }
+
     fun setTheme(value: Theme) {
         _theme.value = value
         prefs.put("theme", value.name)
@@ -639,6 +664,11 @@ object Settings {
         // A Navigation setting (#637) but a credential, so from the secure
         // bag. Here rather than in init(), whose length §8 pins.
         _hereTrafficKey.value = secure.string("here_traffic_key")
+        _trafficOverFreeTier.value = prefs.bool("traffic_over_free_tier", false)
+        _trafficUsage.value = TrafficBudget.Usage(
+            prefs.long("traffic_usage_month", 0L).toInt(),
+            prefs.long("traffic_usage_count", 0L).toInt(),
+        )
     }
 
     fun setLoopByTime(value: Boolean) {
@@ -651,9 +681,35 @@ object Settings {
         prefs.put("loop_minutes", value)
     }
 
+    /** Bumped by every [setShareFog] in this process. [SyncClient.sync] reads
+     *  it before the upload and again after the response: a change means the
+     *  rider toggled mid-flight, and that choice is newer than the server's.
+     *  Read before [shareFog] and [shareFogPending], so a toggle landing
+     *  between the reads counts as mid-flight rather than as uploaded. */
+    @Volatile
+    private var shareFogEdits = 0
+
+    /** The rider's toggle. Marks the choice for upload: only a device whose
+     *  rider changed it sends `shareFog`, so another device's stale local
+     *  copy, or a fresh install's default, can't overwrite it (#689). */
     fun setShareFog(value: Boolean) {
         _shareFog.value = value
         prefs.put("share_fog", value)
+        prefs.put(SHARE_FOG_PENDING_KEY, true)
+        shareFogEdits++
+    }
+
+    fun shareFogEdits(): Int = shareFogEdits
+
+    /** True from a toggle until a sync brings the server's value back. */
+    fun shareFogPending(): Boolean = prefs.bool(SHARE_FOG_PENDING_KEY, false)
+
+    /** The account's value from a sync response. Not a rider choice, so it
+     *  clears the pending upload instead of setting it. */
+    fun adoptServerShareFog(value: Boolean) {
+        _shareFog.value = value
+        prefs.put("share_fog", value)
+        prefs.put(SHARE_FOG_PENDING_KEY, false)
     }
 
     fun setPerfTracing(value: Boolean) {

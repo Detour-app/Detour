@@ -87,20 +87,65 @@ public sealed class Group : Entity, INamedEntity
         var existing = FindMember(userId);
         if (existing is not null)
         {
-            var accepted = existing.Accept();
+            var accepted = Accept(existing);
             return accepted.IsFailure ? accepted : existing;
         }
 
         var member = GroupMember.CreateGuest(Id, userId);
         _members.Add(member);
+        FillVacantOwnership();
         return member;
+    }
+
+    /// <summary>
+    /// Accepts a pending invitation. Goes through the group rather than the member because a
+    /// newly accepted rider may be the one to take over an owner who already left.
+    /// </summary>
+    public Result Accept(GroupMember member)
+    {
+        var accepted = member.Accept();
+        if (accepted.IsFailure)
+            return accepted;
+
+        FillVacantOwnership();
+        return Result.Ok();
     }
 
     public GroupMember? FindMember(Guid userId) => _members.FirstOrDefault(m => m.UserId == userId);
 
     public bool IsAcceptedMember(Guid userId) => FindMember(userId)?.IsAccepted == true;
 
-    public void RemoveMember(GroupMember member) => _members.Remove(member);
+    /// <summary>
+    /// Drops a membership. When the owner goes and others ride on, the group passes to the
+    /// longest-standing accepted member: every host-only power (invite links, guest removal,
+    /// the regroup pin) checks <see cref="OwnerId"/>, so a departed owner would leave nobody
+    /// able to use them (#698).
+    /// </summary>
+    public void RemoveMember(GroupMember member)
+    {
+        _members.Remove(member);
+        if (member.UserId == OwnerId)
+            FillVacantOwnership();
+    }
+
+    /// <summary>
+    /// Hands ownership to the longest-standing accepted member if the owner is no longer one.
+    /// Called again whenever someone is accepted (an invitation or an invite link), because an
+    /// owner who left a group of only pending invitees had nobody to hand it to at the time.
+    /// </summary>
+    private void FillVacantOwnership()
+    {
+        if (IsAcceptedMember(OwnerId))
+            return;
+
+        var heir = _members
+            .Where(m => m.IsAccepted)
+            .OrderBy(m => m.JoinedAt)
+            .ThenBy(m => m.UserId)
+            .FirstOrDefault();
+        if (heir is not null)
+            OwnerId = heir.UserId;
+    }
 
     /// <summary>
     /// Read the kind's own policy rather than re-testing what it is. A convoy with nobody left
