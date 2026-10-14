@@ -2191,6 +2191,47 @@ check 'iOS heading corner gated on course' 1 \
     "$(grep -c 'location.course >= 0' iosApp/Detour/TripRecorder.swift)"
 ```
 
+## 26. Break and regroup on iOS: the state rules are shared, the labels and the Route hand-off are not
+
+**New with `#658`** — recorded on entry 25's precedent, because `iosApp/Detour/ConvoyBreakRegroup.swift`
+and `iosApp/Detour/MapScreen.swift` carry comments claiming Android parity (the marker labels, the
+panel, the Route hand-off), and a parity claim nothing enforces is what `conventions.md` §7.1 says
+belongs here. Owner decision 2026-10-14: iOS is verified by the CI build only, so these copies are
+kept in step by this entry, not by a device run.
+
+**What.** A rider can ask for a break, the host can drop a Regroup pin, and every rider sees break
+pills, map pins and a regroup card.
+
+**Copies.** The rules are not duplicated: who is host, how long a request stays
+(`BREAK_SHOWN_MS`), the age tick (`BREAK_AGE_TICK_MS`) and who has arrived are
+`convoyBreakRegroupStateFrom` in `shared/`, read by both surfaces. What each surface owns is the
+text and the hand-off:
+
+- Strings. Android `strings_map.xml` `map_break_marker` ("Break · %1$s"), `map_break_you` ("You")
+  and `map_regroup_point` ("Regroup point"), against the literals in
+  `iosApp/Detour/ConvoyBreakRegroup.swift` `mapPins` and `iosApp/Detour/MapScreen.swift`.
+  iOS has no localisation for them; Android has Dutch.
+- Route from the regroup card. Android `onRouteTo` goes through `startNavigation`; iOS
+  `routeToRegroup` in `MapScreen.swift` sets the destination and starts navigation once the router
+  gives turns.
+
+**Verdict: survive — Android's wording and flow, and iOS follows when the strings move to shared.**
+Nothing here is chosen; it is the cost of not having shared string resources.
+
+**Fence.**
+
+```sh
+# Entry 26 — break and regroup labels. A changed count means a label moved: update both copies.
+check 'Android break marker string' 1 \
+    "$(grep -c 'name="map_break_marker">Break · %1$s' app/src/main/res/values/strings_map.xml)"
+check 'iOS break pin title' 1 \
+    "$(grep -c 'title: "Break · ' iosApp/Detour/ConvoyBreakRegroup.swift)"
+check 'Android regroup point string' 1 \
+    "$(grep -c 'name="map_regroup_point">Regroup point' app/src/main/res/values/strings_map.xml)"
+```
+
+---
+
 ---
 
 ## §A — Summary, ranked by how user-visible the decision is

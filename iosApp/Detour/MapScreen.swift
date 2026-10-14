@@ -35,6 +35,10 @@ struct MapScreen: View {
     /// handed to `ConvoyBar` rather than each holding its own copy, so the two
     /// don't double up on the same `ConvoysStore` subscription.
     @StateObject private var convoyMembers = ActiveConvoyMembersModel()
+    /// The clock break requests age against (#658). They age out on time, not
+    /// on an event, so the `.task` below ticks it to redraw the pills and
+    /// markers when one does.
+    @State private var breakClockMs: Int64 = nowMs()
 
     /// Circle members post a fix every `CircleSync.syncIntervalSeconds` at
     /// most, so polling faster would just re-fetch the same row — matches
@@ -52,7 +56,8 @@ struct MapScreen: View {
                 candidates: candidateRows.map {
                     CLLocationCoordinate2D(latitude: $0.location.lat, longitude: $0.location.lon)
                 },
-                cameras: cameraAlerts.cameras
+                cameras: cameraAlerts.cameras,
+                pins: breakRegroup.mapPins
             )
             .ignoresSafeArea()
 
@@ -64,6 +69,21 @@ struct MapScreen: View {
                     HStack {
                         Spacer()
                         SectionAverageChip(averageKmh: average, limitKmh: sections.limitKmh)
+                    }
+                }
+                if live.activeConvoyId != nil {
+                    HStack {
+                        ConvoyBreakRegroupPanel(
+                            state: breakRegroup,
+                            connected: live.connected,
+                            here: recorder.lastFix.map {
+                                LatLon(lat: $0.coordinate.latitude, lon: $0.coordinate.longitude)
+                            },
+                            regroupAt: spin.destination ?? recorder.lastFix.map {
+                                LatLon(lat: $0.coordinate.latitude, lon: $0.coordinate.longitude)
+                            },
+                            onRoute: routeToRegroup)
+                        Spacer(minLength: 0)
                     }
                 }
                 ConvoyBar(members: convoyMembers)
@@ -156,6 +176,12 @@ struct MapScreen: View {
                     // and retry on the next tick.
                 }
                 try? await Task.sleep(for: .seconds(Self.circleFixPollSeconds))
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                breakClockMs = nowMs()
+                try? await Task.sleep(for: .milliseconds(ConvoyBreakRegroupStateKt.BREAK_AGE_TICK_MS))
             }
         }
         .safeAreaInset(edge: .top) { modePicker }
@@ -300,6 +326,35 @@ struct MapScreen: View {
         }
         .padding()
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    // MARK: Break and regroup
+
+    private var breakRegroup: ConvoyBreakRegroupState {
+        convoyBreakRegroupState(
+            live: live,
+            convoy: convoyMembers.convoys.first { $0.id == live.activeConvoyId },
+            selfId: circleFixRiderId.riderId,
+            here: recorder.lastFix?.coordinate,
+            nowMs: breakClockMs)
+    }
+
+    /// The regroup card's Route: the meeting point becomes the destination and,
+    /// once the router gives turns for it, navigation starts — what the Start
+    /// button does for any other destination (divergence register entry 26).
+    private func routeToRegroup(_ target: LatLon) {
+        guard let here = recorder.lastFix?.coordinate else {
+            spin.setDestination(target)
+            return
+        }
+        Task {
+            await spin.setDestinationRouting(to: target, from: here, mode: modes.mode)
+            // Another pick may have moved the destination while this routed.
+            guard spin.destination?.lat == target.lat, spin.destination?.lon == target.lon,
+                  spin.routeResult?.instructions.isEmpty == false else { return }
+            recorder.startTrip(destination: target)
+            navigating = true
+        }
     }
 
     // MARK: Candidates and the group spin
