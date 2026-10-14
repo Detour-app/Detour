@@ -34,6 +34,8 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.drive.SpeedLimitTracker
+import com.jellemax.detour.map.fetchNavRoute
+import com.jellemax.detour.map.startHeading
 import com.jellemax.detour.presentation.spinFailureText
 import com.jellemax.detour.tracking.MapSurface
 import com.jellemax.detour.tracking.TripTrackingService
@@ -75,6 +77,8 @@ class SpinScreen(
     private var candidate: RouteCandidate? = null
     private var serverConfig: ServerConfig? = null
     private var spinning = false
+    /** Start pressed and the fresh first line is in flight; ignores a second press. */
+    private var starting = false
     private var errorText: String? = null
 
     // Ambient speed limit, for the HUD ring while no route is running. The
@@ -193,14 +197,7 @@ class SpinScreen(
                                 if (hasTurnData) R.string.car_spin_start_navigation else R.string.car_spin_navigate,
                             ),
                         )
-                        .setOnClickListener {
-                            val config = serverConfig
-                            val from = myLocation
-                            val navScreen = if (config != null && from != null)
-                                NavScreen.forCandidate(carContext, renderer, from, c, config) else null
-                            if (navScreen != null) screenManager.push(navScreen)
-                            else navigate(c.destination)
-                        }
+                        .setOnClickListener { startNavigation(c) }
                         .build()
                 )
             }
@@ -324,6 +321,46 @@ class SpinScreen(
                 spinning = false
                 invalidate()
             }
+        }
+    }
+
+    /**
+     * Start pressed on [c]: turn-by-turn when it has turn data, else the
+     * external handoff.
+     *
+     * The spin's line was built from wherever the spin happened, with no
+     * heading, so on the move it can open with an onramp or a turn-around
+     * (#719). Like the phone's Go ([com.jellemax.detour.map.navStart]), the
+     * first line is fetched fresh from here and steered by [startHeading]; the
+     * spin's own line is the fallback when that request fails.
+     */
+    private fun startNavigation(c: RouteCandidate) {
+        val config = serverConfig
+        val from = myLocation
+        val spun = if (config != null && from != null)
+            NavScreen.forCandidate(carContext, renderer, from, c, config) else null
+        if (spun == null || config == null || from == null) {
+            navigate(c.destination)
+            return
+        }
+        if (starting) return
+        starting = true
+        lifecycleScope.launch {
+            val fresh = try {
+                fetchNavRoute(config, from, c.destination, TravelMode.CAR, startHeading())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "fresh start route failed, using the spin's line", e)
+                null
+            } finally {
+                starting = false
+            }
+            screenManager.push(
+                if (fresh != null && fresh.instructions.isNotEmpty())
+                    NavScreen(carContext, renderer, from, c.destination, fresh, config, c.name)
+                else spun,
+            )
         }
     }
 

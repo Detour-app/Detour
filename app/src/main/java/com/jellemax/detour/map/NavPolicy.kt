@@ -12,6 +12,12 @@ import com.jellemax.detour.data.NavEngine
  * (`car/NavScreen.kt`'s onFix) - and each carried its own copy of these two
  * tests, the car's under a comment admitting it. Two copies is two chances to
  * get a bound wrong on one surface only.
+ *
+ * App-only although nothing here is Android: iOS navigation has no reroute
+ * policy or heading hint yet (it sends `heading = nil`), so there is no second
+ * caller to share with. The heading rules ([headingHint], [startHeadingHint])
+ * stay next to [rerouteHeadingPenaltySec], and the object moves to `commonMain`
+ * whole, with its tests, when iOS gains one.
  */
 internal object NavPolicy {
 
