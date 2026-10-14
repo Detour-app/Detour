@@ -66,6 +66,7 @@ struct MapScreen: View {
                         SectionAverageChip(averageKmh: average, limitKmh: sections.limitKmh)
                     }
                 }
+                ConvoyGapBanner()
                 ConvoyBar(members: convoyMembers)
                 if let stats = recorder.stats {
                     TripCard(stats: stats) { recorder.endTrip() }
