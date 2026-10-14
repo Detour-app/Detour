@@ -33,6 +33,12 @@ public record SyncRequest
     /// <summary>The rider's own shortcuts. Keyed by the client's identifier.</summary>
     public IReadOnlyList<SavedPlacePayload>? SavedPlaces { get; init; }
 
+    /// <summary>
+    /// Shortcut identifiers the device has deleted (#695). Applied after the upserts, like
+    /// <see cref="DeletedTripStartTimes"/>, so the merged union stops handing the place back.
+    /// </summary>
+    public IReadOnlyList<long>? DeletedSavedPlaceIds { get; init; }
+
     /// <summary>Badge identifier to the instant it was earned. The earliest instant wins.</summary>
     public IReadOnlyDictionary<string, long>? Badges { get; init; }
 

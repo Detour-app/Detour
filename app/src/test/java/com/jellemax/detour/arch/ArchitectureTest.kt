@@ -111,7 +111,8 @@ class ArchitectureTest {
             // +4: #645 traffic loop call and its comment, traffic banner, withTrafficDelay import
             // +5: #589 save-spin callbacks and the saved-loop sheet open
             // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1459,
+            // +3: #647 convoy gap voice and banner (both in MapConvoyGap.kt)
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1462,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             // +1: #510 offline area row (body in SettingsOfflineArea.kt)
