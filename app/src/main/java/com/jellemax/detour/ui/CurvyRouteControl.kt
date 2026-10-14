@@ -43,7 +43,7 @@ import kotlinx.coroutines.withContext
  * and dies with the card that shows it.
  *
  * The preset is [Settings.curvyPreset], not dock state: Start and every
- * reroute read it back through [Settings.routePreferences], so the route the
+ * reroute read it back through [Settings.navRoutePreferences], so the route the
  * rider rides is asked for with the preset the slider showed. The preview is
  * a separate `curvyRouteVia` call — Start still fetches its own line from
  * wherever the rider is by then, as it does for every destination.
