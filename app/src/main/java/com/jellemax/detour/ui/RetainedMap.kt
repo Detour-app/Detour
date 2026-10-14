@@ -240,8 +240,8 @@ fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
             // is the one that has to stay.
             map.uiSettings.isLogoEnabled = false
             retained.map = map
-            // Once for the Activity, like the rest of this callback: Settings
-            // offers to keep the last-seen area offline (#510).
+            // Once for the Activity, like the rest of this callback: the
+            // "Download this area" dialog keeps the last-seen view (#510).
             map.addOnCameraIdleListener { publishViewport(map) }
             publishViewport(map)
         }

@@ -112,11 +112,11 @@ class ArchitectureTest {
             // +5: #589 save-spin callbacks and the saved-loop sheet open
             // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
             // +3: #647 convoy gap voice and banner (both in MapConvoyGap.kt)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1462,
+            // +1: #510 the top rail's offline-area button (the dialog is in OfflineAreaDialog.kt)
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1463,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
-            // +1: #510 offline area row (body in SettingsOfflineArea.kt)
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1279,
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1006,

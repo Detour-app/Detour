@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,13 +29,23 @@ import com.jellemax.detour.map.RouteTileCache
 private const val BYTES_PER_MB = 1024L * 1024
 
 /**
- * "Offline map of this view" (#510): keeps the area the map last showed, with
- * its size before and after and a delete. One area at a time; a new download
- * replaces it. The area is whatever [MapViewport] last saw, so it is chosen by
- * panning the map and then coming here.
+ * "Download this area" (#510), opened from the map's top rail: keeps the view
+ * the map is showing, with its size before and after and a delete. One area at
+ * a time; a new download replaces it. The area is whatever [MapViewport] last
+ * saw, which is the view the rider just chose by panning and zooming.
  */
 @Composable
-internal fun OfflineAreaRow() {
+internal fun OfflineAreaDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.map_offline_area)) },
+        text = { OfflineAreaBody() },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.map_close)) } },
+    )
+}
+
+@Composable
+private fun OfflineAreaBody() {
     val context = LocalContext.current
     val darkTheme = isAppDarkTheme(Settings.theme.collectAsStateWithLifecycle().value)
     val box by MapViewport.box.collectAsStateWithLifecycle()
@@ -45,18 +56,13 @@ internal fun OfflineAreaRow() {
 
     val area = box
     val fits = area != null && OfflineArea.fits(area)
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(stringResource(R.string.settings_offline_area), style = MaterialTheme.typography.bodyLarge)
+    Column(Modifier.fillMaxWidth()) {
+        Column {
             OfflineAreaNote(offlineAreaStatus(area, fraction))
-            savedBytes?.let { OfflineAreaNote(stringResource(R.string.settings_offline_area_saved, it / BYTES_PER_MB)) }
-            if (capped) OfflineAreaNote(stringResource(R.string.settings_offline_area_capped))
+            savedBytes?.let { OfflineAreaNote(stringResource(R.string.map_offline_area_saved, it / BYTES_PER_MB)) }
+            if (capped) OfflineAreaNote(stringResource(R.string.map_offline_area_capped))
         }
-        Column(horizontalAlignment = Alignment.End) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(
                 onClick = {
                     val chosen = area ?: return@TextButton
@@ -69,7 +75,7 @@ internal fun OfflineAreaRow() {
                     }
                 },
                 enabled = fits && fraction == null,
-            ) { Text(stringResource(R.string.settings_offline_area_download)) }
+            ) { Text(stringResource(R.string.map_offline_area_download)) }
             if (savedBytes != null) {
                 TextButton(
                     onClick = {
@@ -80,7 +86,7 @@ internal fun OfflineAreaRow() {
                         }
                     },
                 ) {
-                    Text(stringResource(R.string.settings_offline_area_delete))
+                    Text(stringResource(R.string.map_offline_area_delete))
                 }
             }
         }
@@ -93,10 +99,10 @@ private fun offlineAreaStatus(area: LatLonBox?, fraction: Float?): String {
     val limitMb = OfflineArea.MAX_BYTES / BYTES_PER_MB
     val estimateMb = area?.let { OfflineArea.estimateBytes(it) / BYTES_PER_MB } ?: 0
     return when {
-        fraction != null -> stringResource(R.string.settings_offline_area_progress, (fraction * 100).toInt())
-        area == null -> stringResource(R.string.settings_offline_area_no_map)
-        !OfflineArea.fits(area) -> stringResource(R.string.settings_offline_area_too_big, estimateMb, limitMb)
-        else -> stringResource(R.string.settings_offline_area_estimate, estimateMb)
+        fraction != null -> stringResource(R.string.map_offline_area_progress, (fraction * 100).toInt())
+        area == null -> stringResource(R.string.map_offline_area_no_map)
+        !OfflineArea.fits(area) -> stringResource(R.string.map_offline_area_too_big, estimateMb, limitMb)
+        else -> stringResource(R.string.map_offline_area_estimate, estimateMb)
     }
 }
 

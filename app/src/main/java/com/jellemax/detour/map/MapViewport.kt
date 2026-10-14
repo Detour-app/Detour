@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * What the phone map last showed, so Settings can offer to keep that area
+ * What the phone map last showed, so the map's download action can keep that area
  * offline (#510) without holding the map itself. Written by the retained map's
  * camera-idle listener; null until the map has drawn once.
  */

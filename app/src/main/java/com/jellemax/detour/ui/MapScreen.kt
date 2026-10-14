@@ -1247,6 +1247,7 @@ fun MapScreen(
                     layers = MapLayers(
                         fogEnabled = fogEnabled,
                         onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
+                        onOpenOfflineArea = { s.showOfflineArea = true },
                     ),
                     onToggleFollow = {
                         // #294 AC: turning follow back on clears a rider
