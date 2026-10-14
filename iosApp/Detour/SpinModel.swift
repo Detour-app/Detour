@@ -70,11 +70,16 @@ final class SpinModel: ObservableObject {
     }
 
     /// Takes a destination that arrived without a route — a convoy's committed
-    /// spin — and routes to it. Every member has to ask for their own: the
-    /// sharer's polyline is a line from *their* position, and drawing it here
-    /// would show a route starting somewhere you are not.
+    /// spin, the regroup point, or a place picked from search — and routes to
+    /// it. Every convoy member has to ask for their own: the sharer's polyline
+    /// is a line from *their* position, and drawing it here would show a route
+    /// starting somewhere you are not.
+    ///
+    /// `preferences` defaults to the fastest route; a searched place passes
+    /// `navRoutePreferences`, the A→B route the phone's Start fetches.
     func setDestinationRouting(
-        to target: LatLon, from here: CLLocationCoordinate2D, mode: TravelMode
+        to target: LatLon, from here: CLLocationCoordinate2D, mode: TravelMode,
+        preferences: RoutePreferences = SettingsValues.shared.routePreferences
     ) async {
         setDestination(target)
         let server = RoutingServer.shared.load()
@@ -84,7 +89,7 @@ final class SpinModel: ObservableObject {
             from: LatLon(lat: here.latitude, lon: here.longitude),
             to: target,
             profile: mode.ghProfile,
-            preferences: SettingsValues.shared.routePreferences,
+            preferences: preferences,
             heading: nil
         )
         // Compared field-wise rather than by identity: another commit or a

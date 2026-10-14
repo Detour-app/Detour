@@ -423,6 +423,7 @@ object SettingsValues {
     val tripMode: TravelMode get() = Settings.tripMode.value
     val autoDetectDrives: Boolean get() = Settings.autoDetectDrives.value
     val routePreferences: RoutePreferences get() = Settings.routePreferences()
+    val navRoutePreferences: RoutePreferences get() = Settings.navRoutePreferences()
     val voiceGuidance: Boolean get() = Settings.voiceGuidance.value
     val routeColor: Settings.RouteColor get() = Settings.routeColor.value
     val shareFog: Boolean get() = Settings.shareFog.value

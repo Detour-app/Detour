@@ -193,7 +193,7 @@ struct MapScreen: View {
         }
         .sheet(isPresented: $showSearch) {
             SearchSheet { result in
-                spin.setDestination(result.location)
+                routeToSearched(result.location)
                 showSearch = false
             }
         }
@@ -326,6 +326,22 @@ struct MapScreen: View {
         }
         .padding()
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    /// A place picked from search: routed from the current fix with the A→B
+    /// preferences, so Start has turns to navigate — what the phone's Start
+    /// fetches through `fetchNavRoute`. No fix yet leaves a bare pin, and Start
+    /// records toward it. iOS does not reroute (divergence register entry 27).
+    private func routeToSearched(_ target: LatLon) {
+        guard let here = recorder.lastFix?.coordinate else {
+            spin.setDestination(target)
+            return
+        }
+        Task {
+            await spin.setDestinationRouting(
+                to: target, from: here, mode: modes.mode,
+                preferences: SettingsValues.shared.navRoutePreferences)
+        }
     }
 
     // MARK: Break and regroup
