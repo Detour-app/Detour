@@ -95,6 +95,14 @@ internal data class GoTarget(
     val routeFetching: Boolean,
 )
 
+/** The dock's two header buttons, both acting on the destination pin: save it
+ *  as a place, or drop it. Grouped to keep `NavigationDock` under the
+ *  parameter limit (`docs/guidelines/state-holders.md` §14.2). */
+internal data class PinActions(
+    val onSave: () -> Unit,
+    val onClear: () -> Unit,
+)
+
 /** A trip being recorded with nothing to navigate to. Closed: elapsed time
  *  over distance. Open: the full stats, a Where to? bar so the trip can
  *  become a navigated one without ending it, and End trip. */

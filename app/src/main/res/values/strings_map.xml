@@ -96,6 +96,13 @@
     <string name="nav_google_maps_round_trip">Google Maps (round trip)</string>
     <string name="nav_other_app">Other app</string>
     <string name="nav_go">Go</string>
+    <string name="nav_curvy">Curvy</string>
+    <string name="nav_curvy_fast">Fast</string>
+    <string name="nav_curvy_balanced">Balanced</string>
+    <string name="nav_curvy_twisty">Twisty</string>
+    <string name="nav_curvy_cost">+%1$d min · +%2$s</string>
+    <string name="nav_curvy_comparing">Comparing with the fastest route…</string>
+    <string name="nav_curvy_unsupported">Curvy routes: your routing server can\'t do this yet</string>
 
     <!-- RouteEditorScreen.kt, RouteFillControls.kt -->
     <string name="route_editor_new">New route</string>

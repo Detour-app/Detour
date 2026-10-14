@@ -255,8 +255,8 @@ internal fun BoxScope.MapBottomSlot(
                         go = goTarget,
                         error = error,
                         onSelectMode = onSelectMode,
-                        onClear = onClearDestination,
-                        onSavePin = onSavePin,
+                        pin = PinActions(onSave = onSavePin, onClear = onClearDestination),
+                        curvy = { CurvyRouteControl(serverConfig, myLocation, destination, mode) },
                     )
                     HomeBottomCard.CANDIDATES -> CandidatesCard(
                         candidates = shownCandidates.value,
