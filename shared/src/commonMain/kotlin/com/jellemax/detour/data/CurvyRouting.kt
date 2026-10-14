@@ -122,3 +122,7 @@ data class CurvyRoute(
     val detourCost: DetourCost?,
     val curviness: Double?,
 )
+
+/** A stored preset name, or [CurvyPreset.FAST] for nothing stored or a name this build doesn't know. */
+internal fun decodeCurvyPreset(stored: String): CurvyPreset =
+    CurvyPreset.entries.firstOrNull { it.name == stored } ?: CurvyPreset.FAST

@@ -126,21 +126,16 @@ object Settings {
     private val _avoidUnpaved = MutableStateFlow(false)
     val avoidUnpaved: StateFlow<Boolean> = _avoidUnpaved
 
-    /** The A→B curviness preset the navigation dock's slider sets (#652).
-     *  Saved rather than per route so the reroute mid-ride asks for the same
-     *  bends the rider set off on; masked like the three above. */
+    /** The A→B dock slider's preset (#652): saved, so a reroute mid-ride asks for the same bends. */
     private val _curvyPreset = MutableStateFlow(CurvyPreset.FAST)
     val curvyPreset: StateFlow<CurvyPreset> = _curvyPreset
 
     /** The avoid options as they stand now, for a routing request — minus any
      *  the routing server has not said it supports, so a choice made against
-     *  one server never 400s every route on another. Always the fastest
-     *  route: the curvy preset is the A→B dock's alone (see
-     *  [navRoutePreferences]), so it never bends an editor fill or a spin. */
+     *  one server never 400s another's routes. Always the fastest route. */
     fun routePreferences() = routePreferencesWith(CurvyPreset.FAST)
 
-    /** [routePreferences] plus [curvyPreset], for the A→B navigation route
-     *  the dock's slider sets: its preview, Start and every reroute after. */
+    /** [routePreferences] plus [curvyPreset], for the A→B route: preview, Start, every reroute. */
     fun navRoutePreferences() = routePreferencesWith(_curvyPreset.value)
 
     private fun routePreferencesWith(curvy: CurvyPreset) = RoutePreferences(
@@ -651,11 +646,6 @@ object Settings {
         prefs.put("curvy_preset", value.name)
     }
 
-    /** A stored preset name, or [CurvyPreset.FAST] for nothing stored or a
-     *  name this build doesn't know. */
-    internal fun decodeCurvyPreset(stored: String): CurvyPreset =
-        CurvyPreset.entries.firstOrNull { it.name == stored } ?: CurvyPreset.FAST
-
     fun setExternalDisplayEnabled(value: Boolean) {
         _externalDisplayEnabled.value = value
         prefs.put("external_display_enabled", value)
@@ -666,8 +656,6 @@ object Settings {
         prefs.put("trip_mode", value.name)
     }
 
-    /** What [routePreferences] is built from. Out of [init] for the same
-     *  reason as [loadSpinPrefs]. */
     private fun loadRoutePrefs() {
         _avoidHighways.value = prefs.bool("avoid_highways", false)
         _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)

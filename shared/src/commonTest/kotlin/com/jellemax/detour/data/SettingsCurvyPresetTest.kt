@@ -10,23 +10,23 @@ class SettingsCurvyPresetTest {
     @Test
     fun everyPresetRoundTripsThroughItsName() {
         for (preset in CurvyPreset.entries) {
-            assertEquals(preset, Settings.decodeCurvyPreset(preset.name))
+            assertEquals(preset, decodeCurvyPreset(preset.name))
         }
     }
 
     @Test
     fun nothingStoredIsFast() {
-        assertEquals(CurvyPreset.FAST, Settings.decodeCurvyPreset(""))
+        assertEquals(CurvyPreset.FAST, decodeCurvyPreset(""))
     }
 
     @Test
     fun aNameThisBuildDoesNotKnowIsFast() {
-        assertEquals(CurvyPreset.FAST, Settings.decodeCurvyPreset("WIGGLY"))
+        assertEquals(CurvyPreset.FAST, decodeCurvyPreset("WIGGLY"))
     }
 
     @Test
     fun theStoredPresetReachesTheRequestOnlyWhenTheGraphHasCurvature() {
-        val chosen = RoutePreferences(curvy = Settings.decodeCurvyPreset(CurvyPreset.TWISTY.name))
+        val chosen = RoutePreferences(curvy = decodeCurvyPreset(CurvyPreset.TWISTY.name))
         assertEquals(CurvyPreset.TWISTY, chosen.supportedBy(setOf(RoutingEncodedValue.CURVATURE)).curvy)
         assertEquals(CurvyPreset.FAST, chosen.supportedBy(emptySet()).curvy)
     }
