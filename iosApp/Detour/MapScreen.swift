@@ -20,6 +20,8 @@ struct MapScreen: View {
     /// Speed camera markers. Here for the same reason `sections` is: the
     /// phone shows them on a free drive, not only while navigating.
     @StateObject private var cameraAlerts = CameraPrefetchModel()
+    /// The saved curvy preset, for the searched place's slider (#660).
+    @StateObject private var curvyPreset = CurvyPresetModel()
     @State private var showSearch = false
     @State private var navigating = false
     /// Last-known position per other member, across every circle you're in.
@@ -103,6 +105,11 @@ struct MapScreen: View {
             guard let fix else { return }
             sections.update(with: fix)
             cameraAlerts.update(with: fix)
+        }
+        // A moved curviness slider re-asks for the searched place, so the
+        // route Start navigates is the one the cost line describes (#660).
+        .onChange(of: curvyPreset.preset) { _, _ in
+            Task { await spin.rerouteSearched(preferences: SettingsValues.shared.navRoutePreferences) }
         }
         // The three places a vote round can resolve from: a new offer landing
         // (which may itself be the closing one-candidate offer), a vote
@@ -276,6 +283,10 @@ struct MapScreen: View {
                 }
             }
 
+            if let curvy = curvyRoute {
+                CurvyRouteRow(state: curvy) { Settings.shared.setCurvyPreset(value: $0) }
+            }
+
             HStack(spacing: 10) {
                 Button { showSearch = true } label: {
                     Image(systemName: "magnifyingglass")
@@ -338,10 +349,23 @@ struct MapScreen: View {
             return
         }
         Task {
-            await spin.setDestinationRouting(
-                to: target, from: here, mode: modes.mode,
+            await spin.routeSearched(
+                to: target, from: LatLon(lat: here.latitude, lon: here.longitude), mode: modes.mode,
                 preferences: SettingsValues.shared.navRoutePreferences)
         }
+    }
+
+    /// The curviness row's state for the searched place (#660), or nil when
+    /// the destination didn't come from search. Its mode is the one the place
+    /// was routed for, so the control matches the route Start would ride.
+    private var curvyRoute: CurvyRouteState? {
+        guard let searched = spin.searched else { return nil }
+        return CurvyRouteState(
+            control: CurvyRouteStateKt.curvyControl(
+                mode: searched.mode, supported: RoutingSupport.shared.curvyRoutingSupported()),
+            preset: curvyPreset.preset,
+            preview: spin.searchedCurvy,
+            loading: searched.loading)
     }
 
     // MARK: Break and regroup

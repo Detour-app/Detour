@@ -121,6 +121,16 @@ class RouteColorWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+class CurvyPresetWatcher internal constructor(
+    private val flow: StateFlow<CurvyPreset>,
+) : Watcher() {
+    var value: CurvyPreset = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 class SavedPlacesWatcher internal constructor(
     private val flow: StateFlow<List<SavedPlace>>,
 ) : Watcher() {
@@ -365,6 +375,7 @@ object SettingsFlows {
     fun cameraWarnNotSpeeding() = BoolWatcher(Settings.cameraWarnNotSpeeding)
     fun cameraWarnLimitUnknown() = BoolWatcher(Settings.cameraWarnLimitUnknown)
     fun routeColor() = RouteColorWatcher(Settings.routeColor)
+    fun curvyPreset() = CurvyPresetWatcher(Settings.curvyPreset)
 
     /** Non-blank means tested and on — see `TrafficKeyPresenter`. */
     fun hereTrafficKey() = StringWatcher(Settings.hereTrafficKey)
@@ -485,6 +496,10 @@ object Enums {
     val travelModes: List<TravelMode> = TravelMode.entries.toList()
     val badgeKinds: List<BadgeKind> = BadgeKind.entries.toList()
     val routeColors: List<Settings.RouteColor> = RouteColors.all
+
+    /** The curviness slider's stops in order, fast to twisty: Swift maps a
+     *  slider position to a preset by index instead of naming entries. */
+    val curvyPresets: List<CurvyPreset> = CurvyPreset.entries.toList()
 
     /** Spelling an enum *entry* in Swift means trusting Kotlin/Native's name
      *  mangling for it; naming the one default here does not. */
