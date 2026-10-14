@@ -67,6 +67,7 @@ internal fun enforceSingletonKinds(places: List<SavedPlace>): List<SavedPlace> {
 object SavedPlaces {
 
     private const val FILE_NAME = "saved_places.json"
+    private const val DELETED_FILE_NAME = "deleted_saved_places.json"
 
     // internal, not private, for the same reason `loaded` below is: the
     // session-switch test has to seed a non-empty list and watch
@@ -128,8 +129,12 @@ object SavedPlaces {
             .sortedBy { it.name.lowercase() })
     }
 
+    /** Remove a place. Its id is also tombstoned, so the server's copy — the
+     *  /sync merge returns the union and [replaceFromServer] stores it — can't
+     *  bring it back on the next sync (#695). Same pattern as [TripStore.delete]. */
     fun remove(id: Long) {
         ensureLoaded() // see add(): a remove can be the first call to touch the store.
+        writeTombstones(tombstones() + id)
         write(_places.value.filterNot { it.id == id })
     }
 
@@ -148,11 +153,17 @@ object SavedPlaces {
         return if (f.exists()) f.readText() else "[]"
     }
 
+    /** Ids removed on this device, uploaded with the sync payload so the
+     *  server deletes its copy too. See [remove]. */
+    fun deletedIds(): Set<Long> = tombstones()
+
     /** Overwrite the local store with the server's merged array (the union it
-     *  holds), so a reinstall restores every shortcut on the first sync. */
+     *  holds), so a reinstall restores every shortcut on the first sync.
+     *  Tombstoned ids are dropped: a server that predates the delete field, or
+     *  another device re-uploading its copy, still returns them. */
     fun replaceFromServer(json: String) {
         val places = try {
-            decodeSavedPlaces(json).first
+            withoutDeleted(decodeSavedPlaces(json).first, tombstones())
         } catch (e: Exception) {
             return // malformed payload: keep what we have
         }
@@ -166,6 +177,20 @@ object SavedPlaces {
     private fun write(places: List<SavedPlace>) {
         _places.value = places
         accountFile(FILE_NAME).writeText(encodeSavedPlaces(places))
+    }
+
+    private fun tombstones(): Set<Long> {
+        val f = accountFile(DELETED_FILE_NAME)
+        if (!f.exists()) return emptySet()
+        return try {
+            decodeDeletedIds(f.readText())
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    private fun writeTombstones(ids: Set<Long>) {
+        accountFile(DELETED_FILE_NAME).writeText(encodeDeletedIds(ids))
     }
 
     private fun read(): Pair<List<SavedPlace>, Boolean> {
@@ -194,6 +219,20 @@ internal fun withKind(places: List<SavedPlace>, id: Long, kind: SavedPlaceKind):
         }
     }.sortedBy { it.name.lowercase() }
 }
+
+/** [places] minus the ones removed on this device. Pure, for the same reason
+ *  as [withKind]. */
+internal fun withoutDeleted(places: List<SavedPlace>, deletedIds: Set<Long>): List<SavedPlace> =
+    if (deletedIds.isEmpty()) places else places.filterNot { it.id in deletedIds }
+
+/** deleted_saved_places.json: a JSON array of removed places' ids. */
+internal fun decodeDeletedIds(text: String): Set<Long> {
+    val array = jsonArrayOf(text)
+    return array.indices.map { array.optLong(it) }.toSet()
+}
+
+internal fun encodeDeletedIds(ids: Set<Long>): String =
+    buildJsonArrayOfLongs(ids).string()
 
 /** The stored JSON array for [places], with an explicit `kind` on every row. */
 internal fun encodeSavedPlaces(places: List<SavedPlace>): String =

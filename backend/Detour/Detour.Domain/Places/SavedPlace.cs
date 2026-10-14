@@ -70,4 +70,9 @@ public interface ISavedPlaceRepository : IBaseRepository<SavedPlace>
         Guid userId,
         IReadOnlyCollection<long> clientPlaceIds,
         CancellationToken cancellationToken);
+
+    Task<int> DeleteByClientIdsAsync(
+        Guid userId,
+        IReadOnlyCollection<long> clientPlaceIds,
+        CancellationToken cancellationToken);
 }

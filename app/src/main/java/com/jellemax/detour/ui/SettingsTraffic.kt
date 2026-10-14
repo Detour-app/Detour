@@ -1,9 +1,11 @@
 package com.jellemax.detour.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -12,12 +14,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.R
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.drive.TrafficBudget
 import com.jellemax.detour.presentation.TrafficKeyPresenter
 import com.jellemax.detour.presentation.TrafficKeyStatus
 import kotlinx.coroutines.launch
@@ -30,6 +34,8 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun TrafficKeySection() {
     val storedKey by Settings.hereTrafficKey.collectAsStateWithLifecycle()
+    val over by Settings.trafficOverFreeTier.collectAsStateWithLifecycle()
+    val usage by Settings.trafficUsage.collectAsStateWithLifecycle()
     val presenter = remember { TrafficKeyPresenter() }
     val status by presenter.status.collectAsStateWithLifecycle()
     // Keyed on the stored key: a pass stores the (trimmed) key and Remove
@@ -49,6 +55,26 @@ internal fun TrafficKeySection() {
             modifier = Modifier.fillMaxWidth(),
         )
         TrafficKeyStatusLine(status, saved = storedKey.isNotEmpty() && draft.trim() == storedKey)
+        if (storedKey.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.settings_traffic_over_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        stringResource(R.string.settings_traffic_over_body, usage.count, TrafficBudget.FREE_TIER),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(over, Settings::setTrafficOverFreeTier)
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(
                 onClick = { scope.launch { presenter.test(draft) } },

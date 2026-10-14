@@ -1,6 +1,7 @@
 package com.jellemax.detour.data
 
 import com.jellemax.detour.drive.FuelType
+import com.jellemax.detour.drive.TrafficBudget
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -257,6 +258,14 @@ object Settings {
      *  traffic runs. */
     private val _hereTrafficKey = MutableStateFlow("")
     val hereTrafficKey: StateFlow<String> = _hereTrafficKey
+
+    /** Rider opted out of the monthly HERE request cap ([TrafficBudget]). */
+    private val _trafficOverFreeTier = MutableStateFlow(false)
+    val trafficOverFreeTier: StateFlow<Boolean> = _trafficOverFreeTier
+
+    /** HERE requests made this month, persisted so a restart cannot reset it. */
+    private val _trafficUsage = MutableStateFlow(TrafficBudget.Usage())
+    val trafficUsage: StateFlow<TrafficBudget.Usage> = _trafficUsage
 
     /** Mount-to-bike misalignment, subtracted from every lean reading. Zero
      *  until the user runs calibration (bike upright, engine off) from
@@ -572,6 +581,20 @@ object Settings {
         if (trimmed.isEmpty()) secure.remove("here_traffic_key") else secure.put("here_traffic_key", trimmed)
     }
 
+    fun setTrafficOverFreeTier(value: Boolean) {
+        _trafficOverFreeTier.value = value
+        prefs.put("traffic_over_free_tier", value)
+    }
+
+    /** How many of [wanted] HERE requests may go out now; counts them. */
+    fun spendTrafficRequests(wanted: Int, nowMs: Long): Int {
+        val (granted, usage) = TrafficBudget.grant(_trafficUsage.value, wanted, nowMs, _trafficOverFreeTier.value)
+        _trafficUsage.value = usage
+        prefs.put("traffic_usage_month", usage.month.toLong())
+        prefs.put("traffic_usage_count", usage.count.toLong())
+        return granted
+    }
+
     fun setTheme(value: Theme) {
         _theme.value = value
         prefs.put("theme", value.name)
@@ -641,6 +664,11 @@ object Settings {
         // A Navigation setting (#637) but a credential, so from the secure
         // bag. Here rather than in init(), whose length §8 pins.
         _hereTrafficKey.value = secure.string("here_traffic_key")
+        _trafficOverFreeTier.value = prefs.bool("traffic_over_free_tier", false)
+        _trafficUsage.value = TrafficBudget.Usage(
+            prefs.long("traffic_usage_month", 0L).toInt(),
+            prefs.long("traffic_usage_count", 0L).toInt(),
+        )
     }
 
     fun setLoopByTime(value: Boolean) {
