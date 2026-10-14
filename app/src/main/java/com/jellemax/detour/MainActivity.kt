@@ -426,7 +426,11 @@ private fun AppRoot() {
                     )
                 }
                 entry<Destination.TripDetail> { key ->
-                    TripDetailEntry(startTimeMs = key.startTimeMs, onBack = { backStack.pop() })
+                    TripDetailEntry(
+                        startTimeMs = key.startTimeMs,
+                        onBack = { backStack.pop() },
+                        onOpenRoute = { id -> backStack.push(Destination.RouteEditor(id)) },
+                    )
                 }
                 entry<Destination.Badges> {
                     BadgesScreen(
@@ -590,14 +594,14 @@ private fun NavBackStack<NavKey>.resetTo(entries: List<Destination>) {
  * Null renders nothing, which is what `detailTrip?.let { … }` did before.
  */
 @Composable
-private fun TripDetailEntry(startTimeMs: Long, onBack: () -> Unit) {
+private fun TripDetailEntry(startTimeMs: Long, onBack: () -> Unit, onOpenRoute: (Long) -> Unit) {
     var trip by remember(startTimeMs) { mutableStateOf<Trip?>(null) }
     LaunchedEffect(startTimeMs) {
         trip = withContext(Dispatchers.IO) {
             TripStore.load().find { it.startTimeMs == startTimeMs }
         }
     }
-    trip?.let { TripDetailScreen(trip = it, onBack = onBack) }
+    trip?.let { TripDetailScreen(trip = it, onBack = onBack, onOpenRoute = onOpenRoute) }
 }
 
 /**

@@ -189,10 +189,28 @@ class PersistedFormatTest {
         assertEquals(listOf(tripEdited, tripNoDestination), TripStore.decodeAll(tripsV5))
     }
 
+    // V6 (#590): each trip gains "spinRouteId", the saved spin it rode — null
+    // when it rode none. V1-V5 still read, spinRouteId null.
+    private val tripsV6 = tripsV5
+        .replace(""""editedAtMs":1726200000000}""", """"editedAtMs":1726200000000, "spinRouteId":1726100000000}""")
+        .replace(""""editedAtMs":0}]""", """"editedAtMs":0, "spinRouteId":null}]""")
+
+    private val tripFromSpin = tripEdited.copy(spinRouteId = 1_726_100_000_000L)
+
     @Test
-    fun tripsWriterMatchesV5() {
-        val written = listOf(tripEdited, tripNoDestination).map { TripStore.encode(it) }
-        assertEquals(jsonArrayOf(tripsV5).toList(), written)
+    fun tripsV5ReadsAsRidingNoSpin() {
+        assertEquals(null, TripStore.decodeAll(tripsV5).first().spinRouteId)
+    }
+
+    @Test
+    fun tripsV6Reads() {
+        assertEquals(listOf(tripFromSpin, tripNoDestination), TripStore.decodeAll(tripsV6))
+    }
+
+    @Test
+    fun tripsWriterMatchesV6() {
+        val written = listOf(tripFromSpin, tripNoDestination).map { TripStore.encode(it) }
+        assertEquals(jsonArrayOf(tripsV6).toList(), written)
     }
 
     // --- traces.jsonl (one line per recorded segment) ------------------------
