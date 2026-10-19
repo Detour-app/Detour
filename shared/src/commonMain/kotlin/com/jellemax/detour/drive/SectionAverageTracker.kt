@@ -69,17 +69,31 @@ object SectionAverageTracker {
      *  road between them. */
     const val ROAD_LINE_MIN_OFFSET_METERS = 120.0
 
-    /** Further than this past the closest the far end has been is driving away
-     *  from it - off the section, with or without a road line to say so (#740). A
-     *  section's road does not double back on itself by this much. */
+    /** Without a road line, further than this past the closest the far end has
+     *  been is driving away from it - off the section (#740). A section's road
+     *  does not double back on itself by this much. Not applied with a road
+     *  line, which says so directly and is not fooled by a road that bends away
+     *  from its far end. */
     const val RECEDE_METERS = 300.0
 
     /** Off the road or receding has to hold over consecutive fixes this far
      *  apart in travelled distance before it clears (#740). `lastFix` is
      *  published before the service's accuracy gate, so one outlier - a tunnel
      *  exit, an urban canyon - reaches this machine, and a measurement it
-     *  cleared could not re-arm mid-section. */
+     *  cleared could not re-arm mid-section. Measured from the first off fix,
+     *  so the jump onto it is not part of the hold. */
     const val LEFT_ROAD_HOLD_METERS = 200.0
+
+    /** And over at least this many off fixes, the first included: two outliers
+     *  far apart cover [LEFT_ROAD_HOLD_METERS] between them on their own. */
+    const val LEFT_ROAD_MIN_FIXES = 3
+
+    /** A fix further from the last trusted one than this speed covers is an
+     *  outlier (#740), not a rider: 252 km/h. It neither moves the closest the
+     *  far end has been nor advances or ends an off-road run, and the next fix
+     *  is judged against the trusted one before it, so the jump back is not
+     *  counted either. */
+    const val MAX_PLAUSIBLE_MPS = 70.0
 
     /** The average and the limit it is judged against, as one value, so the two
      *  cannot disagree across a recomposition and so exporting them costs one
@@ -94,10 +108,18 @@ object SectionAverageTracker {
         val last: LatLon? = null,
         val reading: Reading = Reading(null, null),
         val closestExitMeters: Double = Double.MAX_VALUE,
-        /** [accMeters] at the first of the current run of off-road fixes, null
-         *  while on the road. See [LEFT_ROAD_HOLD_METERS]. */
-        val offRoadSinceMeters: Double? = null,
+        /** The current run of off-road fixes, null while on the road. See
+         *  [LEFT_ROAD_HOLD_METERS]. */
+        val offRoad: OffRoadRun? = null,
+        /** The last fix that was not an outlier. See [MAX_PLAUSIBLE_MPS]. */
+        val trusted: TrustedFix? = null,
     )
+
+    /** [meters] travelled between trusted fixes since the first off-road one,
+     *  over [fixes] off-road fixes. */
+    data class OffRoadRun(val meters: Double, val fixes: Int)
+
+    data class TrustedFix(val at: LatLon, val ms: Long)
 
     /** Which of the clauses in [advance] ended a measurement. Reported rather
      *  than recomputed: a caller that wants to say *why* a readout vanished
@@ -220,7 +242,8 @@ object SectionAverageTracker {
                 last = at,
                 reading = Reading(null, entered.first.maxspeedKmh),
                 closestExitMeters = exitGateMeters,
-                offRoadSinceMeters = null,
+                offRoad = null,
+                trusted = TrustedFix(at, nowMs),
             ),
             Outcome.Armed(
                 section = entered.first,
@@ -250,20 +273,13 @@ object SectionAverageTracker {
         // An empty gate reads as unreachably far, which is what `any {}` did.
         val nearestExit = state.exitGate
             .minOfOrNull { RoadRoulette.distanceMeters(at, it) } ?: Double.MAX_VALUE
-        val closestExit = minOf(state.closestExitMeters, nearestExit)
-        val offRoad = nearestExit > closestExit + RECEDE_METERS ||
-            roadLine(current)?.let { distanceToLineMeters(at, it) > OFF_ROAD_METERS } == true
-        val offRoadSince = if (offRoad) state.offRoadSinceMeters ?: accMeters else null
-        val leftRoad = offRoadSince != null && accMeters - offRoadSince >= LEFT_ROAD_HOLD_METERS
+        val road = followRoad(state, current, at, nowMs, nearestExit)
+        val leftRoad = road.offRoad?.let {
+            it.fixes >= LEFT_ROAD_MIN_FIXES && it.meters >= LEFT_ROAD_HOLD_METERS
+        } == true
         val reason = exitReason(accMeters, current.spanMeters, nearestExit, elapsedMs, leftRoad)
             ?: return Step(
-                state.copy(
-                    accMeters = accMeters,
-                    last = at,
-                    reading = reading,
-                    closestExitMeters = closestExit,
-                    offRoadSinceMeters = offRoadSince,
-                ),
+                road.copy(accMeters = accMeters, last = at, reading = reading),
                 Outcome.Silent,
             )
         return Step(
@@ -276,7 +292,8 @@ object SectionAverageTracker {
                 last = null,
                 reading = Reading(null, null),
                 closestExitMeters = Double.MAX_VALUE,
-                offRoadSinceMeters = null,
+                offRoad = null,
+                trusted = null,
             ),
             Outcome.Cleared(
                 reason = reason,
@@ -287,6 +304,38 @@ object SectionAverageTracker {
                 nearestExitGateMeters = nearestExit,
             ),
         )
+    }
+
+    /**
+     * [state] with this fix's say on whether the rider is still on [section]'s
+     * road (#740): the closest the far end has been, the off-road run and the
+     * last trusted fix. Unchanged for an outlier (see [MAX_PLAUSIBLE_MPS]).
+     *
+     * A fix off the road line does not move the closest the far end has been
+     * either - it is off the road, or an outlier the speed test let through - so
+     * one scattered fix ahead cannot make every true fix after it look like
+     * driving away.
+     */
+    private fun followRoad(
+        state: State,
+        section: SpeedCameras.Section,
+        at: LatLon,
+        nowMs: Long,
+        nearestExit: Double,
+    ): State {
+        val prev = state.trusted
+        val step = prev?.let { RoadRoulette.distanceMeters(it.at, at) } ?: 0.0
+        if (prev != null && step > MAX_PLAUSIBLE_MPS * (nowMs - prev.ms) / 1000.0) return state
+        val line = roadLine(section)
+        val offLine = line != null && distanceToLineMeters(at, line) > OFF_ROAD_METERS
+        val closestExit = if (offLine) state.closestExitMeters else minOf(state.closestExitMeters, nearestExit)
+        val receding = line == null && nearestExit > closestExit + RECEDE_METERS
+        val offRoad = if (offLine || receding) {
+            state.offRoad?.let { OffRoadRun(it.meters + step, it.fixes + 1) } ?: OffRoadRun(0.0, 1)
+        } else {
+            null
+        }
+        return state.copy(closestExitMeters = closestExit, offRoad = offRoad, trusted = TrustedFix(at, nowMs))
     }
 
     /**

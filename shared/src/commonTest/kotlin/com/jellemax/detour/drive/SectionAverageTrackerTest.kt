@@ -650,7 +650,8 @@ class SectionAverageTrackerTest {
 
     /** Taking an exit off the section clears it once the rider has stayed
      *  [SectionAverageTracker.OFF_ROAD_METERS] off the road line for
-     *  [SectionAverageTracker.LEFT_ROAD_HOLD_METERS] - not after the 11.5 km
+     *  [SectionAverageTracker.LEFT_ROAD_HOLD_METERS] over
+     *  [SectionAverageTracker.LEFT_ROAD_MIN_FIXES] fixes - not after the 11.5 km
      *  overshoot bound. */
     @Test
     fun leavingTheRoadLineClearsWellBeforeTheOvershootBound() {
@@ -667,11 +668,18 @@ class SectionAverageTrackerTest {
             SectionAverageTracker.Outcome.Silent, firstOff.outcome,
             "one fix off the road line must not clear on its own",
         )
+        val secondOff = SectionAverageTracker.step(
+            firstOff.state, sections, at(exit, 350.0, firstLeg - 90.0), null, 33.0, t0 + 42_000L,
+        )
+        assertEquals(
+            SectionAverageTracker.Outcome.Silent, secondOff.outcome,
+            "two fixes off the road line must not clear on their own",
+        )
         val stillOff = SectionAverageTracker.step(
-            firstOff.state, sections, at(exit, 500.0, firstLeg - 90.0), null, 33.0, t0 + 46_000L,
+            secondOff.state, sections, at(exit, 500.0, firstLeg - 90.0), null, 33.0, t0 + 46_000L,
         )
         val cleared = assertIs<SectionAverageTracker.Outcome.Cleared>(
-            stillOff.outcome, "300 m further off the road line should have cleared",
+            stillOff.outcome, "a third fix 300 m further off the road line should have cleared",
         )
         assertEquals(SectionAverageTracker.ExitReason.LEFT_ROAD, cleared.reason)
         assertNull(stillOff.state.reading.limitKmh, "a cleared section still shows its limit")
@@ -694,7 +702,53 @@ class SectionAverageTrackerTest {
             assertEquals(SectionAverageTracker.Outcome.Silent, step.outcome, "fix $i cleared the section")
         }
         assertNotNull(st.active, "the measurement was lost to one outlier")
-        assertNull(st.offRoadSinceMeters, "back on the road line resets the off-road run")
+        assertNull(st.offRoad, "back on the road line resets the off-road run")
+    }
+
+    /** One outlier ahead toward the far end and off to the side - the jump into
+     *  it and back out of it each well over 200 m - keeps the measurement. It
+     *  is not a rider (too far too fast), so it neither starts an off-road run
+     *  nor moves the closest the far end has been, and the true fixes after it
+     *  are not taken for driving away. */
+    @Test
+    fun anOutlierAheadAndAsideDoesNotClear() {
+        for (sections in listOf(listOf(roadSection()), listOf(section()))) {
+            val firstLeg = if (sections[0].line.isEmpty()) eastward else RoadRoulette.bearingDeg(westGate, bend)
+            var st = armAt(westGate, firstLeg, sections)
+            val outlier = at(at(westGate, 2_500.0, firstLeg), 300.0, firstLeg - 90.0)
+            val path = (1..9).map { at(westGate, it * 100.0, firstLeg) } + outlier +
+                (10..30).map { at(westGate, it * 100.0, firstLeg) }
+            for ((i, p) in path.withIndex()) {
+                val step = SectionAverageTracker.step(st, sections, p, null, 33.0, t0 + (i + 1) * 3_000L)
+                st = step.state
+                assertEquals(
+                    SectionAverageTracker.Outcome.Silent, step.outcome,
+                    "fix $i cleared the section (line: ${sections[0].line.isNotEmpty()})",
+                )
+            }
+            assertNotNull(st.active, "the measurement was lost to one outlier ahead")
+            assertNull(st.offRoad, "the outlier started an off-road run")
+        }
+    }
+
+    /** Two outliers in a row off the road line, far apart from each other, are
+     *  still under [SectionAverageTracker.LEFT_ROAD_MIN_FIXES]: the distance
+     *  between them alone would cover the hold. */
+    @Test
+    fun twoOutliersOffTheRoadLineDoNotClear() {
+        val sections = listOf(roadSection())
+        val firstLeg = RoadRoulette.bearingDeg(westGate, bend)
+        var st = armAt(westGate, firstLeg, sections)
+        val path = (1..9).map { at(westGate, it * 100.0, firstLeg) } +
+            at(at(westGate, 1_000.0, firstLeg), 200.0, firstLeg - 90.0) +
+            at(at(westGate, 1_100.0, firstLeg), 200.0, firstLeg + 90.0) +
+            (12..20).map { at(westGate, it * 100.0, firstLeg) }
+        for ((i, p) in path.withIndex()) {
+            val step = SectionAverageTracker.step(st, sections, p, null, 33.0, t0 + (i + 1) * 10_000L)
+            st = step.state
+            assertEquals(SectionAverageTracker.Outcome.Silent, step.outcome, "fix $i cleared the section")
+        }
+        assertNotNull(st.active, "the measurement was lost to two outliers")
     }
 
     /** With no road line - the relation names only its device nodes - the bridge
