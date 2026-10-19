@@ -123,6 +123,7 @@ object SpeedCameraStore {
                 (it.optArray("endB") ?: JsonArrayEmpty).arrays().map { p -> LatLon(p.optDouble(0), p.optDouble(1)) },
                 it.optDouble("spanMeters"),
                 it.optDouble("maxspeedKmh").takeIf { v -> !v.isNaN() },
+                (it.optArray("line") ?: JsonArrayEmpty).arrays().map { p -> LatLon(p.optDouble(0), p.optDouble(1)) },
             )
         }
         return CachedTile(key, fetchedAt, SpeedCameras.Result(cameras, sections))
@@ -148,6 +149,7 @@ object SpeedCameraStore {
                     putJsonArray("endB") { for (p in s.endB) addJsonArray { add(p.lat); add(p.lon) } }
                     put("spanMeters", s.spanMeters)
                     s.maxspeedKmh?.let { put("maxspeedKmh", it) }
+                    putJsonArray("line") { for (p in s.line) addJsonArray { add(p.lat); add(p.lon) } }
                 }
             }
         }

@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * once here for iOS.
  *
  * It is Kotlin rather than Swift for a concrete reason and not a stylistic one:
- * [SectionAverageTracker.State] has six constructor parameters, every one of
+ * [SectionAverageTracker.State] has seven constructor parameters, every one of
  * them defaulted, and Kotlin/Native does not export default arguments. Swift
  * cannot write `SectionAverageTracker.State()`. Holding the state on this side
  * of the boundary is what keeps the Swift call site down to handing in a fix.
