@@ -74,6 +74,13 @@ object SectionAverageTracker {
      *  section's road does not double back on itself by this much. */
     const val RECEDE_METERS = 300.0
 
+    /** Off the road or receding has to hold over consecutive fixes this far
+     *  apart in travelled distance before it clears (#740). `lastFix` is
+     *  published before the service's accuracy gate, so one outlier - a tunnel
+     *  exit, an urban canyon - reaches this machine, and a measurement it
+     *  cleared could not re-arm mid-section. */
+    const val LEFT_ROAD_HOLD_METERS = 200.0
+
     /** The average and the limit it is judged against, as one value, so the two
      *  cannot disagree across a recomposition and so exporting them costs one
      *  iOS watcher subclass rather than two. */
@@ -87,6 +94,9 @@ object SectionAverageTracker {
         val last: LatLon? = null,
         val reading: Reading = Reading(null, null),
         val closestExitMeters: Double = Double.MAX_VALUE,
+        /** [accMeters] at the first of the current run of off-road fixes, null
+         *  while on the road. See [LEFT_ROAD_HOLD_METERS]. */
+        val offRoadSinceMeters: Double? = null,
     )
 
     /** Which of the clauses in [advance] ended a measurement. Reported rather
@@ -210,6 +220,7 @@ object SectionAverageTracker {
                 last = at,
                 reading = Reading(null, entered.first.maxspeedKmh),
                 closestExitMeters = exitGateMeters,
+                offRoadSinceMeters = null,
             ),
             Outcome.Armed(
                 section = entered.first,
@@ -240,11 +251,19 @@ object SectionAverageTracker {
         val nearestExit = state.exitGate
             .minOfOrNull { RoadRoulette.distanceMeters(at, it) } ?: Double.MAX_VALUE
         val closestExit = minOf(state.closestExitMeters, nearestExit)
-        val leftRoad = nearestExit > closestExit + RECEDE_METERS ||
+        val offRoad = nearestExit > closestExit + RECEDE_METERS ||
             roadLine(current)?.let { distanceToLineMeters(at, it) > OFF_ROAD_METERS } == true
+        val offRoadSince = if (offRoad) state.offRoadSinceMeters ?: accMeters else null
+        val leftRoad = offRoadSince != null && accMeters - offRoadSince >= LEFT_ROAD_HOLD_METERS
         val reason = exitReason(accMeters, current.spanMeters, nearestExit, elapsedMs, leftRoad)
             ?: return Step(
-                state.copy(accMeters = accMeters, last = at, reading = reading, closestExitMeters = closestExit),
+                state.copy(
+                    accMeters = accMeters,
+                    last = at,
+                    reading = reading,
+                    closestExitMeters = closestExit,
+                    offRoadSinceMeters = offRoadSince,
+                ),
                 Outcome.Silent,
             )
         return Step(
@@ -257,6 +276,7 @@ object SectionAverageTracker {
                 last = null,
                 reading = Reading(null, null),
                 closestExitMeters = Double.MAX_VALUE,
+                offRoadSinceMeters = null,
             ),
             Outcome.Cleared(
                 reason = reason,
