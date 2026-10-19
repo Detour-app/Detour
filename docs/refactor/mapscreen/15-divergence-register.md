@@ -2284,6 +2284,41 @@ check 'iOS NavScreen has no reroute' 0 \
 
 ---
 
+## 28. Convoy gap alerts on the car: a transient English toast, no voice
+
+**New with `#655`** — recorded because `app/…/car/DetourCarSession.kt` says its toast shows the
+sentence the phone speaks, and the owner's decision on #655 (2026-10-14) chose a different shape
+for the car than the phone's banner.
+
+**What.** A convoy rider falls behind, stops or loses signal.
+
+**Copies.** The rule is not duplicated: `ConvoyGapAlerts` in `app/…/convoy/` runs shared
+`convoyGapTick` once per process, and both surfaces read its output.
+
+- Phone. `ConvoyGapBanner` in `app/…/ui/MapConvoyGap.kt` keeps one line per alerted rider on
+  screen while the alert holds, worded by `map_convoy_gap_*` resources (Dutch too), and
+  `MapConvoyGapVoice` speaks `ConvoyGapAlerts.spoken` while `MapScreen` is composed.
+- Car. `DetourCarSession.toastConvoyGapAlerts` shows each `ConvoyGapAlerts.spoken` sentence as a
+  `CarToast` on whichever car screen is up, while the session is started. English only (the
+  spoken sentence), gone after a few seconds, and nothing on the car shows an alert that still
+  holds. The car does not speak: nothing in the app knows a car is connected, so a car voice
+  would say every line twice. A rider who never opened the phone's map hears nothing.
+
+**Verdict: survive — the owner's first cut.** `NavigationTemplate` has no free text slot that
+stays on screen; a persistent car banner, or Dutch on the car, is a new decision, not drift.
+
+**Fence.**
+
+```sh
+# Entry 28 — car gap alerts. A changed count means the car started speaking or stopped toasting.
+check 'car toasts the spoken gap sentence' 1 \
+    "$(grep -c 'ConvoyGapAlerts.spoken.collect' app/src/main/java/com/jellemax/detour/car/DetourCarSession.kt)"
+check 'phone speaks the gap sentence' 1 \
+    "$(grep -c 'ConvoyGapAlerts.spoken.collect' app/src/main/java/com/jellemax/detour/ui/MapConvoyGap.kt)"
+```
+
+---
+
 ---
 
 ## §A — Summary, ranked by how user-visible the decision is
