@@ -18,6 +18,7 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.NavPolicy
+import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.map.fetchNavRoute
 import com.jellemax.detour.tracking.Fix
 import com.jellemax.detour.tracking.TripTrackingService
@@ -52,6 +53,7 @@ internal fun MapNavigationSession(
     // Derived here rather than drilled in: each was an alias for something the
     // holder or a Settings flow already owns (state-holders.md §14.1).
     val context = LocalContext.current
+    val darkTheme = isAppDarkTheme(Settings.theme.collectAsStateWithLifecycle().value)
     // Hoisted: a CompositionLocal is only readable in a @Composable, and the
     // effect below needs it. One instance for the process, so holding it across
     // the effect's life cannot go stale (compose-state-hazards §2).
@@ -124,7 +126,11 @@ internal fun MapNavigationSession(
                     ?.let { HeadingHint(it, NavPolicy.rerouteHeadingPenaltySec(fix.speedMps)) }
                 scope.launch {
                     try {
-                        s.route = fetchNavRoute(serverConfig, pos, target, mode, heading)
+                        val fresh = fetchNavRoute(serverConfig, pos, target, mode, heading)
+                        s.route = fresh
+                        // #737: the new line may leave the corridor cached at the start,
+                        // and this is the one moment there is signal to extend it.
+                        RouteTileCache.prefetch(context, fresh.polyline, darkTheme)
                         // Instruction indices belong to the old polyline; start
                         // the new line's prompts from scratch.
                         announcer.routeChanged()
