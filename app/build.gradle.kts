@@ -70,6 +70,12 @@ fun liveUrl(): String {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 android {
     // The namespace stays on the original name: it's the Kotlin package and the
     // R class, invisible outside the build. Only applicationId is the identity
@@ -208,10 +214,6 @@ android {
     sourceSets {
         getByName("githubRelease").java.srcDir("src/release/java")
         getByName("automotive").java.srcDir("src/debug/java")
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
     }
 
     buildFeatures {
