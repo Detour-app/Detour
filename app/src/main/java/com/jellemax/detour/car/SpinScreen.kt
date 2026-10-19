@@ -28,13 +28,13 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.RouteCandidate
+import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.drive.SpeedLimitTracker
-import com.jellemax.detour.map.fetchNavRoute
 import com.jellemax.detour.map.startHeading
 import com.jellemax.detour.presentation.spinFailureText
 import com.jellemax.detour.tracking.MapSurface
@@ -350,7 +350,14 @@ class SpinScreen(
         starting = true
         lifecycleScope.launch {
             val fresh = try {
-                fetchNavRoute(config, from, c.destination, TravelMode.CAR, startHeading())
+                // The car's own preferences, as its Search and reroute use:
+                // the car routes TravelMode.CAR only, never the phone's
+                // curvy preset (#659).
+                val heading = startHeading()
+                withContext(Dispatchers.IO) {
+                    RoutingClient.route(config, from, c.destination, TravelMode.CAR.ghProfile,
+                        Settings.routePreferences(), heading)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
