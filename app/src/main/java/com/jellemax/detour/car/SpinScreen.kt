@@ -333,17 +333,20 @@ class SpinScreen(
      * (#719). Like the phone's Go ([com.jellemax.detour.map.navStart]), the
      * first line is fetched fresh from here and steered by [startHeading]; the
      * spin's own line is the fallback when that request fails.
+     *
+     * A [NavScreen] is only built for the one that gets pushed: each one binds
+     * its own TextToSpeech and AudioTrack, so one built and dropped per press
+     * leaks both.
      */
     private fun startNavigation(c: RouteCandidate) {
+        if (starting) return
         val config = serverConfig
         val from = myLocation
-        val spun = if (config != null && from != null)
-            NavScreen.forCandidate(carContext, renderer, from, c, config) else null
-        if (spun == null || config == null || from == null) {
+        val hasTurnData = c.route?.instructions?.isNotEmpty() == true
+        if (!hasTurnData || config == null || from == null) {
             navigate(c.destination)
             return
         }
-        if (starting) return
         starting = true
         lifecycleScope.launch {
             val fresh = try {
@@ -356,11 +359,10 @@ class SpinScreen(
             } finally {
                 starting = false
             }
-            screenManager.push(
-                if (fresh != null && fresh.instructions.isNotEmpty())
-                    NavScreen(carContext, renderer, from, c.destination, fresh, config, c.name)
-                else spun,
-            )
+            val nav = if (fresh != null && fresh.instructions.isNotEmpty())
+                NavScreen(carContext, renderer, from, c.destination, fresh, config, c.name)
+            else NavScreen.forCandidate(carContext, renderer, from, c, config)
+            if (nav != null) screenManager.push(nav) else navigate(c.destination)
         }
     }
 
