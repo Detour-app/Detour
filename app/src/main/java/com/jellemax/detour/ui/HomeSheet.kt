@@ -200,10 +200,11 @@ internal fun ColumnScope.HomeSheet(
                 // Landscape: the two cards below would
                 // stand the sheet ~70 dp taller on a screen ~390 dp high, into
                 // the speed island above it, so they shrink to glyph chips at
-                // the end of this row instead.
+                // the end of this row instead — and the row, in the narrower
+                // landscape sheet, makes room for them (#738).
                 val landscape = isLandscape()
                 ShortcutChipRow(
-                    places = shortcuts,
+                    places = if (landscape) shortcuts.take(LANDSCAPE_MAX_PLACES) else shortcuts,
                     onPick = onPickPlace,
                     spin = spin,
                     onSpinSettings = onSpinSettings,
@@ -322,6 +323,10 @@ internal fun DragHandle(onExpand: (() -> Unit)? = null) {
  * segmented control it opens spells it out and announces it
  * (`SpinCards.kt`), and the dice it replaces was saying what the word `Spin`
  * beside it already says.
+ *
+ * In landscape the Spin chip drops its words too, glyph alone: see
+ * [LANDSCAPE_MAX_PLACES] for the width that leaves. The words move to the
+ * glyph's content description, so a screen reader still hears them.
  */
 @Composable
 private fun ShortcutChipRow(
@@ -357,18 +362,23 @@ private fun ShortcutChipRow(
         }
         // The dice moved into the spin sheet with the dock, so this is now the
         // only way to reach it — and, with it, the only way to roll a spin.
+        // A loop still on the map (the sheet was folded away to see it)
+        // says so here: this chip is the way back to its Re-spin and Go.
+        val spinGlyphOnly = isLandscape()
+        val spinLabel = stringResource(R.string.home_spin) + (spin.loopDistance?.let { " · $it" } ?: "")
         AssistChip(
             onClick = onSpinSettings,
-            // A loop still on the map (the sheet was folded away to see it)
-            // says so here: this chip is the way back to its Re-spin and Go.
             label = {
-                Text(
-                    stringResource(R.string.home_spin) + (spin.loopDistance?.let { " · $it" } ?: ""),
-                    fontWeight = FontWeight.SemiBold, maxLines = 1,
-                )
+                if (spinGlyphOnly) {
+                    Icon(spin.mode.icon, contentDescription = "$spinLabel, ${spin.mode.label}", Modifier.size(18.dp))
+                } else {
+                    Text(spinLabel, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
             },
-            leadingIcon = {
-                Icon(spin.mode.icon, contentDescription = spin.mode.label, Modifier.size(18.dp))
+            leadingIcon = if (spinGlyphOnly) {
+                null
+            } else {
+                { Icon(spin.mode.icon, contentDescription = spin.mode.label, Modifier.size(18.dp)) }
             },
             colors = AssistChipDefaults.assistChipColors(
                 containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
@@ -384,6 +394,29 @@ private fun ShortcutChipRow(
         onOpenSocial?.let { GlyphChip(Icons.Outlined.Diversity3, stringResource(R.string.home_social), it) }
     }
 }
+
+/**
+ * How many saved places the landscape row shows (#738). The landscape sheet is
+ * `LANDSCAPE_HOME_SHEET_WIDTH` (`MapBottom.kt`), 336 dp, less 2 × 16 dp of sheet
+ * padding: 304 dp for the row, at the same 50 dp of chip chrome
+ * [PLACE_CHIP_MAX_WIDTH] counts. The widest pair is two named favourites:
+ *
+ * ```
+ *  50  Spin             glyph, no label
+ *  50  Routes           glyph
+ *  50  Social           glyph
+ *  60  a favourite      capped at PLACE_CHIP_MAX_WIDTH
+ *  60  a favourite
+ *  32  four 8 dp gaps
+ * ---
+ * 302, inside 304.
+ * ```
+ *
+ * Home and Work are 50 each, so any other pair is narrower. A third place
+ * cannot fit, and the scroll that carries it in portrait left a chip cut
+ * through at the row's edge — what #738 reported.
+ */
+private const val LANDSCAPE_MAX_PLACES = 2
 
 /** A [DestinationCard] squeezed to a glyph-only chip, for the landscape row. */
 @Composable
