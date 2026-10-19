@@ -36,7 +36,7 @@ listOf(":app", ":shared").forEach { path -> project(path) {
     }
 
     dependencies {
-        add("detektPlugins", "io.nlopez.compose.rules:detekt:0.6.8")
+        add("detektPlugins", "io.nlopez.compose.rules:detekt:0.4.22")
     }
 
     // The default `detekt` task runs without type resolution, which is enough

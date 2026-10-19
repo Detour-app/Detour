@@ -225,24 +225,24 @@ android {
 dependencies {
     // Roulette/routing/trip logic, shared verbatim with the iOS app in iosApp/.
     implementation(project(":shared"))
-    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
+    implementation(platform("androidx.compose:compose-bom:2026.02.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     // Release notes are GitHub's generated Markdown, rendered in Settings →
-    // "What's new" (#357). Pinned to 0.35.0 deliberately: it is the last release
-    // built against Kotlin 2.1.x (stdlib 2.1.21) and so the last this module's
-    // 2.1.20 compiler can read — 0.37.0 moved to 2.2.20. Raise it when Kotlin
-    // does, not before.
+    // "What's new" (#357). Held at 0.35.0 deliberately: 0.46.0 needs compileSdk
+    // 37 (as do Compose BOM 2026.09 and core-ktx 1.19) and renamed the
+    // `linkText` / `inlineCodeText` / `codeText` / `link` colour parameters
+    // ReleaseNotes.kt uses. Raise it together with compileSdk, not before.
     //
     // No `-coil3` artifact and no `imageTransformer` is passed, so a Markdown
     // image cannot be fetched: opening the expander makes no request of its own,
     // to any host a release author chose. That is omission, not a setting to
     // regress — GitHub's generator emits no images, so nothing is lost.
-    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.46.0")
-    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.46.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.35.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.core:core-ktx:1.19.1")
+    implementation("androidx.core:core-ktx:1.17.0")
     // Custom Tabs, for the sign-in leg. A native app must not put the identity
     // provider's login form in a WebView (RFC 8252): a tab keeps the address bar
     // and the browser's own session, so the user can see who they are typing a
