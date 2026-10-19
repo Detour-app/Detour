@@ -54,9 +54,10 @@ internal val LANDSCAPE_SLOT_WIDTH = 400.dp
 
 /** The resting home sheet's landscape width: only a search bar and one chip
  *  row, so the full [LANDSCAPE_SLOT_WIDTH] left it mostly empty and took more
- *  map than it needed. Spin, the two glyph chips and their gaps take 196 dp of
- *  the 288 inside its padding; the saved places scroll in the rest. */
-private val LANDSCAPE_HOME_SHEET_WIDTH = 320.dp
+ *  map than it needed. The row's widest landscape content is 302 dp (see
+ *  `LANDSCAPE_MAX_PLACES` in `HomeSheet.kt`), and this leaves 304 inside the
+ *  sheet's padding — every chip whole, nothing left to scroll (#738). */
+private val LANDSCAPE_HOME_SHEET_WIDTH = 336.dp
 
 /** Bottom padding for a fitted route/candidate spread, so whatever is in the
  *  bottom slot doesn't cover most of it — see [MAP_FIT_BOTTOM_PADDING_DP] for
