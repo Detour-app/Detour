@@ -27,6 +27,7 @@ public class DetourDbContext(DbContextOptions<DetourDbContext> options) : DbCont
     public DbSet<Trace> Traces => Set<Trace>();
     public DbSet<TrackPoint> TrackPoints => Set<TrackPoint>();
     public DbSet<SavedPlace> SavedPlaces => Set<SavedPlace>();
+    public DbSet<SavedRoute> SavedRoutes => Set<SavedRoute>();
     public DbSet<Friendship> Friendships => Set<Friendship>();
     public DbSet<SharedRoute> SharedRoutes => Set<SharedRoute>();
     public DbSet<PlannedRide> PlannedRides => Set<PlannedRide>();

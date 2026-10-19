@@ -932,6 +932,39 @@ namespace Detour.Database.Migrations
                     b.ToTable("speed_limit_ways", "detour");
                 });
 
+            modelBuilder.Entity("Detour.Domain.Routes.SavedRoute", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long>("ClientRouteId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("client_route_id");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_saved_routes");
+
+                    b.HasIndex("UserId", "ClientRouteId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_saved_routes_user_id_client_route_id");
+
+                    b.ToTable("saved_routes", "detour");
+                });
+
             modelBuilder.Entity("Detour.Domain.Routes.SharedRoute", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1414,6 +1447,16 @@ namespace Detour.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_planned_ride_rsvps_users_user_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Routes.SavedRoute", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_saved_routes_users_user_id");
                 });
 
             modelBuilder.Entity("Detour.Domain.Routes.SharedRoute", b =>
