@@ -70,6 +70,12 @@ fun liveUrl(): String {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 android {
     // The namespace stays on the original name: it's the Kotlin package and the
     // R class, invisible outside the build. Only applicationId is the identity
@@ -81,7 +87,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "3.69.0"
+        versionName = "3.69.1"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -208,10 +214,6 @@ android {
     sourceSets {
         getByName("githubRelease").java.srcDir("src/release/java")
         getByName("automotive").java.srcDir("src/debug/java")
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
     }
 
     buildFeatures {
