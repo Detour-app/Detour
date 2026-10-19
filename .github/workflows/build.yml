@@ -213,7 +213,7 @@ jobs:
              detour-${{ steps.version.outputs.name }}.apk
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: detour-apk-${{ steps.version.outputs.name }}
           path: detour-*.apk
@@ -231,7 +231,7 @@ jobs:
 
       - name: Upload bundle
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: detour-aab-${{ steps.version.outputs.name }}
           path: detour-*.aab
@@ -239,7 +239,7 @@ jobs:
       # mapping.txt de-obfuscates R8's minified stack traces; published per
       # release so a crash report from an issue can be matched back to source.
       - name: Upload mapping.txt
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: detour-mapping-${{ steps.version.outputs.name }}
           path: app/build/outputs/mapping/release/mapping.txt

@@ -87,7 +87,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "3.69.1"
+        versionName = "3.69.2"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -279,7 +279,7 @@ dependencies {
     // Firebase Cloud Messaging ONLY — the push transport (docs/PUSH.md). No BOM,
     // no other Firebase product (no Firestore/Database/Analytics/Auth): this is
     // the sole com.google.firebase dependency and it pulls in none of those.
-    implementation("com.google.firebase:firebase-messaging:24.1.1")
+    implementation("com.google.firebase:firebase-messaging:26.0.0")
     // :shared's CircleEvents.placeEventFromRelayFrame takes a kotlinx
     // JsonObject, but shared/build.gradle.kts declares kotlinx-serialization
     // as `implementation`, not `api` - Gradle doesn't leak that onto a
