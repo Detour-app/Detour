@@ -397,25 +397,24 @@ private fun ShortcutChipRow(
 
 /**
  * How many saved places the landscape row shows (#738). The landscape sheet is
- * `LANDSCAPE_HOME_SHEET_WIDTH` (`MapBottom.kt`), 320 dp, less 2 × 16 dp of sheet
- * padding: 288 dp for the row, at the same 50 dp of chip chrome
- * [PLACE_CHIP_MAX_WIDTH] counts.
+ * `LANDSCAPE_HOME_SHEET_WIDTH` (`MapBottom.kt`), 336 dp, less 2 × 16 dp of sheet
+ * padding: 304 dp for the row, at the same 50 dp of chip chrome
+ * [PLACE_CHIP_MAX_WIDTH] counts. The widest pair is two named favourites:
  *
  * ```
  *  50  Spin             glyph, no label
  *  50  Routes           glyph
  *  50  Social           glyph
- *  50  Home             glyph
- *  50  Work             glyph
+ *  60  a favourite      capped at PLACE_CHIP_MAX_WIDTH
+ *  60  a favourite
  *  32  four 8 dp gaps
  * ---
- * 282, inside 288.
+ * 302, inside 304.
  * ```
  *
- * A third place cannot fit, and the scroll that carries it in portrait left a
- * chip cut through at the row's edge — what #738 reported. Two named
- * favourites in place of Home and Work can still reach 302 dp; the scroll then
- * trims the end of the second.
+ * Home and Work are 50 each, so any other pair is narrower. A third place
+ * cannot fit, and the scroll that carries it in portrait left a chip cut
+ * through at the row's edge — what #738 reported.
  */
 private const val LANDSCAPE_MAX_PLACES = 2
 
