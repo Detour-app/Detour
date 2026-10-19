@@ -81,7 +81,7 @@ android {
     // R class, invisible outside the build. Only applicationId is the identity
     // Play and the device see, and Play fixes it permanently at first upload.
     namespace = "com.jellemax.detour"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.maxke24.detour"
@@ -274,7 +274,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
 
     // Firebase Cloud Messaging ONLY — the push transport (docs/PUSH.md). No BOM,
     // no other Firebase product (no Firestore/Database/Analytics/Auth): this is
@@ -295,7 +295,7 @@ dependencies {
     // Content-Range, ETag - and a fake that returns canned bytes would assert
     // the fake rather than the protocol. Same OkHttp version as the
     // implementation dependency above, so one upgrade moves both.
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.0")
     // Parses the Kotlin sources of both modules so ArchitectureTest can hold
     // docs/guidelines rules that detekt has no rule for (§4, §5, §8).
     testImplementation("com.lemonappdev:konsist:0.18.1")

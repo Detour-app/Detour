@@ -104,7 +104,7 @@ tasks.register<Sync>("packForXcode") {
 
 android {
     namespace = "com.jellemax.detour.shared"
-    compileSdk = 35
+    compileSdk = 37
     defaultConfig {
         minSdk = 26
     }
