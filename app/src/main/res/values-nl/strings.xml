@@ -53,6 +53,19 @@
     <string name="friends_convoy_create">Aanmaken</string>
     <string name="friends_cancel">Annuleren</string>
     <string name="friends_convoy_invite_title">Uitnodigen voor %1$s</string>
+    <string name="convoy_link_open">Uitnodigen met een link</string>
+    <string name="convoy_link_title">Uitnodigingslink voor %1$s</string>
+    <string name="convoy_link_explainer">Iedereen met de link kan meedoen met dit konvooi, ook zonder vriendschap, en deelt zijn live locatie ermee tot het konvooi stopt. Een link blijft 12 uur geldig; een nieuwe link maakt de oude ongeldig.</string>
+    <string name="convoy_link_create">Link maken</string>
+    <string name="convoy_link_new">Nieuwe link</string>
+    <string name="convoy_link_share">Link delen</string>
+    <string name="convoy_link_revoke">Intrekken</string>
+    <string name="convoy_link_expires">Geldig tot %1$s</string>
+    <string name="convoy_link_elsewhere">Een link van een ander toestel is geldig tot %1$s. Het adres staat niet op deze telefoon; een nieuwe link vervangt hem.</string>
+    <string name="convoy_link_guests">Via een link erbij</string>
+    <string name="convoy_link_no_guests">Nog niemand doet mee via een link.</string>
+    <string name="convoy_link_joined">Kwam %1$s erbij</string>
+    <string name="convoy_link_remove_guest">%1$s verwijderen</string>
     <string name="friends_friend_username">Gebruikersnaam van je vriend</string>
 
     <!-- CirclesScreen.kt -->

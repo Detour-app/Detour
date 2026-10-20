@@ -57,6 +57,19 @@
     <string name="friends_convoy_create">Create</string>
     <string name="friends_cancel">Cancel</string>
     <string name="friends_convoy_invite_title">Invite to %1$s</string>
+    <string name="convoy_link_open">Invite by link</string>
+    <string name="convoy_link_title">Invite link for %1$s</string>
+    <string name="convoy_link_explainer">Anyone with the link can join this convoy, no friendship needed, and shares their live position with it until the convoy ends. A link lasts 12 hours; making a new one stops the old.</string>
+    <string name="convoy_link_create">Create link</string>
+    <string name="convoy_link_new">New link</string>
+    <string name="convoy_link_share">Share link</string>
+    <string name="convoy_link_revoke">Revoke</string>
+    <string name="convoy_link_expires">Works until %1$s</string>
+    <string name="convoy_link_elsewhere">A link made on another device works until %1$s. Its address isn\'t on this phone; a new link replaces it.</string>
+    <string name="convoy_link_guests">Joined by link</string>
+    <string name="convoy_link_no_guests">Nobody has joined by link yet.</string>
+    <string name="convoy_link_joined">Joined %1$s</string>
+    <string name="convoy_link_remove_guest">Remove %1$s</string>
     <string name="friends_friend_username">Friend\'s username</string>
 
     <!-- CirclesScreen.kt -->
