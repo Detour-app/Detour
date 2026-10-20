@@ -48,6 +48,7 @@ internal fun MapNavigationSession(
     announcer: NavAnnouncer,
     announceAloud: (String) -> Unit,
     onArrive: () -> Unit,
+    ambientSpeedLimitKmh: Double?,
 ) {
     // Derived here rather than drilled in: each was an alias for something the
     // holder or a Settings flow already owns (state-holders.md §14.1).
@@ -63,13 +64,20 @@ internal fun MapNavigationSession(
     // second; captured directly, each would freeze on its first composition.
     val announce by rememberUpdatedState(announceAloud)
     val arrive by rememberUpdatedState(onArrive)
+    // Read, not keyed: the limit changes far less often than the fix, and the
+    // packet only needs whatever it is when the next fix arrives.
+    val ambientLimit by rememberUpdatedState(ambientSpeedLimitKmh)
     // Current speed for the external display when there's no route up —
     // BleNavServer.send() below covers the navigating case on the same
     // characteristic, so this only fires the other half of the time.
     LaunchedEffect(s.navigating, liveFix) {
         if (s.navigating) return@LaunchedEffect
         val fix = liveFix ?: return@LaunchedEffect
-        BleNavServer.sendStats(context, currentSpeedKmh = fix.speedMps * 3.6)
+        BleNavServer.sendStats(
+            context,
+            currentSpeedKmh = fix.speedMps * 3.6,
+            speedLimitKmh = ambientLimit,
+        )
     }
 
     // Follow the route while navigating: progress, arrival, reroute.
