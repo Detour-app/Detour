@@ -81,13 +81,13 @@ android {
     // R class, invisible outside the build. Only applicationId is the identity
     // Play and the device see, and Play fixes it permanently at first upload.
     namespace = "com.jellemax.detour"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "3.70.0"
+        versionName = "3.71.0"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -230,10 +230,10 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     // Release notes are GitHub's generated Markdown, rendered in Settings →
-    // "What's new" (#357). Pinned to 0.35.0 deliberately: it is the last release
-    // built against Kotlin 2.1.x (stdlib 2.1.21) and so the last this module's
-    // 2.1.20 compiler can read — 0.37.0 moved to 2.2.20. Raise it when Kotlin
-    // does, not before.
+    // "What's new" (#357). Held at 0.35.0 deliberately: 0.46.0 needs compileSdk
+    // 37 (as do Compose BOM 2026.09 and core-ktx 1.19) and renamed the
+    // `linkText` / `inlineCodeText` / `codeText` / `link` colour parameters
+    // ReleaseNotes.kt uses. Raise it together with compileSdk, not before.
     //
     // No `-coil3` artifact and no `imageTransformer` is passed, so a Markdown
     // image cannot be fetched: opening the expander makes no request of its own,
@@ -242,12 +242,12 @@ dependencies {
     implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.35.0")
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.core:core-ktx:1.17.0")
     // Custom Tabs, for the sign-in leg. A native app must not put the identity
     // provider's login form in a WebView (RFC 8252): a tab keeps the address bar
     // and the browser's own session, so the user can see who they are typing a
     // password into and does not type it again on the next device.
-    implementation("androidx.browser:browser:1.8.0")
+    implementation("androidx.browser:browser:1.10.0")
     // Navigation 3: the app owns the back stack as a snapshot-state list and
     // NavDisplay observes it, so a transition knows whether the list grew or
     // shrank instead of inferring it from a hand-maintained depth. See
@@ -257,7 +257,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("org.maplibre.gl:android-sdk:11.8.8")
-    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.google.android.gms:play-services-location:21.4.0")
     // Android Auto: projects a car-screen "Spin" flow onto the head unit.
     implementation("androidx.car.app:app:1.7.0")
     // Only for the `automotive` build type: app-automotive adds CarAppActivity,
@@ -265,28 +265,28 @@ dependencies {
     // Android Automotive OS. Same version as :app above, so this pulls no new
     // transitive graph — it is the host half of a library the app already uses.
     "automotiveImplementation"("androidx.car.app:app-automotive:1.7.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
     // Parked-state circle position sync (#90): the 2-min loop inside
     // TripTrackingService dies when the service stops while parked, so a
     // 15-min periodic worker carries the "still here" post + on-device
     // circle geofence evaluation from then on. WorkManager's own persistence
     // survives reboot.
-    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
 
     // Firebase Cloud Messaging ONLY — the push transport (docs/PUSH.md). No BOM,
     // no other Firebase product (no Firestore/Database/Analytics/Auth): this is
     // the sole com.google.firebase dependency and it pulls in none of those.
-    implementation("com.google.firebase:firebase-messaging:24.1.1")
+    implementation("com.google.firebase:firebase-messaging:26.0.0")
     // :shared's CircleEvents.placeEventFromRelayFrame takes a kotlinx
     // JsonObject, but shared/build.gradle.kts declares kotlinx-serialization
     // as `implementation`, not `api` - Gradle doesn't leak that onto a
     // consumer's compile classpath, so it has to be declared here too,
     // pinned to the same version shared uses to resolve to one identical
     // class rather than risk two.
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     // Plain JUnit4, the default AGP test runner wires up for testDebugUnitTest
     // with no extra plugin - app/ had no unit tests before PlaceNotifications'
     // catch-up planning logic, which is pure Kotlin and worth covering.
@@ -295,8 +295,8 @@ dependencies {
     // Content-Range, ETag - and a fake that returns canned bytes would assert
     // the fake rather than the protocol. Same OkHttp version as the
     // implementation dependency above, so one upgrade moves both.
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.0")
     // Parses the Kotlin sources of both modules so ArchitectureTest can hold
     // docs/guidelines rules that detekt has no rule for (§4, §5, §8).
-    testImplementation("com.lemonappdev:konsist:0.17.3")
+    testImplementation("com.lemonappdev:konsist:0.18.1")
 }

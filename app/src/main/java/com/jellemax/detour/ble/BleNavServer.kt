@@ -395,6 +395,13 @@ object BleNavServer {
             put("remainingTimeMs", progress.remainingTimeMs ?: JSONObject.NULL)
             put("speedKmh", currentSpeedKmh)
             put("speedLimitKmh", progress.speedLimitKmh ?: JSONObject.NULL)
+            // The maneuver after this one, for the display's "then" chip — the
+            // phone's thenPill. Both null past the last turn; the display hides
+            // the chip on a null or missing thenSign.
+            val thenDistance = progress.distanceToNextNextMeters
+            val thenSign = progress.nextNextInstruction?.sign?.takeIf { thenDistance != null }
+            put("thenSign", thenSign ?: JSONObject.NULL)
+            put("thenDistanceMeters", thenSign?.let { thenDistance } ?: JSONObject.NULL)
             put("navigating", true)
         }.toString().toByteArray()
 
