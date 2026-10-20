@@ -103,9 +103,15 @@ address enough chunks for a full cover.
   "remainingTimeMs": null,
   "speedKmh": 0.0,
   "speedLimitKmh": null,
+  "thenSign": null,
+  "thenDistanceMeters": null,
   "navigating": true
 }
 ```
+`thenSign`/`thenDistanceMeters` are the maneuver after the current one and its
+distance from the current position (the phone's "then" pill). Both are null
+past the last turn, and absent from `sendStats` packets and from app builds
+older than 3.70.0 — treat missing like null and hide the chip.
 `navigating: false` means "tracking a trip, no active route" (`sendStats`) —
 the maneuver/distance/ETA fields are zeroed and should be ignored. `clear`
 instead sends `{"stop": true}`. Throttled to at most one push per second,
