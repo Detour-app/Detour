@@ -945,12 +945,12 @@ fun MapScreen(
         scope = scope,
         announcer = announcer,
         announceAloud = { announceAloud(it) },
-        // Arrival is a definite end of the drive — end the trip navigation
-        // started at once, rather than leaving it to a movement check.
+        // Arrival ends the drive: end the trip navigation started at once, not on a movement check.
         onArrive = {
             stopNavigation()
             TripTrackingService.navigationEnded(context, endNow = true)
         },
+        ambientSpeedLimitKmh = retained.ambientSpeedLimitKmh, // the map's off-route sign
     )
 
     // The banner, its "then" chip, the bottom bar and the HUD's limit source all
