@@ -117,7 +117,7 @@ import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.map.SpinOutcome
 import com.jellemax.detour.map.SpinParams
 import com.jellemax.detour.map.modeSwitch
-import com.jellemax.detour.map.fetchNavRoute
+import com.jellemax.detour.map.fetchStartRoute
 import com.jellemax.detour.map.navStart
 import com.jellemax.detour.map.runSpin
 import com.jellemax.detour.map.NavPolicy
@@ -864,7 +864,7 @@ fun MapScreen(
                 s.rerouting = true
                 scope.launch {
                     try {
-                        val route = fetchNavRoute(serverConfig, loc, start.destination, mode)
+                        val route = fetchStartRoute(serverConfig, loc, start.destination, mode)
                         if (s.destination != start.destination) return@launch // #456: ✕'d or re-picked mid-fetch
                         s.route = route
                         beginGuidance(start.destination)
