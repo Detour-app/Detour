@@ -395,6 +395,13 @@ object BleNavServer {
             put("remainingTimeMs", progress.remainingTimeMs ?: JSONObject.NULL)
             put("speedKmh", currentSpeedKmh)
             put("speedLimitKmh", progress.speedLimitKmh ?: JSONObject.NULL)
+            // The maneuver after this one, for the display's "then" chip — the
+            // phone's thenPill. Both null past the last turn; the display hides
+            // the chip on a null or missing thenSign.
+            val thenDistance = progress.distanceToNextNextMeters
+            val thenSign = progress.nextNextInstruction?.sign?.takeIf { thenDistance != null }
+            put("thenSign", thenSign ?: JSONObject.NULL)
+            put("thenDistanceMeters", thenSign?.let { thenDistance } ?: JSONObject.NULL)
             put("navigating", true)
         }.toString().toByteArray()
 
@@ -416,8 +423,11 @@ object BleNavServer {
      * already has one place that shows current speed, the fields that only
      * mean something mid-route (maneuver, distance, ETA) are just zeroed —
      * distinguished by `navigating:false`, which [send] never sets.
+     *
+     * [speedLimitKmh] is the ambient limit the map's own sign shows off-route,
+     * so the phone and the display never disagree; null hides the display's sign.
      */
-    fun sendStats(context: Context, currentSpeedKmh: Double) {
+    fun sendStats(context: Context, currentSpeedKmh: Double, speedLimitKmh: Double?) {
         val characteristic = navCharacteristic ?: return
         if (!hasPermissions(context)) return
         val now = System.currentTimeMillis()
@@ -433,7 +443,7 @@ object BleNavServer {
             put("routeMeters", 0.0)
             put("remainingTimeMs", JSONObject.NULL)
             put("speedKmh", currentSpeedKmh)
-            put("speedLimitKmh", JSONObject.NULL)
+            put("speedLimitKmh", speedLimitKmh ?: JSONObject.NULL)
             put("navigating", false)
         }.toString().toByteArray()
 

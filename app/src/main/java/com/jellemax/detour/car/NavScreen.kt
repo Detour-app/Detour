@@ -30,7 +30,6 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.jellemax.detour.R
 import com.jellemax.detour.audio.NavVoice
-import com.jellemax.detour.data.HeadingHint
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
@@ -328,8 +327,7 @@ class NavScreen(
                 // open with a U-turn, and the penalty scales with speed so a
                 // 70/90 road never gets one. Skipped while parked or before GPS
                 // has a course.
-                val heading = bearingDeg?.toDouble()?.takeIf { speedMps >= 2.0 }
-                    ?.let { HeadingHint(it, NavPolicy.rerouteHeadingPenaltySec(speedMps)) }
+                val heading = NavPolicy.headingHint(bearingDeg, speedMps)
                 lifecycleScope.launch {
                     try {
                         val fresh = withContext(Dispatchers.IO) {
