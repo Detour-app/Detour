@@ -121,6 +121,7 @@ No app change and no App Links yet.
 | `GET /api/convoys/{id}/guests` | Host | `{ inviteExpiresAtMs, guests: [{ id, username, joinedAtMs }] }` — guests still in the convoy; `inviteExpiresAtMs` is null when no link is usable |
 | `DELETE /api/convoys/{id}/guests/{riderId}` | Host | `204`, and the rider's live sockets for the convoy drop at once. `404` for anyone who did not join by link, including the host |
 | `POST /api/convoys/join` `{ token }` | Any signed-in rider | `200` with the convoy, the caller an accepted member. `404` unknown token, `410` revoked or expired, `403` removed by the host, `400` the convoy already has 8 link guests, `429` too many attempts |
+| `POST /api/convoys/join/preview` `{ token }` | Any signed-in rider | `200 { convoyName, hostUsername, riderCount, expiresAtMs, alreadyMember }` without joining, for the join confirm screen (#775). `riderCount` counts accepted members, host included. Refuses exactly as join would, with the same codes, and counts against the same caps |
 
 The rules, and why each one is there:
 
@@ -153,6 +154,8 @@ The rules, and why each one is there:
 - **Join attempts are capped per token and per address**
   (`DetourLimits.ConvoyJoinsPerToken` / `ConvoyJoinsPerIp` per
   `ConvoyJoinWindow`), on top of the global limiter, and refused attempts count.
+  A preview spends from the same buckets, so previewing is no faster a way to
+  probe tokens than joining.
   The address is the connection address after the forwarded-headers rewrite,
   the same rule the global limiter follows. The counters are in process memory:
   a restart resets them, and a multi-instance deployment would count per

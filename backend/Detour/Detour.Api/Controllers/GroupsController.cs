@@ -207,23 +207,53 @@ public class ConvoysController(
         CancellationToken cancellationToken)
     {
         var user = await currentUser.GetAsync(cancellationToken);
+        var result = await invites.JoinAsync(user, body.Token, ClientIp(), cancellationToken);
+        if (JoinRefusalStatus(result) is { } refused)
+            return refused;
 
-        // The connection address only — the forwarded-headers middleware has already rewritten
-        // it when the operator named a trusted proxy, the same rule the global limiter follows.
-        var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var result = await invites.JoinAsync(user, body.Token, clientIp, cancellationToken);
+        result.ThrowIfFailure();
+        return Ok(result.Value);
+    }
 
+    [HttpPost("join/preview")]
+    [EndpointSummary("See which convoy an invite link opens, without joining it.")]
+    [EndpointDescription(
+        "Answers the convoy's name, its host and how many ride in it, so the rider can confirm "
+        + "before joining. Refuses exactly as join would, and counts against the same per-token "
+        + "and per-address caps.")]
+    [ProducesResponseType<ConvoyInvitePreviewResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status410Gone)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+    public async Task<ActionResult<ConvoyInvitePreviewResponse>> PreviewJoin(
+        [FromBody] JoinConvoyBody body,
+        CancellationToken cancellationToken)
+    {
+        var user = await currentUser.GetAsync(cancellationToken);
+        var result = await invites.PreviewAsync(user, body.Token, ClientIp(), cancellationToken);
+        if (JoinRefusalStatus(result) is { } refused)
+            return refused;
+
+        result.ThrowIfFailure();
+        return Ok(result.Value);
+    }
+
+    // The connection address only — the forwarded-headers middleware has already rewritten it
+    // when the operator named a trusted proxy, the same rule the global limiter follows.
+    private string ClientIp() => HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    private ActionResult? JoinRefusalStatus<T>(Result<T> result)
+    {
         if (result.HasError(ValidationKeys.ConvoyInvite.TooManyAttempts))
             return StatusCode(StatusCodes.Status429TooManyRequests);
         if (result.HasError(ValidationKeys.ConvoyInvite.NotFound))
             return NotFound();
         if (result.HasError(ValidationKeys.ConvoyInvite.Expired))
             return StatusCode(StatusCodes.Status410Gone);
-        if (result.HasError(ValidationKeys.ConvoyInvite.GuestRemoved))
-            return Forbid();
 
-        result.ThrowIfFailure();
-        return Ok(result.Value);
+        return result.HasError(ValidationKeys.ConvoyInvite.GuestRemoved) ? Forbid() : null;
     }
 
     private ActionResult? HostGateStatus(Result result)
