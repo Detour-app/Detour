@@ -2,8 +2,6 @@ package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SavedRoute
-import com.jellemax.detour.data.SavedSpins
-import com.jellemax.detour.data.TravelMode
 
 /** A point in a route thumbnail's own coordinate box, y growing downward. */
 data class ThumbPoint(val x: Double, val y: Double)
@@ -14,30 +12,7 @@ data class RouteCard(
     val name: String,
     val subtitle: String,
     val polyline: List<LatLon>,
-    /** What the card's action pill says — see [routeOpensExternally]. */
-    val actionLabel: String,
 )
-
-/**
- * Whether riding this route hands off to an external maps app instead of
- * staying in Detour.
- *
- * `seedRouteNavigation` carries only a route's *final* stop to the map, so
- * anything past a plain A-to-B would silently drop the stops in between;
- * `RoutesScreen.navigateStopsExternally` hands those to Google Maps' directions
- * URL, which can carry real via points, instead.
- *
- * The rule is here, rather than inline at that branch, because the card's
- * action label has to agree with it. Both readings said "Ride" — same label,
- * same weight, a different app, decided by a stop count that appeared only in
- * the subtitle — so a rider tapping it had no way to know they were leaving.
- */
-fun routeOpensExternally(stopCount: Int): Boolean = stopCount > 2
-
-/** [routeOpensExternally] for a whole route: a saved spin loop has many stops
- *  but rides in-app through them (#589), so only a planned route leaves. */
-fun routeOpensExternally(route: SavedRoute): Boolean =
-    !SavedSpins.isLoop(route) && routeOpensExternally(route.stops.size)
 
 /**
  * Marks whether the Routes screen's initial disk read has completed.
@@ -87,18 +62,6 @@ private fun routeDistanceLabel(meters: Double): String {
 }
 
 /**
- * Google Maps' `maps/dir/` directions URL's `travelmode` parameter for a
- * route's own mode — NOT [TravelMode.gmapsMode]'s single-letter codes ("d"),
- * which only mean anything to the `google.navigation:q=` scheme MapScreen's
- * navigateGoogleMaps uses. Kept as its own mapping so the two URL schemes'
- * spellings don't get conflated by a future "simplification".
- */
-fun gmapsTravelMode(mode: TravelMode): String = when (mode) {
-    TravelMode.MOTO -> "two-wheeler"
-    TravelMode.CAR -> "driving"
-}
-
-/**
  * Normalises a route's polyline into a [width] x [height] box, inset by
  * [padding], preserving nothing but the shape's extent — this is a sketch, not
  * a projection, so no spherical correction is applied.
@@ -142,6 +105,5 @@ fun routesStateFrom(routes: List<SavedRoute>): List<RouteCard> = routes.map { r 
         name = r.name,
         subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy),
         polyline = r.polyline,
-        actionLabel = if (routeOpensExternally(r)) "Open in Maps" else "Ride",
     )
 }

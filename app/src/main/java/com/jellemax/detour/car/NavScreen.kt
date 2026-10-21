@@ -342,6 +342,7 @@ class NavScreen(
         when (NavPolicy.decide(
             progress = p,
             hasDestination = true, // a constructor parameter on this screen
+            stopsAhead = false, // the car doesn't ride via stops (#736)
             rerouting = rerouting,
             lastRerouteMs = lastRerouteMs,
             nowMs = now,

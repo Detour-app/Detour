@@ -1,19 +1,17 @@
 package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.RouteOrigin
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.TravelMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
  * The pure half of the Routes screen: how a route card reads, and how a route's
- * polyline is normalised into the little preview sketch. File import/export and
- * the Maps hand-off stay Android-side and are not modelled here.
+ * polyline is normalised into the little preview sketch. File import/export
+ * stays Android-side and is not modelled here.
  */
 class RoutesStateTest {
 
@@ -117,65 +115,7 @@ class RoutesStateTest {
         assertEquals(7L, card.id)
         assertEquals("Commute scenic", card.name)
         assertEquals("32 km · 2 stops · shared by mika", card.subtitle)
-        assertEquals("Ride", card.actionLabel)
     }
-
-    @Test fun aTwoStopRouteRidesInTheApp() {
-        // The in-app path carries the whole route, so the pill promises a ride.
-        assertFalse(routeOpensExternally(stopCount = 2))
-    }
-
-    @Test fun aRouteWithViaStopsSaysItLeavesTheApp() {
-        // seedRouteNavigation would drop the middle stops, so RoutesScreen hands
-        // these to Google Maps instead. Same pill, so the label has to say so —
-        // that mismatch is the whole point of this predicate.
-        assertTrue(routeOpensExternally(stopCount = 3))
-        assertEquals("Open in Maps", cardFor(stopCount = 5).actionLabel)
-    }
-
-    @Test fun aRouteTooShortToRideStillReadsAsARide() {
-        // A one-stop route can't be ridden at all (RouteEditorScreen refuses to
-        // save one), but nothing here leaves the app either — the label must not
-        // flip to "Open in Maps" at the bottom end of the range.
-        assertFalse(routeOpensExternally(stopCount = 1))
-        assertEquals("Ride", cardFor(stopCount = 1).actionLabel)
-    }
-
-    @Test fun aSavedSpinLoopRidesInTheAppWhateverItsStopCount() {
-        // #589: a loop is routed through its stops in-app, so its pill must not
-        // promise a hand-off to Google Maps the tap no longer makes.
-        val loop = routesStateFrom(listOf(spinWith(stopCount = 10))).single()
-        assertEquals("Ride", loop.actionLabel)
-        assertFalse(routeOpensExternally(spinWith(stopCount = 10)))
-    }
-
-    private fun spinWith(stopCount: Int): SavedRoute = SavedRoute(
-        id = 2L,
-        name = "Loop",
-        createdMs = 0L,
-        mode = TravelMode.MOTO,
-        // A saved loop closes on its start.
-        stops = List(stopCount) { RouteStop(LatLon(50.0 + it % (stopCount - 1), 5.0)) },
-        polyline = emptyList(),
-        distanceMeters = null,
-        timeMs = null,
-        origin = RouteOrigin.SPIN,
-    )
-
-    private fun cardFor(stopCount: Int): RouteCard = routesStateFrom(
-        listOf(
-            SavedRoute(
-                id = 1L,
-                name = "Tour",
-                createdMs = 0L,
-                mode = TravelMode.MOTO,
-                stops = List(stopCount) { RouteStop(LatLon(50.0 + it, 5.0)) },
-                polyline = emptyList(),
-                distanceMeters = null,
-                timeMs = null,
-            )
-        )
-    ).single()
 
     @Test fun thumbnailPointsSpanTheBoxMinusItsPadding() {
         val line = listOf(LatLon(50.0, 5.0), LatLon(51.0, 6.0))

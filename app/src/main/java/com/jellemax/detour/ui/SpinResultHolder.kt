@@ -6,6 +6,7 @@ import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.data.ViaStops
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +34,9 @@ internal data class SpinResult(
      * of this holder exists.
      */
     val navigating: Boolean = false,
+    /** A planned route's stops still to ride through on the way to
+     *  [destination] (#736); empty for everything else. */
+    val vias: List<LatLon> = emptyList(),
 )
 
 internal object SpinResultHolder {
@@ -56,12 +60,13 @@ internal object SpinResultHolder {
      *  [publish] because a caller that has only a destination must not have to
      *  invent the other four fields, and the two that tried spelled the empty
      *  cases differently. */
-    fun seedDestination(destination: LatLon, name: String, route: RouteResult) {
+    fun seedDestination(destination: LatLon, name: String, route: RouteResult, vias: List<LatLon>) {
         _state.value = SpinResult(
             destination = destination,
             destinationName = name,
             route = route,
             candidates = emptyList(),
+            vias = vias,
         )
     }
 
@@ -92,12 +97,10 @@ internal object SpinResultHolder {
  * with its name, its distance/ETA and a Start button. Seeding the holder alone
  * shows a line on a map and nothing to press.
  *
- * Only the destination carries over; [startNavigation] always re-fetches a
- * live two-point route from wherever the user actually is when they tap Go,
- * so a route with stops in between this one and the destination would have
- * them silently dropped. RoutesScreen.kt only calls this for two-stop routes
- * and instead hands longer routes to an external maps app, which can carry
- * real via points.
+ * The destination and the stops in between carry over ([ViaStops.of]);
+ * [startNavigation] re-fetches a live route from wherever the rider is when
+ * they tap Go, through those stops (#736). The route's own first stop is
+ * dropped, as it always was for a two-stop route.
  */
 internal fun seedRouteNavigation(route: SavedRoute) {
     Settings.setTripMode(route.mode)
@@ -112,6 +115,7 @@ internal fun seedRouteNavigation(route: SavedRoute) {
             distanceMeters = route.distanceMeters,
             timeMs = route.timeMs,
         ),
+        vias = ViaStops.of(route),
     )
 }
 

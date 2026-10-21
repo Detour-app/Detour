@@ -8,6 +8,7 @@ import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.ViaStops
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,7 +21,8 @@ sealed interface NavStart {
      */
     data object UseExistingRoute : NavStart
 
-    /** A destination: fetch a fresh line from where the rider actually is. */
+    /** A destination: fetch a fresh line from where the rider actually is,
+     *  through any planned stops still ahead (#736). */
     data class FetchTo(val destination: LatLon) : NavStart
 
     /**
@@ -67,9 +69,11 @@ suspend fun fetchNavRoute(
      *  continues in their direction of travel rather than turning them around;
      *  see [NavPolicy.headingHint]. */
     heading: HeadingHint? = null,
+    /** A planned route's stops still ahead, ridden through on the way to [to] (#736). */
+    vias: List<LatLon> = emptyList(),
 ): RouteResult = withContext(Dispatchers.IO) {
-    RoutingClient.route(
-        serverConfig, from, to, mode.ghProfile, Settings.navRoutePreferences(), heading,
+    RoutingClient.routeVia(
+        serverConfig, ViaStops.points(from, vias, to), mode.ghProfile, Settings.navRoutePreferences(), heading,
     )
 }
 
@@ -93,4 +97,6 @@ suspend fun fetchStartRoute(
     from: LatLon,
     to: LatLon,
     mode: TravelMode,
-): RouteResult = fetchNavRoute(serverConfig, from, to, mode, startHeading())
+    /** A planned route's stops, ridden through on the way to [to] (#736). */
+    vias: List<LatLon> = emptyList(),
+): RouteResult = fetchNavRoute(serverConfig, from, to, mode, startHeading(), vias)

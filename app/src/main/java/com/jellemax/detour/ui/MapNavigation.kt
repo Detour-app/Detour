@@ -90,6 +90,7 @@ internal fun MapNavigationSession(
         val pos = LatLon(fix.lat, fix.lon)
         val progress = NavEngine.progress(r, pos) ?: return@LaunchedEffect
         s.navProgress = progress
+        s.passVias(r.polyline, pos) // #736: a planned stop passed is off every later reroute
         // No setDrivenFraction here: the marker's frame loop (MapCamera.kt) fades
         // the road behind you off its own eased position. A per-fix write would
         // fight that, dragging the seam back to the raw fix once a second under a
@@ -109,6 +110,7 @@ internal fun MapNavigationSession(
         when (NavPolicy.decide(
             progress = progress,
             hasDestination = dest != null,
+            stopsAhead = s.vias.isNotEmpty(),
             rerouting = s.rerouting,
             lastRerouteMs = s.lastRerouteMs,
             nowMs = now,
@@ -118,9 +120,10 @@ internal fun MapNavigationSession(
                 arrive()
                 return@LaunchedEffect
             }
-            // Off route → fresh route to the destination. Launched on the screen
-            // scope so the next GPS fix doesn't cancel the request; loops keep
-            // their drawn line (rerouting a loop would change the whole trip).
+            // Off route → fresh route to the destination, through any planned
+            // stops not yet passed (#736). Launched on the screen scope so the
+            // next GPS fix doesn't cancel the request; loops keep their drawn
+            // line (rerouting a loop would change the whole trip).
             NavPolicy.Decision.Reroute -> {
                 val target = dest ?: return@LaunchedEffect // Reroute implies a destination
                 s.rerouting = true
@@ -133,7 +136,7 @@ internal fun MapNavigationSession(
                 val heading = NavPolicy.headingHint(fix.bearingDeg, fix.speedMps)
                 scope.launch {
                     try {
-                        val fresh = fetchNavRoute(serverConfig, pos, target, mode, heading)
+                        val fresh = fetchNavRoute(serverConfig, pos, target, mode, heading, s.vias)
                         s.route = fresh
                         // #737: the new line may leave the corridor cached at the start,
                         // and this is the one moment there is signal to extend it.
