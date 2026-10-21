@@ -35,13 +35,12 @@ public class FriendshipConfiguration : IEntityTypeConfiguration<Friendship>
             .HasForeignKey(f => f.LowUserId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // NoAction on the second leg: two cascade paths into the same table make PostgreSQL
-        // refuse the constraint. Deleting a rider still removes both sides, because the
-        // low-id leg above cascades and the account-deletion path clears the rest explicitly.
+        // Both legs cascade: a rider can sit on either side of a pair, and deleting the account
+        // has to remove the row whichever side it is (#700).
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(f => f.HighUserId)
-            .OnDelete(DeleteBehavior.NoAction);
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Ids are stored in a fixed order, so one row per pair is a unique index rather than a
         // rule the handlers have to remember.
@@ -72,7 +71,7 @@ public class SharedRouteConfiguration : IEntityTypeConfiguration<SharedRoute>
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(r => r.FromUserId)
-            .OnDelete(DeleteBehavior.NoAction);
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Re-sharing an edited route replaces the recipient's copy. The sender is part of the
         // key too, so two friends sharing routes that happen to carry the same client-side id

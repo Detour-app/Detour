@@ -1252,7 +1252,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("OwnerId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_circle_places_users_owner_id");
                 });
@@ -1269,7 +1269,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_place_events_users_user_id");
                 });
@@ -1279,7 +1279,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("HighUserId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_friendships_users_high_user_id");
 
@@ -1364,7 +1364,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_member_fixes_users_user_id");
                 });
@@ -1421,7 +1421,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("FromUserId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_shared_routes_users_from_user_id");
 
