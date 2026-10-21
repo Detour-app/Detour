@@ -78,6 +78,24 @@ public class AccountDeletionTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Deleting_your_own_account_clears_what_it_left_with_other_riders()
+    {
+        var earlier = await Footprinted();
+        var leaver = await Footprinted();
+        var later = await Footprinted();
+        await AccountFootprint.Seed(leaver, earlier, later);
+        await using (var before = postgres.CreateContext())
+            (await AccountFootprint.Remaining(before, leaver.Id)).Should().AllSatisfy(t => t.Value.Should().BeTrue(t.Key));
+
+        (await leaver.Client.DeleteAsync("/api/me")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        await using var db = postgres.CreateContext();
+        (await AccountFootprint.Remaining(db, leaver.Id)).Should().AllSatisfy(t => t.Value.Should().BeFalse(t.Key));
+        (await db.Users.AnyAsync(u => u.Id == earlier.Id)).Should().BeTrue();
+        (await db.Groups.AnyAsync(g => g.OwnerId == earlier.Id)).Should().BeTrue("the circle was someone else's");
+    }
+
+    [Fact]
     public async Task Deleting_your_own_account_leaves_everyone_else_alone()
     {
         var (leaver, _, _) = await NewRider();
@@ -127,6 +145,12 @@ public class AccountDeletionTests(PostgresFixture postgres) : IAsyncLifetime
             subject, username, null, roles.Length == 0 ? ["detour-user"] : roles));
         (await client.GetAsync("/api/me")).EnsureSuccessStatusCode();
         return (client, subject, username);
+    }
+
+    private async Task<AccountFootprint.Rider> Footprinted()
+    {
+        var (client, _, username) = await NewRider();
+        return new(client, username, await IdOf(client));
     }
 
     private static async Task<Guid> IdOf(HttpClient client) =>
