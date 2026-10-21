@@ -23,6 +23,7 @@ public class ApiConfiguration
     public RoadSettings Road { get; set; } = new();
     public MunicipalitySettings Municipality { get; set; } = new();
     public PoiSettings Poi { get; set; } = new();
+    public AccountDeletionSettings AccountDeletion { get; set; } = new();
 }
 
 /// <summary>
@@ -167,4 +168,19 @@ public class CacheSettings
 public class CorsSettings
 {
     public string[] AllowedOrigins { get; set; } = [];
+}
+
+/// <summary>
+/// Where to tell the identity provider's administrator that a rider deleted their own account
+/// (issue #700). This backend holds no Keycloak admin credential and is not given one: deleting
+/// the app data is its job, removing the sign-in is the realm administrator's. Blank by default
+/// — nothing is sent, and the realm user stays until someone removes it by hand.
+/// </summary>
+public class AccountDeletionSettings
+{
+    public const string SectionName = "AccountDeletion";
+
+    /// <summary>URL that receives a JSON <c>POST</c> per self-deleted account. Blank means
+    /// "do not notify".</summary>
+    public string WebhookUrl { get; set; } = "";
 }
