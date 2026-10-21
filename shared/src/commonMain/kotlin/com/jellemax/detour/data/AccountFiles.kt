@@ -204,9 +204,8 @@ internal object AccountFiles {
      * [accountDir] at a directory that has never existed and the rider's
      * entire history reads as empty — permanently, because the first write
      * into the new bucket makes [adopt]'s "no other bucket exists" guard
-     * refuse `_local` from then on. Trips, traces and badges would come back
-     * from the server union; `routes.json` is not synced at all, so nothing
-     * restores it.
+     * refuse `_local` from then on. Trips, traces, badges and routes would
+     * come back from the server union.
      *
      * [migrate] no longer aborts on a failed rename, so a name that could not
      * move does not stop [adopt] claiming the seven that did — see its own
