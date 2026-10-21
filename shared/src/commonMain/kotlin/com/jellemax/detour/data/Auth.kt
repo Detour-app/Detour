@@ -446,6 +446,7 @@ object Auth {
         FriendsStore.reset()
         ConvoysStore.reset()
         ConvoyInvitesStore.reset()
+        ConvoyJoinStore.reset()
         CirclesStore.reset()
         PlannedRidesStore.reset()
         FriendFog.clear()
