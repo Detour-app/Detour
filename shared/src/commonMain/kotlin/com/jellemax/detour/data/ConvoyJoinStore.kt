@@ -35,7 +35,9 @@ data class ConvoyJoinState(val token: String? = null, val step: ConvoyJoinStep? 
  * The joiner's side of convoy invite links (#763): preview the link, confirm, join. Wire calls
  * are [ConvoyInvites]; this holds the one link being looked at, so the confirm screen survives a
  * recomposition and a sign-in without asking the server twice — a preview spends from the same
- * per-token cap a join does (CIRCLES_AND_CONVOYS.md §4.1).
+ * per-token cap a join does (CIRCLES_AND_CONVOYS.md §4.1). A call cut off mid-flight (rotation
+ * recreating the screen, the rider leaving it) steps back to where it started, so the screen that
+ * comes back asks again rather than waiting on an answer nobody is collecting.
  *
  * Memory only, never written down: a token is a credential to the convoy, and the same reason
  * `Destination` carries no token keeps it off disk here. A process death mid sign-in loses it,
@@ -52,7 +54,9 @@ object ConvoyJoinStore {
     private val _state = MutableStateFlow(ConvoyJoinState())
     val state: StateFlow<ConvoyJoinState> = _state.asStateFlow()
 
-    /** Called from [Auth.clear]: a link opened for one rider is not the next one's to join. */
+    /** Called from [Auth.clear] when a session ended: a link opened for one rider is not the next
+     *  one's to join. Not when there was no session, so a link held signed out survives the realm
+     *  reset the first sign-in can run (`RoutingServer.rememberDiscoveredIssuer`). */
     internal fun reset() {
         _state.value = ConvoyJoinState()
     }
@@ -70,8 +74,9 @@ object ConvoyJoinStore {
 
     /**
      * Previews the held link. Does nothing once a step is set, so a screen can call this from an
-     * effect that re-runs on rotation without spending the link's attempts again; [retry] is the
-     * way to ask a second time.
+     * effect that re-runs without spending the link's attempts again once an answer is in; [retry]
+     * is the way to ask a second time. Cancelled before the answer, it steps back to no step, and
+     * the next call asks again.
      */
     @Throws(Exception::class)
     suspend fun check() {
@@ -80,7 +85,7 @@ object ConvoyJoinStore {
         if (start.step != null) return
         val epoch = Auth.sessionEpoch.value
         _state.update { it.copy(step = ConvoyJoinStep.Checking) }
-        val step = attempt { ConvoyJoinStep.Ready(ConvoyInvites.preview(token)) }
+        val step = attempt(token) { ConvoyJoinStep.Ready(ConvoyInvites.preview(token)) }
         commit(epoch, token, ConvoyJoinState(token, step))
     }
 
@@ -94,7 +99,9 @@ object ConvoyJoinStore {
     /**
      * Joins the previewed convoy, then reloads [ConvoysStore] so it is in the list the rider goes
      * live from, and lets go of the link. A refusal here (the host revoked between preview and
-     * confirm) lands as [ConvoyJoinStep.Refused] like one at preview.
+     * confirm) lands as [ConvoyJoinStep.Refused] like one at preview. Cancelled before the
+     * server answers, it steps back to [ConvoyJoinStep.Ready] so the rider can confirm again; a
+     * second join of a convoy the rider is already in answers that convoy (#775).
      */
     @Throws(Exception::class)
     suspend fun join() {
@@ -103,22 +110,25 @@ object ConvoyJoinStore {
         val preview = (start.step as? ConvoyJoinStep.Ready)?.preview ?: return
         val epoch = Auth.sessionEpoch.value
         _state.update { it.copy(step = ConvoyJoinStep.Joining(preview)) }
-        val step = attempt {
+        val step = attempt(token) {
             ConvoyInvites.join(token)
             null
         }
-        if (step == null) ConvoysStore.reload()
+        // Committed before the reload, so a cancel during the reload can't step a finished join
+        // back to Ready.
         commit(epoch, token, if (step == null) ConvoyJoinState() else ConvoyJoinState(token, step))
+        if (step == null) ConvoysStore.reload()
     }
 
     private fun commit(epoch: Int, token: String, next: ConvoyJoinState) {
         _state.update { it.committed(epoch == Auth.sessionEpoch.value, token, next) }
     }
 
-    /** [block]'s step, or the step its failure earns. */
-    private suspend fun attempt(block: suspend () -> ConvoyJoinStep?): ConvoyJoinStep? = try {
+    /** [block]'s step, or the step its failure earns. A cancel steps [token]'s state back first. */
+    private suspend fun attempt(token: String, block: suspend () -> ConvoyJoinStep?): ConvoyJoinStep? = try {
         block()
     } catch (e: CancellationException) {
+        _state.update { it.cancelled(token) }
         throw e
     } catch (e: Exception) {
         joinStepFor(e)
@@ -140,3 +150,16 @@ internal fun ConvoyJoinState.committed(
     token: String,
     next: ConvoyJoinState,
 ): ConvoyJoinState = if (sameSession && this.token == token) next else this
+
+/**
+ * What [ConvoyJoinStore] steps back to when a preview or join for [token] is cancelled before it
+ * answers: [ConvoyJoinStep.Checking] to no step (so the next check asks), [ConvoyJoinStep.Joining]
+ * to [ConvoyJoinStep.Ready] (so the rider can confirm again). Any other state, or another link,
+ * is left alone.
+ */
+internal fun ConvoyJoinState.cancelled(token: String): ConvoyJoinState = when {
+    this.token != token -> this
+    step is ConvoyJoinStep.Checking -> copy(step = null)
+    step is ConvoyJoinStep.Joining -> copy(step = ConvoyJoinStep.Ready(step.preview))
+    else -> this
+}
