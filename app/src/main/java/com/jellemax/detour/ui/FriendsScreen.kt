@@ -260,7 +260,8 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
 /**
  * Joining by link signed out (#763): the link can be pasted before signing in, and once one is
  * held this says why to sign in. The confirm dialog opens on its own after sign-in, because
- * [ConvoysSection] shows it for the link still held.
+ * [ConvoysSection] shows it for the link still held: `Auth.clear` drops the link only when a
+ * session ends, not on the realm reset the first sign-in can run.
  */
 @Composable
 private fun SignedOutConvoyJoin() {

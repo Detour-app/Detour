@@ -60,4 +60,27 @@ class ConvoyJoinStoreTest {
             ),
         )
     }
+
+    @Test
+    fun aPreviewCutOffMidFlightStepsBackSoTheNextCheckAsks() {
+        val checking = ConvoyJoinState("abc", ConvoyJoinStep.Checking)
+
+        assertEquals(ConvoyJoinState("abc"), checking.cancelled("abc"))
+    }
+
+    @Test
+    fun aJoinCutOffMidFlightStepsBackToReady() {
+        val joining = ConvoyJoinState("abc", ConvoyJoinStep.Joining(preview))
+
+        assertEquals(ConvoyJoinState("abc", ConvoyJoinStep.Ready(preview)), joining.cancelled("abc"))
+    }
+
+    @Test
+    fun aCancelLeavesAnAnswerOrAnotherLinkAlone() {
+        val ready = ConvoyJoinState("abc", ConvoyJoinStep.Ready(preview))
+        val otherChecking = ConvoyJoinState("xyz", ConvoyJoinStep.Checking)
+
+        assertSame(ready, ready.cancelled("abc"))
+        assertSame(otherChecking, otherChecking.cancelled("abc"))
+    }
 }

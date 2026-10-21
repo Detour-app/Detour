@@ -81,7 +81,9 @@ internal fun JoinConvoyByLinkDialog(onDismiss: () -> Unit) {
  * signed out waits in the store, so signing in lands the rider here.
  *
  * Previews once per link: [ConvoyJoinStore.check] is a no-op once a step is set, so this effect
- * re-running on rotation spends none of the link's attempts.
+ * re-running after the answer spends none of the link's attempts. A preview or join cut off by
+ * rotation or by leaving the screen steps back in the store, so the screen that comes back asks
+ * the server again (one more attempt) or offers Join again, rather than spinning forever.
  */
 @Composable
 internal fun ConvoyJoinConfirmDialog() {

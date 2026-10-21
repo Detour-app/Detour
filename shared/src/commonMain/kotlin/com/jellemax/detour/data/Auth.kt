@@ -430,6 +430,9 @@ object Auth {
      *  Note [Api] is deliberately *not* on that list: a 401 there used to clear
      *  and no longer does, for the reason its own comment gives. */
     fun clear() {
+        // Read before the session is blanked below. A link held for joining a convoy is only the
+        // ended session's to drop; with no session it is waiting for this sign-in (#763).
+        val endsSession = signedIn
         // Bumped before the write, the same discipline [store] uses for the
         // establish side of this same guard (see its own doc) — kept
         // consistent rather than opposite disciplines on the two sides of
@@ -446,7 +449,7 @@ object Auth {
         FriendsStore.reset()
         ConvoysStore.reset()
         ConvoyInvitesStore.reset()
-        ConvoyJoinStore.reset()
+        if (endsSession) ConvoyJoinStore.reset()
         CirclesStore.reset()
         PlannedRidesStore.reset()
         FriendFog.clear()
