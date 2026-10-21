@@ -41,12 +41,26 @@ object ViaStops {
      * last metre as its first: a global snap would put the rider past the
      * store before they have moved. Every line Go and a reroute fetch starts
      * at the rider, so starting at metre zero is where they are.
+     *
+     * [vias] are the stops the line was fetched through and [viaMeters] where
+     * each projects onto it ([projectedMeters]), both fixed for the line's
+     * life. Projected once, against the whole list: re-projecting what is left
+     * after a stop is dropped would look for the next one from metre zero
+     * again, and on an out-and-back land it on the outbound leg, already
+     * behind the rider.
      */
-    data class Ride(val line: List<LatLon>, val along: NavEngine.Along)
+    data class Ride(
+        val line: List<LatLon>,
+        val along: NavEngine.Along,
+        val vias: List<LatLon>,
+        val viaMeters: List<Double>,
+    )
 
     /**
      * [ride] moved on to the rider at [at]. A different [line] (Go, a
-     * reroute) starts over from its first point.
+     * reroute) starts over from its first point, through [vias]; on the same
+     * line [vias] is not read, since the ride already holds the list it was
+     * fetched through.
      *
      * The windowed snap covers fix to fix. When it can't see the rider — a
      * gap in fixes, or a [Ride] lost with the screen while the line it was on
@@ -55,26 +69,24 @@ object ViaStops {
      * off the line is not taken: a rider off the line has made no progress
      * along it, and the reroute that follows starts a new line anyway.
      */
-    fun follow(ride: Ride?, line: List<LatLon>, at: LatLon, maxOffMeters: Double): Ride {
-        val from = if (ride != null && ride.line === line) ride.along
-            else NavEngine.advance(line, line.firstOrNull() ?: at, null)
+    fun follow(ride: Ride?, line: List<LatLon>, vias: List<LatLon>, at: LatLon, maxOffMeters: Double): Ride {
+        val start = if (ride != null && ride.line === line) ride
+            else Ride(line, NavEngine.advance(line, line.firstOrNull() ?: at, null), vias, projectedMeters(line, vias))
+        val from = start.along
         val windowed = NavEngine.advance(line, at, from)
         val next = if (windowed.offRouteMeters <= maxOffMeters && !windowed.beyondWindow) windowed
             else snapOnward(line, from, at)
-        return Ride(line, if (next.offRouteMeters <= maxOffMeters) next else from)
+        return start.copy(along = if (next.offRouteMeters <= maxOffMeters) next else from)
     }
 
     /**
-     * What is left of [vias] once the rider is [ride] along its line: a stop
-     * is passed once the rider is further along than the stop's projection
-     * ([projectedMeters]). Passing one passes every stop before it, so a
-     * rider sent past one is not sent back for it; stops not passed yet stay,
-     * in order.
+     * The stops of [ride] still ahead: a stop is passed once the rider is
+     * further along than its projection ([Ride.viaMeters]). Passing one
+     * passes every stop before it, so a rider sent past one is not sent back
+     * for it; stops not passed yet stay, in order.
      */
-    fun ahead(vias: List<LatLon>, ride: Ride): List<LatLon> {
-        val passed = projectedMeters(ride.line, vias).count { it < ride.along.meters }
-        return vias.drop(passed)
-    }
+    fun ahead(ride: Ride): List<LatLon> =
+        ride.vias.drop(ride.viaMeters.count { it < ride.along.meters })
 
     /**
      * How far along [line] each of [vias] projects, in order: the nearest

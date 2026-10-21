@@ -12,6 +12,7 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
@@ -25,6 +26,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * Where the rider at [pos] is along [route]. A line through planned stops can
+ * ride a road twice, so on one the rider is placed forward only, and a stop
+ * passed drops off every later reroute (#736); how far off the line they are
+ * stays the global answer.
+ */
+private fun progressOn(s: MapScreenState, route: RouteResult, pos: LatLon): NavEngine.Progress? {
+    val global = NavEngine.progress(route, pos) ?: return null
+    val along = s.followPlanned(route.polyline, pos) ?: return global
+    return NavEngine.progressAlong(route, along, global.offRouteMeters) ?: global
+}
 
 /**
  * Following the route: progress, arrival, reroute — and the external display,
@@ -88,9 +101,8 @@ internal fun MapNavigationSession(
         val fix = liveFix ?: return@LaunchedEffect
         val r = s.route ?: return@LaunchedEffect
         val pos = LatLon(fix.lat, fix.lon)
-        val progress = NavEngine.progress(r, pos) ?: return@LaunchedEffect
+        val progress = progressOn(s, r, pos) ?: return@LaunchedEffect
         s.navProgress = progress
-        s.passVias(r.polyline, pos) // #736: a planned stop passed is off every later reroute
         // No setDrivenFraction here: the marker's frame loop (MapCamera.kt) fades
         // the road behind you off its own eased position. A per-fix write would
         // fight that, dragging the seam back to the raw fix once a second under a

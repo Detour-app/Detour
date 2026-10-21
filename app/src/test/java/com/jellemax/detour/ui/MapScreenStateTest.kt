@@ -5,6 +5,8 @@ import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.map.CameraAuthority
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,9 +56,23 @@ class MapScreenStateTest {
         val s = MapScreenState(SpinResult(destination = work, vias = listOf(store, bakery)), null)
         val line = (0..60).map { LatLon(52.0, 5.0 + it * 0.005) }
 
-        assertEquals(listOf(store, bakery), s.passVias(line, LatLon(52.0, 5.0)))
-        assertEquals(listOf(bakery), s.passVias(line, LatLon(52.0, 5.15)))
+        s.followPlanned(line, LatLon(52.0, 5.0))
+        assertEquals(listOf(store, bakery), s.vias)
+        s.followPlanned(line, LatLon(52.0, 5.15))
         assertEquals(listOf(bakery), s.vias)
+    }
+
+    /** #736: the way back of a line through stops is where the global snap
+     *  goes wrong, so the forward ride outlives the last stop on its line. */
+    @Test
+    fun theLineThroughTheStopsIsFollowedPastTheLastOne() {
+        val s = MapScreenState(SpinResult(destination = work, vias = listOf(store)), null)
+        val line = (0..60).map { LatLon(52.0, 5.0 + it * 0.005) }
+
+        (0..30).forEach { s.followPlanned(line, LatLon(52.0, 5.0 + it * 0.005)) }
+        assertTrue(s.vias.isEmpty())
+        assertNotNull(s.followPlanned(line, LatLon(52.0, 5.155)))
+        assertNull("a fresh line with no stops left is placed globally", s.followPlanned(line.toList(), work))
     }
 
     @Test

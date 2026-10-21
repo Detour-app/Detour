@@ -128,10 +128,12 @@ internal object NavPolicy {
      * car's destination is a constructor parameter and so always present.
      *
      * [stopsAhead] is true while a planned route still has a stop to ride
-     * through (#736): no arrival until the last one is passed. A route that
-     * ends where it starts snaps its first fix onto its own last segment, so
-     * remaining distance alone would arrive the moment Go is pressed. The car
-     * doesn't ride via stops and passes false.
+     * through (#736): no arrival until the last one is passed. The phone reads
+     * remaining distance off a forward-only snap on such a line, so a route
+     * that ends where it starts does not open near its end; but a snap that
+     * lost the rider (a gap, the screen recreated) searches onward and can
+     * land on the way back, and remaining distance alone would then arrive
+     * before the stop. The car doesn't ride via stops and passes false.
      *
      * [nowMs] and [lastRerouteMs] are wall-clock millis - the caller owns the
      * clock, which is what keeps this testable.
