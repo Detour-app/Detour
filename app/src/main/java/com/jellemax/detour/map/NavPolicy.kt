@@ -127,6 +127,12 @@ internal object NavPolicy {
      * and nothing to reroute to. The phone passes `destination != null`; the
      * car's destination is a constructor parameter and so always present.
      *
+     * [stopsAhead] is true while a planned route still has a stop to ride
+     * through (#736): no arrival until the last one is passed. A route that
+     * ends where it starts snaps its first fix onto its own last segment, so
+     * remaining distance alone would arrive the moment Go is pressed. The car
+     * doesn't ride via stops and passes false.
+     *
      * [nowMs] and [lastRerouteMs] are wall-clock millis - the caller owns the
      * clock, which is what keeps this testable.
      *
@@ -137,12 +143,14 @@ internal object NavPolicy {
     fun decide(
         progress: NavEngine.Progress,
         hasDestination: Boolean,
+        stopsAhead: Boolean,
         rerouting: Boolean,
         lastRerouteMs: Long,
         nowMs: Long,
     ): Decision {
         if (!hasDestination) return Decision.Continue
-        if (progress.remainingMeters < ARRIVE_METERS &&
+        if (!stopsAhead &&
+            progress.remainingMeters < ARRIVE_METERS &&
             progress.offRouteMeters < OFF_ROUTE_METERS
         ) {
             return Decision.Arrived

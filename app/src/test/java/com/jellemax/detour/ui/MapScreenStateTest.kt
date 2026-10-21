@@ -11,7 +11,8 @@ import org.junit.Test
 /**
  * Pins the camera a restored spin result starts with (#427): reopening the app
  * on a candidate list used to hand it a following camera, which took the map
- * back to the rider with none of the three pins in view.
+ * back to the rider with none of the three pins in view. Also pins how a
+ * planned route's stops (#736) are dropped: ridden past, or a new destination.
  */
 class MapScreenStateTest {
 
@@ -42,5 +43,37 @@ class MapScreenStateTest {
 
         assertFalse(s.camAuthority.camSuspended)
         assertTrue(s.camAuthority.following)
+    }
+
+    private val store = LatLon(52.0, 5.1)
+    private val bakery = LatLon(52.0, 5.2)
+    private val work = LatLon(52.0, 5.3)
+
+    @Test
+    fun aStopRiddenPastIsPassedAndTheRestStayAhead() {
+        val s = MapScreenState(SpinResult(destination = work, vias = listOf(store, bakery)), null)
+        val line = (0..60).map { LatLon(52.0, 5.0 + it * 0.005) }
+
+        assertEquals(listOf(store, bakery), s.passVias(line, LatLon(52.0, 5.0)))
+        assertEquals(listOf(bakery), s.passVias(line, LatLon(52.0, 5.15)))
+        assertEquals(listOf(bakery), s.vias)
+    }
+
+    @Test
+    fun anotherDestinationDropsThePlannedStops() {
+        val s = MapScreenState(SpinResult(destination = work, vias = listOf(store, bakery)), null)
+
+        s.destination = work
+        assertEquals("rewriting the same destination keeps its stops", listOf(store, bakery), s.vias)
+        s.destination = LatLon(51.0, 4.0)
+        assertTrue("#736: a new pick must not route through the old route's stops", s.vias.isEmpty())
+    }
+
+    @Test
+    fun clearingTheDestinationDropsThePlannedStops() {
+        val s = MapScreenState(SpinResult(destination = work, vias = listOf(store)), null)
+
+        s.destination = null
+        assertTrue(s.vias.isEmpty())
     }
 }

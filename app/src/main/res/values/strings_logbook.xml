@@ -175,7 +175,7 @@
     <string name="card_peak_g">PEAK G</string>
 
     <!-- RoutesScreen.kt -->
-    <string name="routes_no_maps_app">No app to open a multi-stop route</string>
+    <string name="routes_ride">Ride</string>
     <string name="routes_loop_join_title">You\'re not at the loop\'s start</string>
     <string name="routes_loop_join_text">How do you want to join this loop? Either way it\'s ridden once, in the direction it was saved.</string>
     <string name="routes_loop_via_start">Ride to the start first</string>

@@ -11,8 +11,10 @@ import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.ViaStops
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.map.CameraAuthority
+import com.jellemax.detour.map.NavPolicy
 import kotlinx.coroutines.Job
 
 /**
@@ -59,8 +61,22 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     // activity recreation; this object only has to carry them across a
     // recomposition.
     var candidates: List<RouteCandidate> by mutableStateOf(seed.candidates)
-    var destination: LatLon? by mutableStateOf(seed.destination)
+    private var destinationState: LatLon? by mutableStateOf(seed.destination)
+
+    /** Any other destination drops [vias]: they were the stops on the way to
+     *  this one, and a dozen writers set it without knowing they exist. */
+    var destination: LatLon?
+        get() = destinationState
+        set(value) {
+            if (value != destinationState) vias = emptyList()
+            destinationState = value
+        }
     var destinationName: String? by mutableStateOf(seed.destinationName)
+
+    /** A planned route's stops still to ride through on the way to
+     *  [destination] (#736), dropped as [passVias] sees them passed. */
+    var vias: List<LatLon> by mutableStateOf(seed.vias)
+        private set
     var route: RouteResult? by mutableStateOf(seed.route)
     var spinning: Boolean by mutableStateOf(false)
     var spinJob: Job? by mutableStateOf(null)
@@ -70,6 +86,20 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var navProgress: NavEngine.Progress? by mutableStateOf(null)
     var rerouting: Boolean by mutableStateOf(false)
     var lastRerouteMs: Long by mutableLongStateOf(0L)
+
+    /** Where the rider is along [route]'s line, for [passVias]. Not state:
+     *  nothing draws it, and only the next fix reads it. */
+    private var viaRide: ViaStops.Ride? = null
+
+    /** Drops the [vias] a rider at [at] has passed along [line] and returns
+     *  the rest: what every reroute routes through ([ViaStops.ahead]). */
+    fun passVias(line: List<LatLon>, at: LatLon): List<LatLon> {
+        if (vias.isEmpty()) return vias
+        val ride = ViaStops.follow(viaRide, line, at, NavPolicy.OFF_ROUTE_METERS).also { viaRide = it }
+        val left = ViaStops.ahead(vias, ride)
+        if (left.size != vias.size) vias = left
+        return left
+    }
 
     // --- camera ---------------------------------------------------------
     /** Follow/park/gesture, all three transitions dispatched through
