@@ -2,9 +2,11 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /**
  * The client half of CIRCLES_AND_CONVOYS.md §4.1: parsing the invite-link wire shapes, mapping a
@@ -116,5 +118,38 @@ class ConvoyInvitesTest {
             "https://detour.example.org/convoy-invite#abc=",
             "detour.example.org/convoy-invite#abc",
         ).forEach { assertNull(parseConvoyInviteLink(it), it) }
+    }
+
+    @Test
+    fun aPreviewParsesWhatTheConfirmScreenShows() {
+        val preview = convoyInvitePreviewFromJson(
+            jsonObjectOf(
+                """
+                { "convoyName": "Ardennes", "hostUsername": "jelle", "riderCount": 3,
+                  "expiresAtMs": 1791100800000, "alreadyMember": true }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(
+            ConvoyInvitePreview(
+                convoyName = "Ardennes",
+                hostUsername = "jelle",
+                riderCount = 3,
+                expiresAtMs = 1791100800000,
+                alreadyMember = true,
+            ),
+            preview,
+        )
+    }
+
+    @Test
+    fun aLinkIsOnlyForTheServerItWasMintedOn() {
+        val link = ConvoyInviteLink("https://detour.example.org", "abc")
+
+        assertTrue(link.isOn("https://detour.example.org"))
+        assertTrue(link.isOn("https://detour.example.org/"))
+        assertFalse(link.isOn("https://other.example.org"))
+        assertFalse(link.isOn(null))
     }
 }

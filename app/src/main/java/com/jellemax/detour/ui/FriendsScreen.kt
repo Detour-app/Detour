@@ -67,6 +67,7 @@ import com.jellemax.detour.auth.AuthBrowser
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
+import com.jellemax.detour.data.ConvoyJoinStore
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.Friends
@@ -150,7 +151,10 @@ fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit) {
                     )
                     ServerSettingsButton(onOpenServerSettings)
                 }
-                username.isBlank() -> SignInSection(onOpenServerSettings)
+                username.isBlank() -> {
+                    SignInSection(onOpenServerSettings)
+                    SignedOutConvoyJoin()
+                }
                 else -> {
                     FriendsSection(username)
                     // Convoys: deliberately untouched. Out of scope for this
@@ -251,6 +255,29 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
     // The config failures above point at Servers & sync, so the way there
     // stays on screen while signed out, not only when nothing is configured.
     ServerSettingsButton(onOpenServerSettings)
+}
+
+/**
+ * Joining by link signed out (#763): the link can be pasted before signing in, and once one is
+ * held this says why to sign in. The confirm dialog opens on its own after sign-in, because
+ * [ConvoysSection] shows it for the link still held.
+ */
+@Composable
+private fun SignedOutConvoyJoin() {
+    val join by ConvoyJoinStore.state.collectAsStateWithLifecycle()
+    var pasteOpen by remember { mutableStateOf(false) }
+    if (join.token != null) {
+        Text(
+            stringResource(R.string.friends_convoy_join_signin_first),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    } else {
+        TextButton(onClick = { pasteOpen = true }) {
+            Text(stringResource(R.string.friends_convoy_join_by_link))
+        }
+    }
+    if (pasteOpen) JoinConvoyByLinkDialog(onDismiss = { pasteOpen = false })
 }
 
 /** #505: the signed-out texts all say "set it under Settings → Servers & sync";
@@ -717,18 +744,7 @@ private fun ConvoysSection() {
         ConvoysStore.reloadIfStale()
     }
 
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(stringResource(R.string.friends_convoys), style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary)
-        TextButton(onClick = { createOpen = true }) {
-            Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
-            Text(stringResource(R.string.friends_convoy_new))
-        }
-    }
+    ConvoysHeader(onNew = { createOpen = true })
 
     state.error?.let {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -781,6 +797,8 @@ private fun ConvoysSection() {
         }
     }
 
+    // A link held for this rider, pasted above or opened before they signed in (#763).
+    ConvoyJoinConfirmDialog()
     if (createOpen) {
         CreateConvoyDialog(
             onDismiss = { createOpen = false },
@@ -797,6 +815,30 @@ private fun ConvoysSection() {
         )
     }
     inviteLinkFor?.let { ConvoyInviteLinkDialog(convoy = it, onDismiss = { inviteLinkFor = null }) }
+}
+
+/** The Convoys title with its two ways in: join one by link (#763), or start one. */
+@Composable
+private fun ConvoysHeader(onNew: () -> Unit) {
+    var joinByLinkOpen by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(stringResource(R.string.friends_convoys), style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary)
+        Row {
+            TextButton(onClick = { joinByLinkOpen = true }) {
+                Text(stringResource(R.string.friends_convoy_join_by_link))
+            }
+            TextButton(onClick = onNew) {
+                Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
+                Text(stringResource(R.string.friends_convoy_new))
+            }
+        }
+    }
+    if (joinByLinkOpen) JoinConvoyByLinkDialog(onDismiss = { joinByLinkOpen = false })
 }
 
 @Composable

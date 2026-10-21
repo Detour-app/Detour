@@ -71,6 +71,26 @@
     <string name="convoy_link_no_guests">Nobody has joined by link yet.</string>
     <string name="convoy_link_joined">Joined %1$s</string>
     <string name="convoy_link_remove_guest">Remove %1$s</string>
+    <string name="friends_convoy_join_by_link">Join by link</string>
+    <string name="friends_convoy_join_link_title">Join a convoy by link</string>
+    <string name="friends_convoy_join_link_label">Invite link</string>
+    <string name="friends_convoy_join_link_open">Open</string>
+    <string name="friends_convoy_join_link_invalid">That isn\'t a convoy invite link.</string>
+    <string name="friends_convoy_join_link_other_server">This link is for %1$s, and Detour is set to another server. Change it under Settings → Servers &amp; sync to join.</string>
+    <string name="friends_convoy_join_signin_first">Sign in to join the convoy from the link you opened.</string>
+    <string name="friends_convoy_join_title">Join %1$s?</string>
+    <string name="friends_convoy_join_title_link">Convoy invite</string>
+    <string name="friends_convoy_join_checking">Checking the link…</string>
+    <string name="friends_convoy_join_host">Host: %1$s · Riders: %2$d</string>
+    <string name="friends_convoy_join_sharing">When you go live in this convoy, everyone in it sees your live position. It is shared with this convoy only, and stops when you stop live, leave, or the convoy ends.</string>
+    <string name="friends_convoy_join_already">You\'re already in this convoy.</string>
+    <string name="friends_convoy_join">Join</string>
+    <string name="friends_convoy_join_retry">Try again</string>
+    <string name="friends_convoy_join_unknown">This link doesn\'t open a convoy. Ask the host for a new one.</string>
+    <string name="friends_convoy_join_expired">This link has expired or the host revoked it. Ask the host for a new one.</string>
+    <string name="friends_convoy_join_removed">The host removed you from this convoy, so its links no longer let you in.</string>
+    <string name="friends_convoy_join_full">This convoy is full: 8 riders have already joined it by link.</string>
+    <string name="friends_convoy_join_too_many">Too many tries with this link. Wait 10 minutes and try again.</string>
     <string name="friends_friend_username">Friend\'s username</string>
 
     <!-- CirclesScreen.kt -->
