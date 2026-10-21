@@ -15,12 +15,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.LatLonBox
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.TrafficCorridor
+import com.jellemax.detour.map.MapViewport
 import com.jellemax.detour.presentation.TrafficOnRoute
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
@@ -238,6 +240,10 @@ fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
             // is the one that has to stay.
             map.uiSettings.isLogoEnabled = false
             retained.map = map
+            // Once for the Activity, like the rest of this callback: the
+            // "Download this area" dialog keeps the last-seen view (#510).
+            map.addOnCameraIdleListener { publishViewport(map) }
+            publishViewport(map)
         }
         onDispose {
             retained.fogView.map = null
@@ -284,4 +290,16 @@ fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
     }
 
     return retained
+}
+
+private fun publishViewport(map: MapLibreMap) {
+    val bounds = map.projection.visibleRegion.latLngBounds
+    MapViewport.update(
+        LatLonBox(
+            north = bounds.latitudeNorth,
+            south = bounds.latitudeSouth,
+            east = bounds.longitudeEast,
+            west = bounds.longitudeWest,
+        ),
+    )
 }

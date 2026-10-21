@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import com.jellemax.detour.data.FollowedRoute
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
@@ -101,6 +102,7 @@ internal object SpinResultHolder {
 internal fun seedRouteNavigation(route: SavedRoute) {
     Settings.setTripMode(route.mode)
     val last = route.stops.last()
+    FollowedRoute.offer(route, destination = last.at, route = null)
     SpinResultHolder.seedDestination(
         destination = last.at,
         name = last.name.ifBlank { route.name },
@@ -122,5 +124,6 @@ internal fun seedRouteNavigation(route: SavedRoute) {
  */
 internal fun seedLoopNavigation(route: SavedRoute, routed: RouteResult) {
     Settings.setTripMode(route.mode)
+    FollowedRoute.offer(route, destination = null, route = routed)
     SpinResultHolder.seedLoop(routed)
 }

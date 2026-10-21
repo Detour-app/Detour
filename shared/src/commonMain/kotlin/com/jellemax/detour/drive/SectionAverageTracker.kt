@@ -7,8 +7,9 @@ import com.jellemax.detour.data.SpeedCameras
 /**
  * Average speed through a trajectcontrole. Enter at one end heading for the
  * other, then integrate GPS distance over elapsed time until we pass that far
- * end (or overshoot / time out). The average is what the section actually
- * measures, so it's the number worth seeing while inside one.
+ * end (or overshoot / time out / leave the section's road). The average is
+ * what the section actually measures, so it's the number worth seeing while
+ * inside one.
  *
  * A step function over an immutable [State]: the caller holds one, hands it and
  * a fix in, and replaces it with what comes back. No clock of its own - the
@@ -56,6 +57,44 @@ object SectionAverageTracker {
     /** Last resort: half an hour in one section is a stop, not a transit. */
     const val TIMEOUT_MS = 30 * 60_000L
 
+    /** Further than this from a section's road line is off it (#740): wide enough
+     *  for the far carriageway of a dual carriageway mapped as one way, and for a
+     *  fix scattered off it. */
+    const val OFF_ROAD_METERS = 150.0
+
+    /** A line counts as the section's road only with a vertex this far from both
+     *  ends. Mirrors `END_CLUSTER_M` in `tools/camera-importer/osm_import.py`: a
+     *  relation with no ways comes through as its device nodes, every one of them
+     *  within that radius of an end, and a chord between two gantries is not the
+     *  road between them. */
+    const val ROAD_LINE_MIN_OFFSET_METERS = 120.0
+
+    /** Without a road line, further than this past the closest the far end has
+     *  been is driving away from it - off the section (#740). A section's road
+     *  does not double back on itself by this much. Not applied with a road
+     *  line, which says so directly and is not fooled by a road that bends away
+     *  from its far end. */
+    const val RECEDE_METERS = 300.0
+
+    /** Off the road or receding has to hold over consecutive fixes this far
+     *  apart in travelled distance before it clears (#740). `lastFix` is
+     *  published before the service's accuracy gate, so one outlier - a tunnel
+     *  exit, an urban canyon - reaches this machine, and a measurement it
+     *  cleared could not re-arm mid-section. Measured from the first off fix,
+     *  so the jump onto it is not part of the hold. */
+    const val LEFT_ROAD_HOLD_METERS = 200.0
+
+    /** And over at least this many off fixes, the first included: two outliers
+     *  far apart cover [LEFT_ROAD_HOLD_METERS] between them on their own. */
+    const val LEFT_ROAD_MIN_FIXES = 3
+
+    /** A fix further from the last trusted one than this speed covers is an
+     *  outlier (#740), not a rider: 252 km/h. It neither moves the closest the
+     *  far end has been nor advances or ends an off-road run, and the next fix
+     *  is judged against the trusted one before it, so the jump back is not
+     *  counted either. */
+    const val MAX_PLAUSIBLE_MPS = 70.0
+
     /** The average and the limit it is judged against, as one value, so the two
      *  cannot disagree across a recomposition and so exporting them costs one
      *  iOS watcher subclass rather than two. */
@@ -68,13 +107,27 @@ object SectionAverageTracker {
         val accMeters: Double = 0.0,
         val last: LatLon? = null,
         val reading: Reading = Reading(null, null),
+        val closestExitMeters: Double = Double.MAX_VALUE,
+        /** The current run of off-road fixes, null while on the road. See
+         *  [LEFT_ROAD_HOLD_METERS]. */
+        val offRoad: OffRoadRun? = null,
+        /** The last fix that was not an outlier. See [MAX_PLAUSIBLE_MPS]. */
+        val trusted: TrustedFix? = null,
     )
 
-    /** Which of the three clauses in [advance] ended a measurement. Reported
-     *  rather than recomputed: a caller that wants to say *why* a readout
-     *  vanished would otherwise have to re-derive all three from [State], and a
-     *  second copy of that arithmetic is a second thing that can disagree. */
-    enum class ExitReason { REACHED_END, OVERSHOT, TIMED_OUT }
+    /** [meters] travelled between trusted fixes since the first off-road one,
+     *  over [fixes] off-road fixes. */
+    data class OffRoadRun(val meters: Double, val fixes: Int)
+
+    data class TrustedFix(val at: LatLon, val ms: Long)
+
+    /** Which of the clauses in [advance] ended a measurement. Reported rather
+     *  than recomputed: a caller that wants to say *why* a readout vanished
+     *  would otherwise have to re-derive them all from [State], and a second
+     *  copy of that arithmetic is a second thing that can disagree.
+     *  [LEFT_ROAD] is the rider off the section's road or driving away from its
+     *  far end (#740). */
+    enum class ExitReason { REACHED_END, OVERSHOT, TIMED_OUT, LEFT_ROAD }
 
     /**
      * What this fix did, for a caller that logs. Nothing here is needed to
@@ -172,11 +225,14 @@ object SectionAverageTracker {
         // Nearest match, not the first: the two directions of one
         // trajectcontrole are separate relations sharing a location, and
         // a short section can sit inside a longer one.
-        val candidates = sections.mapNotNull { s -> sectionExitGate(s, at, heading)?.let { s to it } }
+        val candidates = sections.mapNotNull { s ->
+            sectionExitGate(s, at, heading)?.takeIf { onSectionRoad(s, at, heading) }?.let { s to it }
+        }
         val entered = candidates
             .minByOrNull { (s, _) ->
                 (s.endA + s.endB).minOf { RoadRoulette.distanceMeters(at, it) }
             } ?: return Step(state, Outcome.Silent)
+        val exitGateMeters = entered.second.minOf { RoadRoulette.distanceMeters(at, it) }
         return Step(
             state.copy(
                 active = entered.first,
@@ -185,11 +241,14 @@ object SectionAverageTracker {
                 accMeters = 0.0,
                 last = at,
                 reading = Reading(null, entered.first.maxspeedKmh),
+                closestExitMeters = exitGateMeters,
+                offRoad = null,
+                trusted = TrustedFix(at, nowMs),
             ),
             Outcome.Armed(
                 section = entered.first,
                 at = at,
-                exitGateMeters = entered.second.minOf { RoadRoulette.distanceMeters(at, it) },
+                exitGateMeters = exitGateMeters,
                 candidates = candidates.size,
             ),
         )
@@ -214,8 +273,15 @@ object SectionAverageTracker {
         // An empty gate reads as unreachably far, which is what `any {}` did.
         val nearestExit = state.exitGate
             .minOfOrNull { RoadRoulette.distanceMeters(at, it) } ?: Double.MAX_VALUE
-        val reason = exitReason(accMeters, current.spanMeters, nearestExit, elapsedMs)
-            ?: return Step(state.copy(accMeters = accMeters, last = at, reading = reading), Outcome.Silent)
+        val road = followRoad(state, current, at, nowMs, nearestExit)
+        val leftRoad = road.offRoad?.let {
+            it.fixes >= LEFT_ROAD_MIN_FIXES && it.meters >= LEFT_ROAD_HOLD_METERS
+        } == true
+        val reason = exitReason(accMeters, current.spanMeters, nearestExit, elapsedMs, leftRoad)
+            ?: return Step(
+                road.copy(accMeters = accMeters, last = at, reading = reading),
+                Outcome.Silent,
+            )
         return Step(
             // accMeters is carried, not zeroed: the inline version did not zero
             // it either, and arming overwrites it.
@@ -225,6 +291,9 @@ object SectionAverageTracker {
                 accMeters = accMeters,
                 last = null,
                 reading = Reading(null, null),
+                closestExitMeters = Double.MAX_VALUE,
+                offRoad = null,
+                trusted = null,
             ),
             Outcome.Cleared(
                 reason = reason,
@@ -238,9 +307,42 @@ object SectionAverageTracker {
     }
 
     /**
+     * [state] with this fix's say on whether the rider is still on [section]'s
+     * road (#740): the closest the far end has been, the off-road run and the
+     * last trusted fix. Unchanged for an outlier (see [MAX_PLAUSIBLE_MPS]).
+     *
+     * A fix off the road line does not move the closest the far end has been
+     * either - it is off the road, or an outlier the speed test let through - so
+     * one scattered fix ahead cannot make every true fix after it look like
+     * driving away.
+     */
+    private fun followRoad(
+        state: State,
+        section: SpeedCameras.Section,
+        at: LatLon,
+        nowMs: Long,
+        nearestExit: Double,
+    ): State {
+        val prev = state.trusted
+        val step = prev?.let { RoadRoulette.distanceMeters(it.at, at) } ?: 0.0
+        if (prev != null && step > MAX_PLAUSIBLE_MPS * (nowMs - prev.ms) / 1000.0) return state
+        val line = roadLine(section)
+        val offLine = line != null && distanceToLineMeters(at, line) > OFF_ROAD_METERS
+        val closestExit = if (offLine) state.closestExitMeters else minOf(state.closestExitMeters, nearestExit)
+        val receding = line == null && nearestExit > closestExit + RECEDE_METERS
+        val offRoad = if (offLine || receding) {
+            state.offRoad?.let { OffRoadRun(it.meters + step, it.fixes + 1) } ?: OffRoadRun(0.0, 1)
+        } else {
+            null
+        }
+        return state.copy(closestExitMeters = closestExit, offRoad = offRoad, trusted = TrustedFix(at, nowMs))
+    }
+
+    /**
      * Which clause ends the measurement, or null to keep measuring. Order is the
-     * order the three used to sit in one `if`, so a fix that satisfies more than
-     * one reports the same reason it always exited by.
+     * order the first three used to sit in one `if`, so a fix that satisfies more
+     * than one reports the same reason it always exited by; [leftRoad] came later
+     * and goes last for the same reason.
      *
      * Only the end we drove in towards ends it, and the 150 m floor keeps the
      * gate we entered through from counting as the exit on the fix right after
@@ -251,13 +353,46 @@ object SectionAverageTracker {
         spanMeters: Double,
         nearestExitMeters: Double,
         elapsedMs: Long,
+        leftRoad: Boolean,
     ): ExitReason? = when {
         accMeters > MIN_ACC_METERS_BEFORE_EXIT && nearestExitMeters < SECTION_GATE_METERS ->
             ExitReason.REACHED_END
         accMeters > spanMeters * OVERSHOOT_FACTOR + OVERSHOOT_SLACK_METERS -> ExitReason.OVERSHOT
         elapsedMs > TIMEOUT_MS -> ExitReason.TIMED_OUT
+        leftRoad -> ExitReason.LEFT_ROAD
         else -> null
     }
+
+    /**
+     * [section]'s road, when its line is one: null for a line that is only the
+     * device nodes (see [ROAD_LINE_MIN_OFFSET_METERS]) or is missing. Without it
+     * the tracker falls back to the gate, the wedge and [RECEDE_METERS].
+     */
+    internal fun roadLine(section: SpeedCameras.Section): List<LatLon>? {
+        val ends = section.endA + section.endB
+        return section.line.takeIf { line ->
+            line.size >= 2 && line.any { p ->
+                ends.all { RoadRoulette.distanceMeters(p, it) > ROAD_LINE_MIN_OFFSET_METERS }
+            }
+        }
+    }
+
+    /**
+     * Whether a rider at a gate is on [section]'s road rather than one crossing it
+     * there (#740): the leg of its line nearest [pos] runs along [headingDeg].
+     * Either way round, because the backend's line is its ways in relation order
+     * and one way can run against the next. True when there is no road line - the
+     * gate and the wedge are then all there is to go on.
+     */
+    private fun onSectionRoad(section: SpeedCameras.Section, pos: LatLon, headingDeg: Double): Boolean {
+        val line = roadLine(section) ?: return true
+        val (a, b) = line.zipWithNext()
+            .minBy { (a, b) -> RoadRoulette.distanceToSegmentMeters(pos, a, b) }
+        return RoadRoulette.alignsWith(a, b, headingDeg)
+    }
+
+    private fun distanceToLineMeters(pos: LatLon, line: List<LatLon>): Double =
+        line.zipWithNext().minOf { (a, b) -> RoadRoulette.distanceToSegmentMeters(pos, a, b) }
 
     /**
      * The far end of [section], if this fix is entering it: within the gate of one

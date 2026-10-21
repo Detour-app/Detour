@@ -18,7 +18,7 @@ import DetourShared
 /// read once a tick here rather than observed, so a drop shorter than a tick
 /// is not seen as one. That, the English-only banner and this file's own
 /// voice differ from the phone on purpose: docs/refactor/mapscreen/
-/// 15-divergence-register.md, entry 26.
+/// 15-divergence-register.md, entry 28.
 @MainActor
 final class ConvoyGapAlerts: ObservableObject {
 

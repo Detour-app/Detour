@@ -96,6 +96,13 @@
     <string name="nav_google_maps_round_trip">Google Maps (round trip)</string>
     <string name="nav_other_app">Other app</string>
     <string name="nav_go">Go</string>
+    <string name="nav_curvy">Curvy</string>
+    <string name="nav_curvy_fast">Fast</string>
+    <string name="nav_curvy_balanced">Balanced</string>
+    <string name="nav_curvy_twisty">Twisty</string>
+    <string name="nav_curvy_cost">+%1$d min · +%2$s</string>
+    <string name="nav_curvy_comparing">Comparing with the fastest route…</string>
+    <string name="nav_curvy_unsupported">Curvy routes: your routing server can\'t do this yet</string>
 
     <!-- RouteEditorScreen.kt, RouteFillControls.kt -->
     <string name="route_editor_new">New route</string>
@@ -170,4 +177,14 @@
     <string name="map_traffic_delay">+%1$d min traffic</string>
     <string name="map_traffic_delay_label">on the route ahead</string>
     <string name="map_traffic_closed">Road closed ahead</string>
+    <string name="map_offline_area">Download this area</string>
+    <string name="map_offline_area_estimate">Keeps what the map shows now, down to street level: about %1$d MB. Replaces the previous one.</string>
+    <string name="map_offline_area_too_big">This view is too big: about %1$d MB, and the limit is %2$d MB. Zoom in first.</string>
+    <string name="map_offline_area_no_map">The map has not drawn yet.</string>
+    <string name="map_offline_area_progress">Downloading… %1$d%%</string>
+    <string name="map_offline_area_saved">Saved: %1$d MB</string>
+    <string name="map_offline_area_capped">Stopped at the size limit, so the edges of this view may be missing.</string>
+    <string name="map_offline_area_download">Download</string>
+    <string name="map_offline_area_delete">Delete</string>
+    <string name="map_close">Close</string>
 </resources>

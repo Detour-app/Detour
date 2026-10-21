@@ -6,6 +6,7 @@ import com.jellemax.detour.drive.GroupSpin
 import com.jellemax.detour.drive.IncomingAudioChunk
 import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.TrafficBudget
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -114,6 +115,16 @@ class RouteColorWatcher internal constructor(
     private val flow: StateFlow<Settings.RouteColor>,
 ) : Watcher() {
     var value: Settings.RouteColor = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class CurvyPresetWatcher internal constructor(
+    private val flow: StateFlow<CurvyPreset>,
+) : Watcher() {
+    var value: CurvyPreset = flow.value
         private set
 
     override suspend fun collect(onChange: () -> Unit) =
@@ -330,6 +341,19 @@ class PlaceEventWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+/** HERE requests this month (#682). The [TrafficBudget.Usage] itself rather
+ *  than its count: an [IntWatcher] would need a mapped flow, and a data class
+ *  of two `Int`s reaches Swift typed. */
+class TrafficUsageWatcher internal constructor(
+    private val flow: StateFlow<TrafficBudget.Usage>,
+) : Watcher() {
+    var value: TrafficBudget.Usage = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 /** The settings a SwiftUI screen binds to. */
 object SettingsFlows {
     fun tripMode() = TravelModeWatcher(Settings.tripMode)
@@ -351,9 +375,12 @@ object SettingsFlows {
     fun cameraWarnNotSpeeding() = BoolWatcher(Settings.cameraWarnNotSpeeding)
     fun cameraWarnLimitUnknown() = BoolWatcher(Settings.cameraWarnLimitUnknown)
     fun routeColor() = RouteColorWatcher(Settings.routeColor)
+    fun curvyPreset() = CurvyPresetWatcher(Settings.curvyPreset)
 
     /** Non-blank means tested and on — see `TrafficKeyPresenter`. */
     fun hereTrafficKey() = StringWatcher(Settings.hereTrafficKey)
+    fun trafficOverFreeTier() = BoolWatcher(Settings.trafficOverFreeTier)
+    fun trafficUsage() = TrafficUsageWatcher(Settings.trafficUsage)
     fun authUsername() = StringWatcher(Settings.authUsername)
     fun authRiderId() = RiderIdWatcher(Settings.authRiderId)
 
@@ -407,6 +434,7 @@ object SettingsValues {
     val tripMode: TravelMode get() = Settings.tripMode.value
     val autoDetectDrives: Boolean get() = Settings.autoDetectDrives.value
     val routePreferences: RoutePreferences get() = Settings.routePreferences()
+    val navRoutePreferences: RoutePreferences get() = Settings.navRoutePreferences()
     val voiceGuidance: Boolean get() = Settings.voiceGuidance.value
     val routeColor: Settings.RouteColor get() = Settings.routeColor.value
     val shareFog: Boolean get() = Settings.shareFog.value
@@ -468,6 +496,10 @@ object Enums {
     val travelModes: List<TravelMode> = TravelMode.entries.toList()
     val badgeKinds: List<BadgeKind> = BadgeKind.entries.toList()
     val routeColors: List<Settings.RouteColor> = RouteColors.all
+
+    /** The curviness slider's stops in order, fast to twisty: Swift maps a
+     *  slider position to a preset by index instead of naming entries. */
+    val curvyPresets: List<CurvyPreset> = CurvyPreset.entries.toList()
 
     /** Spelling an enum *entry* in Swift means trusting Kotlin/Native's name
      *  mangling for it; naming the one default here does not. */

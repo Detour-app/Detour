@@ -1,6 +1,7 @@
 package com.jellemax.detour.data
 
 import com.jellemax.detour.drive.FuelType
+import com.jellemax.detour.drive.TrafficBudget
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -125,15 +126,25 @@ object Settings {
     private val _avoidUnpaved = MutableStateFlow(false)
     val avoidUnpaved: StateFlow<Boolean> = _avoidUnpaved
 
+    /** The A→B dock slider's preset (#652): saved, so a reroute mid-ride asks for the same bends. */
+    private val _curvyPreset = MutableStateFlow(CurvyPreset.FAST)
+    val curvyPreset: StateFlow<CurvyPreset> = _curvyPreset
+
     /** The avoid options as they stand now, for a routing request — minus any
      *  the routing server has not said it supports, so a choice made against
-     *  one server never 400s every route on another. */
-    fun routePreferences() = RoutePreferences(
+     *  one server never 400s another's routes. Always the fastest route. */
+    fun routePreferences() = routePreferencesWith(CurvyPreset.FAST)
+
+    /** [routePreferences] plus [curvyPreset], for the A→B route: preview, Start, every reroute. */
+    fun navRoutePreferences() = routePreferencesWith(_curvyPreset.value)
+
+    private fun routePreferencesWith(curvy: CurvyPreset) = RoutePreferences(
         avoidHighways = _avoidHighways.value,
         avoidSmallRoads = _avoidSmallRoads.value,
         avoidTolls = _avoidTolls.value,
         avoidFerries = _avoidFerries.value,
         avoidUnpaved = _avoidUnpaved.value,
+        curvy = curvy,
     ).supportedBy(RoutingSupport.known())
 
     /** Broadcast turn-by-turn state over BLE for an external display (e.g. a
@@ -258,6 +269,14 @@ object Settings {
     private val _hereTrafficKey = MutableStateFlow("")
     val hereTrafficKey: StateFlow<String> = _hereTrafficKey
 
+    /** Rider opted out of the monthly HERE request cap ([TrafficBudget]). */
+    private val _trafficOverFreeTier = MutableStateFlow(false)
+    val trafficOverFreeTier: StateFlow<Boolean> = _trafficOverFreeTier
+
+    /** HERE requests made this month, persisted so a restart cannot reset it. */
+    private val _trafficUsage = MutableStateFlow(TrafficBudget.Usage())
+    val trafficUsage: StateFlow<TrafficBudget.Usage> = _trafficUsage
+
     /** Mount-to-bike misalignment, subtracted from every lean reading. Zero
      *  until the user runs calibration (bike upright, engine off) from
      *  Settings; see [com.jellemax.detour.tracking.TripTrackingService]. */
@@ -376,11 +395,7 @@ object Settings {
             )
         }.getOrDefault(DecimalSeparator.SYSTEM)
         _autoDetectDrives.value = prefs.bool("auto_detect_drives", true)
-        _avoidHighways.value = prefs.bool("avoid_highways", false)
-        _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
-        _avoidTolls.value = prefs.bool("avoid_tolls", false)
-        _avoidFerries.value = prefs.bool("avoid_ferries", false)
-        _avoidUnpaved.value = prefs.bool("avoid_unpaved", false)
+        loadRoutePrefs()
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
         loadSpinPrefs()
         _shareFog.value = prefs.bool("share_fog", false)
@@ -572,6 +587,20 @@ object Settings {
         if (trimmed.isEmpty()) secure.remove("here_traffic_key") else secure.put("here_traffic_key", trimmed)
     }
 
+    fun setTrafficOverFreeTier(value: Boolean) {
+        _trafficOverFreeTier.value = value
+        prefs.put("traffic_over_free_tier", value)
+    }
+
+    /** How many of [wanted] HERE requests may go out now; counts them. */
+    fun spendTrafficRequests(wanted: Int, nowMs: Long): Int {
+        val (granted, usage) = TrafficBudget.grant(_trafficUsage.value, wanted, nowMs, _trafficOverFreeTier.value)
+        _trafficUsage.value = usage
+        prefs.put("traffic_usage_month", usage.month.toLong())
+        prefs.put("traffic_usage_count", usage.count.toLong())
+        return granted
+    }
+
     fun setTheme(value: Theme) {
         _theme.value = value
         prefs.put("theme", value.name)
@@ -612,6 +641,11 @@ object Settings {
         prefs.put("avoid_unpaved", value)
     }
 
+    fun setCurvyPreset(value: CurvyPreset) {
+        _curvyPreset.value = value
+        prefs.put("curvy_preset", value.name)
+    }
+
     fun setExternalDisplayEnabled(value: Boolean) {
         _externalDisplayEnabled.value = value
         prefs.put("external_display_enabled", value)
@@ -620,6 +654,15 @@ object Settings {
     fun setTripMode(value: TravelMode) {
         _tripMode.value = value
         prefs.put("trip_mode", value.name)
+    }
+
+    private fun loadRoutePrefs() {
+        _avoidHighways.value = prefs.bool("avoid_highways", false)
+        _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
+        _avoidTolls.value = prefs.bool("avoid_tolls", false)
+        _avoidFerries.value = prefs.bool("avoid_ferries", false)
+        _avoidUnpaved.value = prefs.bool("avoid_unpaved", false)
+        _curvyPreset.value = decodeCurvyPreset(prefs.string("curvy_preset"))
     }
 
     /** The spin sheet's persisted choices: the mode and how its loop is sized.
@@ -641,6 +684,11 @@ object Settings {
         // A Navigation setting (#637) but a credential, so from the secure
         // bag. Here rather than in init(), whose length §8 pins.
         _hereTrafficKey.value = secure.string("here_traffic_key")
+        _trafficOverFreeTier.value = prefs.bool("traffic_over_free_tier", false)
+        _trafficUsage.value = TrafficBudget.Usage(
+            prefs.long("traffic_usage_month", 0L).toInt(),
+            prefs.long("traffic_usage_count", 0L).toInt(),
+        )
     }
 
     fun setLoopByTime(value: Boolean) {

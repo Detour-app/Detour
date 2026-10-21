@@ -140,7 +140,8 @@ struct SettingsScreen: View {
         .task { await model.refreshRoutingSupport() }
     }
 
-    /// The HERE traffic key (#654): a secret field, Test key, and Remove key.
+    /// The HERE traffic key (#654): a secret field, Test key, and Remove key;
+    /// with a key stored, the monthly cap's opt-out and count (#682).
     /// The rule — test once, store only on a pass — is `TrafficKeyPresenter`'s
     /// in `:shared`; this only draws it.
     private var trafficSection: some View {
@@ -155,6 +156,22 @@ struct SettingsScreen: View {
                 Text(line)
                     .font(.footnote)
                     .foregroundStyle(traffic.failed ? .red : .secondary)
+            }
+            if !traffic.storedKey.isEmpty {
+                Toggle(isOn: Binding(
+                    get: { traffic.overFreeTier },
+                    set: { Settings.shared.setTrafficOverFreeTier(value: $0) }
+                )) {
+                    VStack(alignment: .leading) {
+                        Text("Go over the free allocation")
+                        Text("""
+                            Off: traffic pauses at \(TrafficBudget.shared.FREE_TIER) requests a \
+                            month so HERE never bills you. Used this month: \(traffic.usedThisMonth).
+                            """)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             Button("Test key") { Task { await traffic.test() } }
                 .disabled(!traffic.canTest)
@@ -385,16 +402,21 @@ final class SettingsModel: ObservableObject {
 }
 
 /// The HERE key section's state (#654): the stored key, the field's draft and
-/// the shared presenter's verdict, through `TrafficKeyHolder`.
+/// the shared presenter's verdict, through `TrafficKeyHolder`; and the monthly
+/// cap's opt-out and count (#682), straight from `Settings`.
 @MainActor
 final class TrafficKeyModel: ObservableObject {
 
     @Published private(set) var storedKey = ""
     @Published private(set) var draft = ""
     @Published private(set) var status: TrafficKeyStatus = .idle
+    @Published private(set) var overFreeTier = false
+    @Published private(set) var usedThisMonth: Int32 = 0
 
     private let holder = TrafficKeyHolder()
     private let stored = SettingsFlows.shared.hereTrafficKey()
+    private let over = SettingsFlows.shared.trafficOverFreeTier()
+    private let usage = SettingsFlows.shared.trafficUsage()
     private let statusWatch: TrafficKeyStatusWatcher
 
     init() {
@@ -410,11 +432,21 @@ final class TrafficKeyModel: ObservableObject {
             guard let self else { return }
             self.status = self.statusWatch.value
         }
+        over.watch { [weak self] in
+            guard let self else { return }
+            self.overFreeTier = self.over.value
+        }
+        usage.watch { [weak self] in
+            guard let self else { return }
+            self.usedThisMonth = self.usage.value.count
+        }
     }
 
     deinit {
         stored.cancel()
         statusWatch.cancel()
+        over.cancel()
+        usage.cancel()
     }
 
     var canTest: Bool {

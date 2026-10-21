@@ -93,6 +93,13 @@
     <string name="nav_google_maps_round_trip">Google Maps (rondrit)</string>
     <string name="nav_other_app">Andere app</string>
     <string name="nav_go">Ga</string>
+    <string name="nav_curvy">Bochten</string>
+    <string name="nav_curvy_fast">Snel</string>
+    <string name="nav_curvy_balanced">Gemengd</string>
+    <string name="nav_curvy_twisty">Bochtig</string>
+    <string name="nav_curvy_cost">+%1$d min · +%2$s</string>
+    <string name="nav_curvy_comparing">Vergelijken met de snelste route…</string>
+    <string name="nav_curvy_unsupported">Bochtige routes: je routeserver kan dit nog niet</string>
 
     <!-- RouteEditorScreen.kt, RouteFillControls.kt -->
     <string name="route_editor_new">Nieuwe route</string>
@@ -167,4 +174,14 @@
     <string name="map_traffic_delay">+%1$d min file</string>
     <string name="map_traffic_delay_label">op de route vooruit</string>
     <string name="map_traffic_closed">Weg verderop afgesloten</string>
+    <string name="map_offline_area">Dit gebied downloaden</string>
+    <string name="map_offline_area_estimate">Bewaart wat de kaart nu toont, tot straatniveau: ongeveer %1$d MB. Vervangt het vorige.</string>
+    <string name="map_offline_area_too_big">Dit beeld is te groot: ongeveer %1$d MB, en de limiet is %2$d MB. Zoom eerst in.</string>
+    <string name="map_offline_area_no_map">De kaart is nog niet getekend.</string>
+    <string name="map_offline_area_progress">Downloaden… %1$d%%</string>
+    <string name="map_offline_area_saved">Bewaard: %1$d MB</string>
+    <string name="map_offline_area_capped">Gestopt bij de limiet, dus de randen van dit beeld ontbreken mogelijk.</string>
+    <string name="map_offline_area_download">Downloaden</string>
+    <string name="map_offline_area_delete">Verwijderen</string>
+    <string name="map_close">Sluiten</string>
 </resources>

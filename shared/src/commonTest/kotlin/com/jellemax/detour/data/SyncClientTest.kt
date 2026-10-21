@@ -28,6 +28,21 @@ class SyncClientTest {
     }
 
     @Test
+    fun theRiddenSpinSurvivesTheSyncRoundTrip() {
+        // The server keeps a trip document opaque (SyncTests'
+        // Unknown_trip_fields_survive_the_round_trip), so what comes back is
+        // what was uploaded; the link has to survive upload and re-read (#590).
+        val trip = Trip(
+            startTimeMs = 1000L, endTimeMs = 2000L, distanceMeters = 1.0, topSpeedMps = 10.0,
+            destinationLat = null, destinationLon = null, spinRouteId = 1_726_100_000_000L,
+        )
+
+        val uploaded = SyncClient.tripForUpload(TripStore.encode(trip))
+
+        assertEquals(1_726_100_000_000L, TripStore.decodeTrip(uploaded).spinRouteId)
+    }
+
+    @Test
     fun aDeviceThatNeverToggledFogSharingLeavesItOutOfTheUpload() {
         // A fresh install defaults to off; sending that turned sharing off for
         // an account another device had turned on (#689).

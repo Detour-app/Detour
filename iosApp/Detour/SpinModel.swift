@@ -43,9 +43,29 @@ final class SpinModel: ObservableObject {
     /// Radius in metres, matching the Android app's slider range.
     @Published var radiusMeters: Double = 25_000
 
+    /// Set while the destination is a place picked from search: where it was
+    /// routed from and for which mode, so the curviness slider (#660) can ask
+    /// again from the same start. Nil for spins, convoy picks and regroup,
+    /// which route fastest and get no slider.
+    @Published private(set) var searched: SearchedRoute?
+    /// The last `curvyRouteVia` answer for the searched place — `routeResult`
+    /// plus its detour cost and twistiness, for the slider's cost line.
+    @Published private(set) var searchedCurvy: CurvyRoute?
+    /// Bumped on every searched-route request and every destination change,
+    /// so an answer that lands after the rider moved the slider again, or
+    /// picked something else, is dropped.
+    private var searchedRequest = 0
+
+    struct SearchedRoute: Equatable {
+        let from: LatLon
+        let mode: TravelMode
+        var loading: Bool
+    }
+
     /// A destination chosen by hand rather than rolled for. Clears any route
     /// from an earlier spin — that one led somewhere else.
     func setDestination(_ target: LatLon) {
+        dropSearched()
         destination = target
         route = []
         routeResult = nil
@@ -56,6 +76,7 @@ final class SpinModel: ObservableObject {
     /// Commits one of the three rolls. Its route came back with the candidate,
     /// so unlike a searched-for place this needs no second routing request.
     func choose(_ candidate: RouteCandidate) {
+        dropSearched()
         candidates = []
         destination = candidate.destination
         routeResult = candidate.route
@@ -70,9 +91,9 @@ final class SpinModel: ObservableObject {
     }
 
     /// Takes a destination that arrived without a route — a convoy's committed
-    /// spin — and routes to it. Every member has to ask for their own: the
-    /// sharer's polyline is a line from *their* position, and drawing it here
-    /// would show a route starting somewhere you are not.
+    /// spin or the regroup point — and routes to it. Every convoy member has to ask for their own: the sharer's polyline
+    /// is a line from *their* position, and drawing it here would show a route
+    /// starting somewhere you are not.
     func setDestinationRouting(
         to target: LatLon, from here: CLLocationCoordinate2D, mode: TravelMode
     ) async {
@@ -101,6 +122,63 @@ final class SpinModel: ObservableObject {
             distanceMeters: result.distanceMeters?.doubleValue)
     }
 
+    /// A place picked from search, routed from `here` with `preferences` —
+    /// the A→B ones, avoid options plus the curvy preset — through
+    /// `curvyRouteVia`, so the route Start navigates and the slider's cost
+    /// line come from the same answer.
+    func routeSearched(
+        to target: LatLon, from here: LatLon, mode: TravelMode, preferences: RoutePreferences
+    ) async {
+        setDestination(target)
+        searched = SearchedRoute(from: here, mode: mode, loading: false)
+        await fetchSearched(preferences: preferences)
+    }
+
+    /// Asks for the searched place again after the curvy preset moved, from
+    /// where it was first routed. The phone asks its preview from the fix at
+    /// the moment the slider moves instead (divergence register entry 27).
+    /// The old line is dropped while it's asked for, so Start can't navigate
+    /// a route the slider no longer shows.
+    func rerouteSearched(preferences: RoutePreferences) async {
+        guard searched != nil else { return }
+        route = []
+        routeResult = nil
+        await fetchSearched(preferences: preferences)
+    }
+
+    private func fetchSearched(preferences: RoutePreferences) async {
+        guard let ask = searched, let target = destination else { return }
+        searchedRequest += 1
+        let request = searchedRequest
+        searchedCurvy = nil
+        searched?.loading = true
+        defer { if request == searchedRequest { searched?.loading = false } }
+        let server = RoutingServer.shared.load()
+        guard server.usable else { return }
+        let result = try? await RoutingClient.shared.curvyRouteVia(
+            config: server,
+            points: [ask.from, target],
+            profile: ask.mode.ghProfile,
+            preferences: preferences,
+            heading: nil
+        )
+        guard let result, request == searchedRequest else { return }
+        searchedCurvy = result
+        routeResult = result.route
+        route = result.route.polyline.map {
+            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+        }
+        state = .found(
+            lat: target.lat, lon: target.lon,
+            distanceMeters: result.route.distanceMeters?.doubleValue)
+    }
+
+    private func dropSearched() {
+        searchedRequest += 1
+        searched = nil
+        searchedCurvy = nil
+    }
+
     /// Drops the rolls without picking one, leaving the map as it was.
     func clearCandidates() {
         candidates = []
@@ -123,6 +201,7 @@ final class SpinModel: ObservableObject {
     /// by `radiusMeters`, which for a loop means its length.
     func spin(from here: CLLocationCoordinate2D, mode: TravelMode, loopMinutes: Float? = nil) async {
         state = .spinning
+        dropSearched()
         route = []
         routeResult = nil
         self.destination = nil

@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
+import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaceKind
 import com.jellemax.detour.data.TravelMode
@@ -111,6 +112,14 @@ private const val SHEET_ALPHA = 0.96f
  *  Shared with [SpinSheet]'s handle in `SpinCards.kt`, same package. */
 internal val SHEET_SWIPE_THRESHOLD = 24.dp
 
+/** The Spin chip's two readouts. [loopDistance] is set while a loop is still on
+ *  the map (the sheet was folded away to see it), so the chip is the way back
+ *  to its Re-spin and Go. */
+internal data class SpinChip(val mode: TravelMode, val loopDistance: String? = null)
+
+internal fun spinChipFor(mode: TravelMode, route: RouteResult?) =
+    SpinChip(mode, route?.distanceMeters?.let { formatDistanceKm(it) })
+
 /**
  * The map's idle home state: a bottom sheet carrying everywhere you might want
  * to go next — search, your saved places, the spin settings, Routes and Social.
@@ -129,7 +138,8 @@ internal val SHEET_SWIPE_THRESHOLD = 24.dp
  * shows once there is *no* destination, which is exactly when there would be
  * nothing to save.
  *
- * @param mode the travel mode a spin would roll under. A readout, not a
+ * @param spin what the Spin chip reads out: the travel mode a spin would roll
+ *   under, and the length of a loop still on the map. A readout, not a
  *   control — the switch itself lives in `SpinSheet`, one tap away through the
  *   same chip, which is where the Spin chip's glyph comes from; see
  *   [ShortcutChipRow].
@@ -143,7 +153,7 @@ internal fun ColumnScope.HomeSheet(
     onPickDestination: (GeocodeResult) -> Unit,
     savedPlaces: List<SavedPlace>,
     onPickPlace: (SavedPlace) -> Unit,
-    mode: TravelMode,
+    spin: SpinChip,
     onSpinSettings: () -> Unit,
     onOpenRoutes: () -> Unit,
     onOpenSocial: () -> Unit,
@@ -190,12 +200,13 @@ internal fun ColumnScope.HomeSheet(
                 // Landscape: the two cards below would
                 // stand the sheet ~70 dp taller on a screen ~390 dp high, into
                 // the speed island above it, so they shrink to glyph chips at
-                // the end of this row instead.
+                // the end of this row instead — and the row, in the narrower
+                // landscape sheet, makes room for them (#738).
                 val landscape = isLandscape()
                 ShortcutChipRow(
-                    places = shortcuts,
+                    places = if (landscape) shortcuts.take(LANDSCAPE_MAX_PLACES) else shortcuts,
                     onPick = onPickPlace,
-                    mode = mode,
+                    spin = spin,
                     onSpinSettings = onSpinSettings,
                     onOpenRoutes = onOpenRoutes.takeIf { landscape },
                     onOpenSocial = onOpenSocial.takeIf { landscape },
@@ -301,7 +312,7 @@ internal fun DragHandle(onExpand: (() -> Unit)? = null) {
  * favourites, in that order — not the whole store the map's chips used to
  * render. The row scrolls, so any number of favourites is safe here.
  *
- * The Spin chip still shows [mode], as its leading glyph rather than the
+ * The Spin chip still shows [SpinChip.mode], as its leading glyph rather than the
  * `Spin · Car` it used to spell out. The dock that used to show the mode went
  * with the mode switch into `SpinSheet`, and the idle map must say whether it
  * is about to roll a car route or a moto one — mode decides the radius default,
@@ -312,12 +323,16 @@ internal fun DragHandle(onExpand: (() -> Unit)? = null) {
  * segmented control it opens spells it out and announces it
  * (`SpinCards.kt`), and the dice it replaces was saying what the word `Spin`
  * beside it already says.
+ *
+ * In landscape the Spin chip drops its words too, glyph alone: see
+ * [LANDSCAPE_MAX_PLACES] for the width that leaves. The words move to the
+ * glyph's content description, so a screen reader still hears them.
  */
 @Composable
 private fun ShortcutChipRow(
     places: List<SavedPlace>,
     onPick: (SavedPlace) -> Unit,
-    mode: TravelMode,
+    spin: SpinChip,
     onSpinSettings: () -> Unit,
     onOpenRoutes: (() -> Unit)?,
     onOpenSocial: (() -> Unit)?,
@@ -347,11 +362,23 @@ private fun ShortcutChipRow(
         }
         // The dice moved into the spin sheet with the dock, so this is now the
         // only way to reach it — and, with it, the only way to roll a spin.
+        // A loop still on the map (the sheet was folded away to see it)
+        // says so here: this chip is the way back to its Re-spin and Go.
+        val spinGlyphOnly = isLandscape()
+        val spinLabel = stringResource(R.string.home_spin) + (spin.loopDistance?.let { " · $it" } ?: "")
         AssistChip(
             onClick = onSpinSettings,
-            label = { Text(stringResource(R.string.home_spin), fontWeight = FontWeight.SemiBold, maxLines = 1) },
-            leadingIcon = {
-                Icon(mode.icon, contentDescription = mode.label, Modifier.size(18.dp))
+            label = {
+                if (spinGlyphOnly) {
+                    Icon(spin.mode.icon, contentDescription = "$spinLabel, ${spin.mode.label}", Modifier.size(18.dp))
+                } else {
+                    Text(spinLabel, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
+            },
+            leadingIcon = if (spinGlyphOnly) {
+                null
+            } else {
+                { Icon(spin.mode.icon, contentDescription = spin.mode.label, Modifier.size(18.dp)) }
             },
             colors = AssistChipDefaults.assistChipColors(
                 containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
@@ -367,6 +394,29 @@ private fun ShortcutChipRow(
         onOpenSocial?.let { GlyphChip(Icons.Outlined.Diversity3, stringResource(R.string.home_social), it) }
     }
 }
+
+/**
+ * How many saved places the landscape row shows (#738). The landscape sheet is
+ * `LANDSCAPE_HOME_SHEET_WIDTH` (`MapBottom.kt`), 336 dp, less 2 × 16 dp of sheet
+ * padding: 304 dp for the row, at the same 50 dp of chip chrome
+ * [PLACE_CHIP_MAX_WIDTH] counts. The widest pair is two named favourites:
+ *
+ * ```
+ *  50  Spin             glyph, no label
+ *  50  Routes           glyph
+ *  50  Social           glyph
+ *  60  a favourite      capped at PLACE_CHIP_MAX_WIDTH
+ *  60  a favourite
+ *  32  four 8 dp gaps
+ * ---
+ * 302, inside 304.
+ * ```
+ *
+ * Home and Work are 50 each, so any other pair is narrower. A third place
+ * cannot fit, and the scroll that carries it in portrait left a chip cut
+ * through at the row's edge — what #738 reported.
+ */
+private const val LANDSCAPE_MAX_PLACES = 2
 
 /** A [DestinationCard] squeezed to a glyph-only chip, for the landscape row. */
 @Composable

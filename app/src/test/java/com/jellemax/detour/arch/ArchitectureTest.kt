@@ -102,7 +102,8 @@ class ArchitectureTest {
     fun `files stay under 1000 lines - section 8`() {
         val pinned = mapOf(
             // +4: #472 car-started flag on the nav start intent; +5: #500 precise-only trip start
-            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1811,
+            // +10: #590 saved-spin id on the nav start intent, carried to the saved trip
+            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1821,
             // +3: #456 stale-destination guard; +1: #485 MapSurface import; -1: #432 route-fetch guard
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
             // +2: #549 camera banner and the island's gap under it
@@ -112,7 +113,9 @@ class ArchitectureTest {
             // +5: #589 save-spin callbacks and the saved-loop sheet open
             // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
             // +3: #647 convoy gap voice and banner (both in MapConvoyGap.kt)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1462,
+            // +1: #510 the top rail's offline-area button (the dialog is in OfflineAreaDialog.kt)
+            // +1: #590 FollowedRoute import (the claim is on the existing recordTrip line)
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1464,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,
@@ -134,7 +137,7 @@ class ArchitectureTest {
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 150,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             // +3: #587 the three graph-dependent avoid options
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 108,
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 104,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#attempt" to 105,
         )
         val sizes = files.filter { it.rel.startsWith("shared/") }

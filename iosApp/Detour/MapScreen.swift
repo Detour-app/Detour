@@ -20,6 +20,8 @@ struct MapScreen: View {
     /// Speed camera markers. Here for the same reason `sections` is: the
     /// phone shows them on a free drive, not only while navigating.
     @StateObject private var cameraAlerts = CameraPrefetchModel()
+    /// The saved curvy preset, for the searched place's slider (#660).
+    @StateObject private var curvyPreset = CurvyPresetModel()
     @State private var showSearch = false
     @State private var navigating = false
     /// Last-known position per other member, across every circle you're in.
@@ -35,6 +37,10 @@ struct MapScreen: View {
     /// handed to `ConvoyBar` rather than each holding its own copy, so the two
     /// don't double up on the same `ConvoysStore` subscription.
     @StateObject private var convoyMembers = ActiveConvoyMembersModel()
+    /// The clock break requests age against (#658). They age out on time, not
+    /// on an event, so the `.task` below ticks it to redraw the pills and
+    /// markers when one does.
+    @State private var breakClockMs: Int64 = nowMs()
 
     /// Circle members post a fix every `CircleSync.syncIntervalSeconds` at
     /// most, so polling faster would just re-fetch the same row — matches
@@ -52,7 +58,8 @@ struct MapScreen: View {
                 candidates: candidateRows.map {
                     CLLocationCoordinate2D(latitude: $0.location.lat, longitude: $0.location.lon)
                 },
-                cameras: cameraAlerts.cameras
+                cameras: cameraAlerts.cameras,
+                pins: breakRegroup.mapPins
             )
             .ignoresSafeArea()
 
@@ -67,6 +74,21 @@ struct MapScreen: View {
                     }
                 }
                 ConvoyGapBanner()
+                if live.activeConvoyId != nil {
+                    HStack {
+                        ConvoyBreakRegroupPanel(
+                            state: breakRegroup,
+                            connected: live.connected,
+                            here: recorder.lastFix.map {
+                                LatLon(lat: $0.coordinate.latitude, lon: $0.coordinate.longitude)
+                            },
+                            regroupAt: spin.destination ?? recorder.lastFix.map {
+                                LatLon(lat: $0.coordinate.latitude, lon: $0.coordinate.longitude)
+                            },
+                            onRoute: routeToRegroup)
+                        Spacer(minLength: 0)
+                    }
+                }
                 ConvoyBar(members: convoyMembers)
                 if let stats = recorder.stats {
                     TripCard(stats: stats) { recorder.endTrip() }
@@ -84,6 +106,11 @@ struct MapScreen: View {
             guard let fix else { return }
             sections.update(with: fix)
             cameraAlerts.update(with: fix)
+        }
+        // A moved curviness slider re-asks for the searched place, so the
+        // route Start navigates is the one the cost line describes (#660).
+        .onChange(of: curvyPreset.preset) { _, _ in
+            Task { await spin.rerouteSearched(preferences: SettingsValues.shared.navRoutePreferences) }
         }
         // The three places a vote round can resolve from: a new offer landing
         // (which may itself be the closing one-candidate offer), a vote
@@ -159,6 +186,12 @@ struct MapScreen: View {
                 try? await Task.sleep(for: .seconds(Self.circleFixPollSeconds))
             }
         }
+        .task {
+            while !Task.isCancelled {
+                breakClockMs = nowMs()
+                try? await Task.sleep(for: .milliseconds(ConvoyBreakRegroupStateKt.BREAK_AGE_TICK_MS))
+            }
+        }
         .safeAreaInset(edge: .top) { modePicker }
         .fullScreenCover(isPresented: $navigating) {
             if let route = spin.routeResult {
@@ -168,7 +201,7 @@ struct MapScreen: View {
         }
         .sheet(isPresented: $showSearch) {
             SearchSheet { result in
-                spin.setDestination(result.location)
+                routeToSearched(result.location)
                 showSearch = false
             }
         }
@@ -251,6 +284,10 @@ struct MapScreen: View {
                 }
             }
 
+            if let curvy = curvyRoute {
+                CurvyRouteRow(state: curvy) { Settings.shared.setCurvyPreset(value: $0) }
+            }
+
             HStack(spacing: 10) {
                 Button { showSearch = true } label: {
                     Image(systemName: "magnifyingglass")
@@ -301,6 +338,64 @@ struct MapScreen: View {
         }
         .padding()
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    /// A place picked from search: routed from the current fix with the A→B
+    /// preferences, so Start has turns to navigate — what the phone's Start
+    /// fetches through `fetchNavRoute`. No fix yet leaves a bare pin, and Start
+    /// records toward it. iOS does not reroute (divergence register entry 27).
+    private func routeToSearched(_ target: LatLon) {
+        guard let here = recorder.lastFix?.coordinate else {
+            spin.setDestination(target)
+            return
+        }
+        Task {
+            await spin.routeSearched(
+                to: target, from: LatLon(lat: here.latitude, lon: here.longitude), mode: modes.mode,
+                preferences: SettingsValues.shared.navRoutePreferences)
+        }
+    }
+
+    /// The curviness row's state for the searched place (#660), or nil when
+    /// the destination didn't come from search. Its mode is the one the place
+    /// was routed for, so the control matches the route Start would ride.
+    private var curvyRoute: CurvyRouteState? {
+        guard let searched = spin.searched else { return nil }
+        return CurvyRouteState(
+            control: CurvyRouteStateKt.curvyControl(
+                mode: searched.mode, supported: RoutingSupport.shared.curvyRoutingSupported()),
+            preset: curvyPreset.preset,
+            preview: spin.searchedCurvy,
+            loading: searched.loading)
+    }
+
+    // MARK: Break and regroup
+
+    private var breakRegroup: ConvoyBreakRegroupState {
+        convoyBreakRegroupState(
+            live: live,
+            convoy: convoyMembers.convoys.first { $0.id == live.activeConvoyId },
+            selfId: circleFixRiderId.riderId,
+            here: recorder.lastFix?.coordinate,
+            nowMs: breakClockMs)
+    }
+
+    /// The regroup card's Route: the meeting point becomes the destination and,
+    /// once the router gives turns for it, navigation starts — what the Start
+    /// button does for any other destination (divergence register entry 26).
+    private func routeToRegroup(_ target: LatLon) {
+        guard let here = recorder.lastFix?.coordinate else {
+            spin.setDestination(target)
+            return
+        }
+        Task {
+            await spin.setDestinationRouting(to: target, from: here, mode: modes.mode)
+            // Another pick may have moved the destination while this routed.
+            guard spin.destination?.lat == target.lat, spin.destination?.lon == target.lon,
+                  spin.routeResult?.instructions.isEmpty == false else { return }
+            recorder.startTrip(destination: target)
+            navigating = true
+        }
     }
 
     // MARK: Candidates and the group spin

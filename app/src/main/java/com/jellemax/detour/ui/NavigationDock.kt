@@ -57,19 +57,22 @@ import com.jellemax.detour.data.TravelMode
  * [homeBottomCard] keeps it in the spin sheet, where the loop's own
  * [ResultCallout] and [NavButton] already live.
  *
- * [onSavePin] lives here rather than on the idle home sheet's own `+` chip
+ * [PinActions.onSave] lives here rather than on the idle home sheet's own `+` chip
  * (#329): [homeBottomCard] only shows this dock once a destination exists,
  * and only shows the home sheet once it doesn't, so a save-pin action gated
  * on "there is a destination" could never be reachable from the sheet that
  * used to carry it.
+ *
+ * [curvy] is the curviness row under the mode (#652), a slot because it owns
+ * its own preview request and this dock stays stateless.
  */
 @Composable
 internal fun NavigationDock(
     go: GoTarget,
     error: String?,
     onSelectMode: (TravelMode) -> Unit,
-    onClear: () -> Unit,
-    onSavePin: () -> Unit,
+    pin: PinActions,
+    curvy: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -99,13 +102,13 @@ internal fun NavigationDock(
                     )
                 }
                 Row {
-                    IconButton(onClick = onSavePin) {
+                    IconButton(onClick = pin.onSave) {
                         Icon(
                             Icons.Outlined.Add,
                             contentDescription = stringResource(R.string.nav_save_pin),
                         )
                     }
-                    IconButton(onClick = onClear) {
+                    IconButton(onClick = pin.onClear) {
                         Icon(
                             Icons.Rounded.Close,
                             contentDescription = stringResource(R.string.nav_clear_destination),
@@ -142,6 +145,8 @@ internal fun NavigationDock(
                     contentDescription = modeDescription
                 },
             )
+
+            curvy()
 
             error?.let {
                 Text(

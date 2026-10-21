@@ -69,6 +69,7 @@ import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.ConvoysStore
+import com.jellemax.detour.data.FollowedRoute
 import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
@@ -116,7 +117,7 @@ import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.map.SpinOutcome
 import com.jellemax.detour.map.SpinParams
 import com.jellemax.detour.map.modeSwitch
-import com.jellemax.detour.map.fetchNavRoute
+import com.jellemax.detour.map.fetchStartRoute
 import com.jellemax.detour.map.navStart
 import com.jellemax.detour.map.runSpin
 import com.jellemax.detour.map.NavPolicy
@@ -844,7 +845,7 @@ fun MapScreen(
         s.tappedRider = null
         s.pendingRiderFrame = null
         fun beginGuidance(to: LatLon?) { // #422: no trip until there is a route to guide
-            if (stats == null) permissions.recordTrip(to) // #500: asks for precise first
+            if (stats == null) permissions.recordTrip(to, FollowedRoute.claim(s.destination, s.route)) // #500, #590
             s.navigating = true
             // #439: fetch the map along the line now, while there is signal to do it.
             s.route?.let { RouteTileCache.prefetch(context, it.polyline, darkTheme) }
@@ -863,7 +864,7 @@ fun MapScreen(
                 s.rerouting = true
                 scope.launch {
                     try {
-                        val route = fetchNavRoute(serverConfig, loc, start.destination, mode)
+                        val route = fetchStartRoute(serverConfig, loc, start.destination, mode)
                         if (s.destination != start.destination) return@launch // #456: ✕'d or re-picked mid-fetch
                         s.route = route
                         beginGuidance(start.destination)
@@ -944,12 +945,12 @@ fun MapScreen(
         scope = scope,
         announcer = announcer,
         announceAloud = { announceAloud(it) },
-        // Arrival is a definite end of the drive — end the trip navigation
-        // started at once, rather than leaving it to a movement check.
+        // Arrival ends the drive: end the trip navigation started at once, not on a movement check.
         onArrive = {
             stopNavigation()
             TripTrackingService.navigationEnded(context, endNow = true)
         },
+        ambientSpeedLimitKmh = retained.ambientSpeedLimitKmh, // the map's off-route sign
     )
 
     // The banner, its "then" chip, the bottom bar and the HUD's limit source all
@@ -1247,6 +1248,7 @@ fun MapScreen(
                     layers = MapLayers(
                         fogEnabled = fogEnabled,
                         onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
+                        onOpenOfflineArea = { s.showOfflineArea = true },
                     ),
                     onToggleFollow = {
                         // #294 AC: turning follow back on clears a rider

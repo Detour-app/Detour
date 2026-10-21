@@ -2191,9 +2191,102 @@ check 'iOS heading corner gated on course' 1 \
     "$(grep -c 'location.course >= 0' iosApp/Detour/TripRecorder.swift)"
 ```
 
+## 26. Break and regroup on iOS: the state rules are shared, the labels and the Route hand-off are not
+
+**New with `#658`** — recorded on entry 25's precedent, because `iosApp/Detour/ConvoyBreakRegroup.swift`
+and `iosApp/Detour/MapScreen.swift` carry comments claiming Android parity (the marker labels, the
+panel, the Route hand-off), and a parity claim nothing enforces is what `conventions.md` §7.1 says
+belongs here. Owner decision 2026-10-14: iOS is verified by the CI build only, so these copies are
+kept in step by this entry, not by a device run.
+
+**What.** A rider can ask for a break, the host can drop a Regroup pin, and every rider sees break
+pills, map pins and a regroup card.
+
+**Copies.** The rules are not duplicated: who is host, how long a request stays
+(`BREAK_SHOWN_MS`), the age tick (`BREAK_AGE_TICK_MS`) and who has arrived are
+`convoyBreakRegroupStateFrom` in `shared/`, read by both surfaces. What each surface owns is the
+text and the hand-off:
+
+- Strings. Android `strings_map.xml` `map_break_marker` ("Break · %1$s"), `map_break_you` ("You")
+  and `map_regroup_point` ("Regroup point"), against the literals in
+  `iosApp/Detour/ConvoyBreakRegroup.swift` `mapPins` and `iosApp/Detour/MapScreen.swift`.
+  iOS has no localisation for them; Android has Dutch.
+- Route from the regroup card. Android `onRouteTo` goes through `startNavigation`; iOS
+  `routeToRegroup` in `MapScreen.swift` sets the destination and starts navigation once the router
+  gives turns.
+
+**Verdict: survive — Android's wording and flow, and iOS follows when the strings move to shared.**
+Nothing here is chosen; it is the cost of not having shared string resources.
+
+**Fence.**
+
+```sh
+# Entry 26 — break and regroup labels. A changed count means a label moved: update both copies.
+check 'Android break marker string' 1 \
+    "$(grep -c 'name="map_break_marker">Break · %1$s' app/src/main/res/values/strings_map.xml)"
+check 'iOS break pin title' 1 \
+    "$(grep -c 'title: "Break · ' iosApp/Detour/ConvoyBreakRegroup.swift)"
+check 'Android regroup point string' 1 \
+    "$(grep -c 'name="map_regroup_point">Regroup point' app/src/main/res/values/strings_map.xml)"
+```
+
 ---
 
-## 26. Convoy gap alerts: iOS judges as the phone does, and speaks and words them differently
+## 27. A searched destination on iOS: routed once at pick (again on a curvy change), never rerouted
+
+**New with `#721`** — recorded because `iosApp/Detour/MapScreen.swift` `routeToSearched` claims
+it does what the phone's Start does, and the issue left reroute out on purpose.
+
+**What.** A rider picks a place from search and presses Start.
+
+**Copies.** The request is not duplicated: both surfaces call shared `RoutingClient` with
+shared `Settings.navRoutePreferences()` (iOS through `SettingsValues.navRoutePreferences`), so
+the avoid options and the curvy preset match. What differs is when it is asked for and what
+happens after:
+
+- When. Android routes on Start, through `fetchNavRoute` in `app/…/map/NavStart.kt`, from the fix
+  at that moment. iOS routes once when the place is picked, through
+  `SpinModel.routeSearched` (`curvyRouteVia`), and Start uses that route. Neither sends a heading
+  on the first route today (#719). A rider who
+  picks a place and then rides on before pressing Start starts on a line from where they picked
+  it.
+- Curviness slider (#660). Both show it through shared `CurvyRouteState`/`curvyControl`. Android's
+  dock asks a separate `curvyRouteVia` preview for the cost line and Start fetches its own route;
+  iOS has one request, so moving the slider re-routes the searched place from where it was picked
+  (`SpinModel.rerouteSearched`) and Start rides exactly the route the cost line describes. The
+  origin differs too: Android's preview (`app/…/ui/CurvyRouteControl.kt`) asks from the rider's
+  fix at the moment the slider moves, iOS re-routes from the point the place was picked. While
+  that request is in flight iOS has no route, so Start only records. The slider's labels and
+  cost-line wording are English literals in `iosApp/Detour/CurvyRouteRow.swift`; Android has
+  `nav_curvy*` resources with Dutch. iOS shows the slider only for a searched place, not for a
+  spin, convoy or regroup destination; those route fastest on both surfaces.
+- Reroute. Android reroutes off the route through `NavPolicy` with the same preferences.
+  `iosApp/Detour/NavScreen.swift` has no reroute at all: a rider who leaves the route keeps the
+  stale line. This was already true of spin and regroup routes on iOS.
+
+**Verdict: survive — Android's flow.** Not a product question. iOS reroute should reuse
+`NavPolicy`'s rule through `shared/` rather than copy it (#721's scope note), which first means
+moving that rule out of `app/`.
+
+**Fence.**
+
+```sh
+# Entry 27 — searched destination. A changed count means iOS gained a reroute or dropped the nav prefs.
+check 'iOS search and curvy slider route with nav preferences' 2 \
+    "$(grep -c 'preferences: SettingsValues.shared.navRoutePreferences' iosApp/Detour/MapScreen.swift)"
+check 'iOS curvy cost line wording' 1 \
+    "$(grep -c '"Comparing with the fastest route…"' iosApp/Detour/CurvyRouteRow.swift)"
+check 'Android curvy cost line string' 1 \
+    "$(grep -c 'name="nav_curvy_comparing">Comparing with the fastest route…' app/src/main/res/values/strings_map.xml)"
+check 'iOS NavScreen has no reroute' 0 \
+    "$(grep -ci 'reroute' iosApp/Detour/NavScreen.swift)"
+```
+
+---
+
+---
+
+## 28. Convoy gap alerts: iOS judges as the phone does, and speaks and words them differently
 
 **New with `#656`** — recorded on entry 25's precedent, because `iosApp/Detour/ConvoyGapAlerts.swift`
 and `shared/src/iosMain/…/presentation/ConvoyGapHolder.kt` claim phone parity ("as on the phone",
@@ -2218,55 +2311,55 @@ the banner wording and the voice**, and those are the copy:
 
 **Four known differences.**
 
-**26a — The iOS banner is English only.** The phone's banner words each line from string resources
+**28a — The iOS banner is English only.** The phone's banner words each line from string resources
 (`map_convoy_gap_*`, with a Dutch translation in `values-nl`). iOS has no translations and shows
 `convoyGapSentence`, the English sentence both surfaces speak. The spoken line is English on both,
 deliberately (`convoyGapSpokenLine`'s KDoc: the voice is chosen for GraphHopper's English).
 
-**26b — iOS speaks whenever the app runs; the phone only while `MapScreen` is composed.** Both judge
+**28b — iOS speaks whenever the app runs; the phone only while `MapScreen` is composed.** Both judge
 for the life of the process. But the phone's voice is `MapConvoyGapVoice`, a `LaunchedEffect` in
 `MapScreen` collecting the un-replayed `ConvoyGapAlerts.spoken`, so an alert raised while the map is
 not in composition (another destination on top, or the activity destroyed) is never spoken; the
 banner still shows it on return. iOS speaks from the `ConvoyGapAlerts.shared` singleton's own tick,
 so it speaks on every screen.
 
-**26c — iOS has a second voice; the phone has one.** The phone hands the line to `MapScreen`'s own
+**28c — iOS has a second voice; the phone has one.** The phone hands the line to `MapScreen`'s own
 `navVoice`, so a gap alert and a turn prompt share one `TextToSpeech` and one audio-focus request.
 iOS's `ConvoyGapAlerts` owns its own `NavVoice` (it outlives `NavModel`'s), so two
 `AVSpeechSynthesizer`s can talk at once, and either one finishing can deactivate the shared
 `AVAudioSession` under the other. Muting guidance stops `NavModel`'s voice but not an in-flight gap
 sentence. **UNVERIFIED** how this sounds — nothing in this repo runs the iOS app.
 
-**26d — iOS polls connected/convoy once a tick; the phone observes every change.** The phone resets
+**28d — iOS polls connected/convoy once a tick; the phone observes every change.** The phone resets
 on each emission of `combine(convoyId, connected).distinctUntilChanged()`, so any drop and reconnect,
 however short, starts the feed over. iOS reads `live.connected` and `live.activeConvoyId` at the top
 of each one-second tick, so a drop and reconnect shorter than a tick is not seen and the feed's state
 carries over. The phone's restart re-announces an ongoing stop after every reconnect; iOS's misses a
 reset the phone would make. Neither is clearly better, and the gap is under a second.
 
-**Verdict: survive — the phone's on 26a (iOS converges when it gets translations, with the rest of
-its strings); needs-a-human on 26b and 26c** (whether gap alerts should speak off the map, and
+**Verdict: survive — the phone's on 28a (iOS converges when it gets translations, with the rest of
+its strings); needs-a-human on 28b and 28c** (whether gap alerts should speak off the map, and
 whether a second voice is acceptable — the same voice-ownership question #655 raised for the car);
-**leave 26d** until someone observes it.
+**leave 28d** until someone observes it.
 
 **Fence.** Measured against `#656`'s branch:
 
 ```sh
-# Entry 26 — convoy gap alerts. 26a: the iOS banner shows the shared English
+# Entry 28 — convoy gap alerts. 28a: the iOS banner shows the shared English
 # sentence; the phone's banner words it from resources (three kinds).
 check 'iOS gap banner uses the English sentence' 1 \
     "$(grep -c 'ConvoyGapLineKt.convoyGapSentence(kind: line.kind' iosApp/Detour/ConvoyGapAlerts.swift)"
 check 'phone gap banner uses string resources' 3 \
     "$(grep -c 'R.string.map_convoy_gap_' app/src/main/java/com/jellemax/detour/ui/MapConvoyGap.kt)"
-# 26b: the phone's voice lives in MapScreen; iOS's starts with the app.
+# 28b: the phone's voice lives in MapScreen; iOS's starts with the app.
 check 'phone gap voice is composed in MapScreen' 1 \
     "$(grep -c 'MapConvoyGapVoice(speak = { navVoice.speak(it) })' app/src/main/java/com/jellemax/detour/ui/MapScreen.kt)"
 check 'iOS gap alerts start with the app' 1 \
     "$(grep -c 'ConvoyGapAlerts.shared.start()' iosApp/Detour/RootView.swift)"
-# 26c: iOS gap alerts own a second NavVoice.
+# 28c: iOS gap alerts own a second NavVoice.
 check 'iOS gap alerts have their own voice' 1 \
     "$(grep -c 'private let voice = NavVoice()' iosApp/Detour/ConvoyGapAlerts.swift)"
-# 26d: iOS polls the gate once a tick; the phone observes each change.
+# 28d: iOS polls the gate once a tick; the phone observes each change.
 check 'iOS polls connected/convoy per tick' 1 \
     "$(grep -c 'let convoyId = live.connected ? live.activeConvoyId : nil' iosApp/Detour/ConvoyGapAlerts.swift)"
 check 'phone resets on every connected/convoy change' 1 \
