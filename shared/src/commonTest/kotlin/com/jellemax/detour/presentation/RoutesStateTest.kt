@@ -1,17 +1,19 @@
 package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.RouteOrigin
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.TravelMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
  * The pure half of the Routes screen: how a route card reads, and how a route's
  * polyline is normalised into the little preview sketch. File import/export
- * stays Android-side and is not modelled here.
+ * and the Maps hand-off stay Android-side and are not modelled here.
  */
 class RoutesStateTest {
 
@@ -115,6 +117,37 @@ class RoutesStateTest {
         assertEquals(7L, card.id)
         assertEquals("Commute scenic", card.name)
         assertEquals("32 km · 2 stops · shared by mika", card.subtitle)
+    }
+
+    private fun routeWith(stopCount: Int, origin: RouteOrigin = RouteOrigin.PLANNED): SavedRoute = SavedRoute(
+        id = 1L,
+        name = "Tour",
+        createdMs = 0L,
+        mode = TravelMode.MOTO,
+        // Distinct stops, but a loop closes on its start.
+        stops = List(stopCount) { RouteStop(LatLon(50.0 + it % (stopCount - 1), 5.0)) },
+        polyline = emptyList(),
+        distanceMeters = null,
+        timeMs = null,
+        origin = origin,
+    )
+
+    @Test fun aPlannedRouteThroughStopsRidesInTheAppWithAServer() {
+        // #736: Go routes through the stops in-app, so the pill promises a ride.
+        assertFalse(routeOpensExternally(routeWith(stopCount = 4), serverUsable = true))
+        assertFalse(routesStateFrom(listOf(routeWith(stopCount = 4)), serverUsable = true).single().opensExternally)
+    }
+
+    @Test fun withoutAServerAPlannedRouteThroughStopsSaysItLeavesTheApp() {
+        // The map's own fallback hands a maps app the destination alone; only
+        // the directions URL keeps the stops, and the label has to say so.
+        assertTrue(routeOpensExternally(routeWith(stopCount = 3), serverUsable = false))
+        assertTrue(routesStateFrom(listOf(routeWith(stopCount = 5)), serverUsable = false).single().opensExternally)
+    }
+
+    @Test fun withoutAServerATwoStopRouteOrALoopStaysInTheApp() {
+        assertFalse(routeOpensExternally(routeWith(stopCount = 2), serverUsable = false))
+        assertFalse(routeOpensExternally(routeWith(stopCount = 10, RouteOrigin.SPIN), serverUsable = false))
     }
 
     @Test fun thumbnailPointsSpanTheBoxMinusItsPadding() {

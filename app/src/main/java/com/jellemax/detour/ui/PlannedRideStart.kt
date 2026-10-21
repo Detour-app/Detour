@@ -14,6 +14,7 @@ import com.jellemax.detour.R
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.PlannedRide
+import com.jellemax.detour.data.RoutingServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -61,7 +62,9 @@ internal class PlannedRideStart(
                 onNotice(context.getString(R.string.planned_start_not_asked, started.refused.joinToString(", ")))
             }
             val route = ride.route
-            if (route == null) onRide() else rideSavedRoute(context, route, loopRide, onStatus = { error = it }, onRide)
+            if (route == null) onRide() else rideSavedRoute(
+                context, route, loopRide, RoutingServer.load().usable, onStatus = { error = it }, onRide,
+            )
         }
     }
 }

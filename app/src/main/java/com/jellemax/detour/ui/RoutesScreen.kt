@@ -1,6 +1,7 @@
 package com.jellemax.detour.ui
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -73,13 +74,18 @@ import com.jellemax.detour.data.RiderRef
 import com.jellemax.detour.data.RouteFiles
 import com.jellemax.detour.data.RouteGpx
 import com.jellemax.detour.data.RouteShare
+import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
+import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.SavedSpins
+import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.RouteCard
 import com.jellemax.detour.presentation.RoutesPresenter
 import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.fileFailureText
+import com.jellemax.detour.presentation.gmapsTravelMode
+import com.jellemax.detour.presentation.routeOpensExternally
 import com.jellemax.detour.presentation.routesStateFrom
 import com.jellemax.detour.presentation.thumbnailPoints
 import kotlinx.coroutines.Dispatchers
@@ -95,14 +101,48 @@ private fun shareRouteGpxIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).a
 }
 
 /**
+ * Sends a multi-stop route to an external maps app with real via points, for
+ * when there is no routing server to ride it in-app through its stops (#736):
+ * the map's own external fallback hands over the destination alone. Google
+ * Maps' directions URL takes up to 9 waypoints, the same cap navigateRoundTrip
+ * (NavAppLaunch.kt) works under; unlike that one, this is a real point A → B
+ * route rather than a loop back to the start.
+ *
+ * Returns an error message on failure (no app to open the link), null on
+ * success, so the caller can surface it the same way every other action here
+ * reports through `status`.
+ */
+private fun navigateStopsExternally(context: Context, stops: List<RouteStop>, mode: TravelMode): String? {
+    val origin = stops.first().at
+    val destination = stops.last().at
+    val via = stops.subList(1, stops.size - 1).take(9)
+    val waypointsParam = if (via.isEmpty()) "" else
+        "&waypoints=" + Uri.encode(via.joinToString("|") { "${it.at.lat},${it.at.lon}" })
+    val uri = Uri.parse(
+        "https://www.google.com/maps/dir/?api=1" +
+            "&origin=${origin.lat},${origin.lon}" +
+            "&destination=${destination.lat},${destination.lon}" +
+            "&travelmode=${gmapsTravelMode(mode)}" +
+            waypointsParam
+    )
+    return try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+        null
+    } catch (e: ActivityNotFoundException) {
+        context.getString(R.string.routes_no_maps_app)
+    }
+}
+
+/**
  * Rides a saved route the way Routes' action pill does; a planned ride's Start (#758) rides its
  * route the same way. [onRide] opens the map once the route is on it; [onStatus] gets anything
- * the rider should read instead.
+ * the rider should read instead. [serverUsable] is whether a routing server can ride it in-app.
  */
 internal fun rideSavedRoute(
     context: Context,
     route: SavedRoute,
     loopRide: SavedLoopRide,
+    serverUsable: Boolean,
     onStatus: (String?) -> Unit,
     onRide: () -> Unit,
 ) {
@@ -111,9 +151,15 @@ internal fun rideSavedRoute(
         loopRide.start(route)
         return
     }
-    // A planned route rides in-app through its middle stops too (#736).
-    seedRouteNavigation(route)
-    onRide()
+    // A planned route rides in-app through its middle stops too (#736) —
+    // unless there is no server to route it, when only a maps app that
+    // takes via points keeps them. Same predicate as the card's label.
+    if (routeOpensExternally(route, serverUsable)) {
+        onStatus(navigateStopsExternally(context, route.stops, route.mode))
+    } else {
+        seedRouteNavigation(route)
+        onRide()
+    }
 }
 
 /**
@@ -150,7 +196,9 @@ fun RoutesScreen(
     // once, at the initial load) still gates the loading spinner below so it
     // doesn't flash empty before that first read completes.
     val routes by RouteStore.routes.collectAsStateWithLifecycle()
-    val cards = remember(routes) { routesStateFrom(routes) }
+    // Read once per visit, as the map reads it: whether Ride can route in-app.
+    val serverUsable = remember { RoutingServer.load().usable }
+    val cards = remember(routes) { routesStateFrom(routes, serverUsable) }
 
     var renaming by remember { mutableStateOf<SavedRoute?>(null) }
     var deleting by remember { mutableStateOf<SavedRoute?>(null) }
@@ -198,7 +246,8 @@ fun RoutesScreen(
 
     val loopRide = rememberSavedLoopRide(onStatus = { status = it }, onRide = onNavigate)
 
-    fun navigate(route: SavedRoute) = rideSavedRoute(context, route, loopRide, onStatus = { status = it }, onNavigate)
+    fun navigate(route: SavedRoute) =
+        rideSavedRoute(context, route, loopRide, serverUsable, onStatus = { status = it }, onNavigate)
 
     fun shareFile(route: SavedRoute) {
         status = try {
@@ -431,7 +480,7 @@ private fun RouteCardItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            RouteActionPill(onClick = onNavigate)
+            RouteActionPill(opensExternally = card.opensExternally, onClick = onNavigate)
             Box {
                 IconButton(onClick = onOpenMenu) {
                     Icon(
@@ -455,10 +504,12 @@ private fun RouteCardItem(
     }
 }
 
-/** The filled "Ride" pill: 36dp tall, fully-rounded (18dp radius), primary
- *  background, per the prototype. Every route rides in-app (#736). */
+/** The filled action pill: 36dp tall, fully-rounded (18dp radius), primary
+ *  background, per the prototype. "Ride", or "Open in Maps" when
+ *  [opensExternally] — [routeOpensExternally] decides, and the same predicate
+ *  decides what the tap does. */
 @Composable
-private fun RouteActionPill(onClick: () -> Unit) {
+private fun RouteActionPill(opensExternally: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .height(36.dp)
@@ -474,7 +525,7 @@ private fun RouteActionPill(onClick: () -> Unit) {
             Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary,
         )
         Text(
-            stringResource(R.string.routes_ride),
+            stringResource(if (opensExternally) R.string.routes_open_in_maps else R.string.routes_ride),
             color = MaterialTheme.colorScheme.onPrimary,
             fontSize = 12.5.sp,
             fontWeight = FontWeight.Bold,

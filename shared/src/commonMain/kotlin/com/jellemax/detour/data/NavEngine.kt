@@ -107,22 +107,66 @@ object NavEngine {
             }
             cumAt[i + 1] = cumAt[i] + segLen
         }
-        val total = cumAt.last()
-        val remaining = max(0.0, total - bestAlong)
+        return progressAt(
+            route, cumAt, bestIndex, bestAlong,
+            snappedAt = interpolate(line[bestIndex], line[bestIndex + 1], bestT),
+            offRouteMeters = bestDist,
+        )
+    }
 
-        val next = route.instructions.firstOrNull { it.startIndex > bestIndex }
+    /**
+     * [progress] for a rider [along] places on the line — [advance]'s
+     * forward-only snap — instead of the globally nearest point.
+     *
+     * Where a line rides the same road twice (home → store → home through a
+     * planned stop, #736) the global snap ties to the outbound leg on the way
+     * back: remaining distance stops falling, the next maneuver is one already
+     * taken, and the trip never arrives. A caller that follows the rider
+     * forward along such a line asks this instead.
+     *
+     * [offRouteMeters] is the caller's, since [along] keeps its last snap
+     * while the rider is off the line and so cannot say how far off they are.
+     * Distances along are [lengthMeters]' arithmetic, as [along]'s are.
+     */
+    fun progressAlong(route: RouteResult, along: Along, offRouteMeters: Double): Progress? {
+        val line = route.polyline
+        if (line.size < 2) return null
+        val cumAt = DoubleArray(line.size)
+        for (i in 0 until line.size - 1) cumAt[i + 1] = cumAt[i] + segmentMeters(line[i], line[i + 1])
+        return progressAt(
+            route, cumAt, along.index.coerceIn(0, line.size - 2), along.meters,
+            snappedAt = along.at,
+            offRouteMeters = offRouteMeters,
+        )
+    }
+
+    /** The [Progress] of a rider [alongMeters] along [route], on the segment
+     *  from vertex [index]; [cumAt] is the distance along to every vertex. */
+    private fun progressAt(
+        route: RouteResult,
+        cumAt: DoubleArray,
+        index: Int,
+        alongMeters: Double,
+        snappedAt: LatLon,
+        offRouteMeters: Double,
+    ): Progress {
+        val line = route.polyline
+        val total = cumAt.last()
+        val remaining = max(0.0, total - alongMeters)
+
+        val next = route.instructions.firstOrNull { it.startIndex > index }
             ?: route.instructions.lastOrNull()
         val distToTurn = next
-            ?.let { max(0.0, cumAt[it.startIndex.coerceIn(0, line.size - 1)] - bestAlong) }
+            ?.let { max(0.0, cumAt[it.startIndex.coerceIn(0, line.size - 1)] - alongMeters) }
             ?: remaining
         val nextNext = next?.let { route.instructions.getOrNull(route.instructions.indexOf(it) + 1) }
         val distToNextNext = nextNext
-            ?.let { max(0.0, cumAt[it.startIndex.coerceIn(0, line.size - 1)] - bestAlong) }
+            ?.let { max(0.0, cumAt[it.startIndex.coerceIn(0, line.size - 1)] - alongMeters) }
 
         return Progress(
-            offRouteMeters = bestDist,
-            snappedAt = interpolate(line[bestIndex], line[bestIndex + 1], bestT),
-            segmentBearingDeg = segmentBearing(line, bestIndex),
+            offRouteMeters = offRouteMeters,
+            snappedAt = snappedAt,
+            segmentBearingDeg = segmentBearing(line, index),
             nextInstruction = next,
             distanceToTurnMeters = distToTurn,
             remainingMeters = remaining,
@@ -131,7 +175,7 @@ object NavEngine {
                 if (total > 0) (it * remaining / total).toLong() else null
             },
             speedLimitKmh = route.speedLimits
-                .firstOrNull { bestIndex >= it.fromIndex && bestIndex < it.toIndex }
+                .firstOrNull { index >= it.fromIndex && index < it.toIndex }
                 ?.kmh,
             nextNextInstruction = nextNext,
             distanceToNextNextMeters = distToNextNext,

@@ -2,6 +2,9 @@ package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.SavedSpins
+import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.ViaStops
 
 /** A point in a route thumbnail's own coordinate box, y growing downward. */
 data class ThumbPoint(val x: Double, val y: Double)
@@ -12,7 +15,28 @@ data class RouteCard(
     val name: String,
     val subtitle: String,
     val polyline: List<LatLon>,
+    /** Whether the card's action hands off to a maps app — see
+     *  [routeOpensExternally]; the pill has to say so. */
+    val opensExternally: Boolean = false,
 )
+
+/**
+ * Whether riding this route hands off to an external maps app instead of
+ * staying in Detour: only a planned route with stops in between, and only
+ * without a usable routing server ([serverUsable]).
+ *
+ * In-app, Go routes through those stops (#736). Without a server there is no
+ * in-app route, and the map's own fallback opens a maps app with the
+ * destination alone, so the stops leave with the route to Google Maps'
+ * directions URL instead, which carries real via points. A saved spin loop
+ * has its own path (#589) and never leaves.
+ *
+ * The rule is here, rather than inline at that branch, because the card's
+ * action label has to agree with it: a pill that says "Ride" and opens
+ * another app gives the rider no way to know they are leaving.
+ */
+fun routeOpensExternally(route: SavedRoute, serverUsable: Boolean): Boolean =
+    !serverUsable && !SavedSpins.isLoop(route) && ViaStops.of(route).isNotEmpty()
 
 /**
  * Marks whether the Routes screen's initial disk read has completed.
@@ -62,6 +86,18 @@ private fun routeDistanceLabel(meters: Double): String {
 }
 
 /**
+ * Google Maps' `maps/dir/` directions URL's `travelmode` parameter for a
+ * route's own mode — NOT [TravelMode.gmapsMode]'s single-letter codes ("d"),
+ * which only mean anything to the `google.navigation:q=` scheme MapScreen's
+ * navigateGoogleMaps uses. Kept as its own mapping so the two URL schemes'
+ * spellings don't get conflated by a future "simplification".
+ */
+fun gmapsTravelMode(mode: TravelMode): String = when (mode) {
+    TravelMode.MOTO -> "two-wheeler"
+    TravelMode.CAR -> "driving"
+}
+
+/**
  * Normalises a route's polyline into a [width] x [height] box, inset by
  * [padding], preserving nothing but the shape's extent — this is a sketch, not
  * a projection, so no spherical correction is applied.
@@ -98,12 +134,14 @@ fun thumbnailPoints(
  * Pure map from stored routes to display cards. Returns the list directly,
  * not wrapped in [RoutesState] — [RoutesState] only tracks the initial-load
  * flag, which this mapper has no opinion on. See [RoutesPresenter]'s KDoc.
+ * [serverUsable] decides each card's [RouteCard.opensExternally].
  */
-fun routesStateFrom(routes: List<SavedRoute>): List<RouteCard> = routes.map { r ->
+fun routesStateFrom(routes: List<SavedRoute>, serverUsable: Boolean = true): List<RouteCard> = routes.map { r ->
     RouteCard(
         id = r.id,
         name = r.name,
         subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy),
         polyline = r.polyline,
+        opensExternally = routeOpensExternally(r, serverUsable),
     )
 }

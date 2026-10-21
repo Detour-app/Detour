@@ -68,13 +68,16 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var destination: LatLon?
         get() = destinationState
         set(value) {
-            if (value != destinationState) vias = emptyList()
+            if (value != destinationState) {
+                vias = emptyList()
+                viaRide = null
+            }
             destinationState = value
         }
     var destinationName: String? by mutableStateOf(seed.destinationName)
 
     /** A planned route's stops still to ride through on the way to
-     *  [destination] (#736), dropped as [passVias] sees them passed. */
+     *  [destination] (#736), dropped as [followPlanned] sees them passed. */
     var vias: List<LatLon> by mutableStateOf(seed.vias)
         private set
     var route: RouteResult? by mutableStateOf(seed.route)
@@ -87,18 +90,31 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var rerouting: Boolean by mutableStateOf(false)
     var lastRerouteMs: Long by mutableLongStateOf(0L)
 
-    /** Where the rider is along [route]'s line, for [passVias]. Not state:
-     *  nothing draws it, and only the next fix reads it. */
+    /** Where the rider is along a line fetched through [vias], for
+     *  [followPlanned]. Not state: nothing draws it, and only the next fix
+     *  reads it. */
     private var viaRide: ViaStops.Ride? = null
 
-    /** Drops the [vias] a rider at [at] has passed along [line] and returns
-     *  the rest: what every reroute routes through ([ViaStops.ahead]). */
-    fun passVias(line: List<LatLon>, at: LatLon): List<LatLon> {
-        if (vias.isEmpty()) return vias
-        val ride = ViaStops.follow(viaRide, line, at, NavPolicy.OFF_ROUTE_METERS).also { viaRide = it }
-        val left = ViaStops.ahead(vias, ride)
-        if (left.size != vias.size) vias = left
-        return left
+    /**
+     * The rider at [at] moved on along [line], forward only, while [line] is
+     * one fetched through planned stops: drops the [vias] they have passed and
+     * returns where they are on it, for [NavEngine.progressAlong]. Null for
+     * any other line, which [NavEngine.progress] places on its own.
+     *
+     * Kept after the last stop is passed, until the line changes: a line
+     * through stops can ride a road twice, and its way back is where the
+     * global snap goes wrong (#736).
+     */
+    fun followPlanned(line: List<LatLon>, at: LatLon): NavEngine.Along? {
+        val ride = viaRide?.takeIf { it.line === line }
+        if (ride == null && vias.isEmpty()) {
+            viaRide = null
+            return null
+        }
+        val next = ViaStops.follow(ride, line, vias, at, NavPolicy.OFF_ROUTE_METERS).also { viaRide = it }
+        val left = ViaStops.ahead(next)
+        if (left.size < vias.size) vias = left
+        return next.along
     }
 
     // --- camera ---------------------------------------------------------
