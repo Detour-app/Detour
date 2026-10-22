@@ -355,6 +355,14 @@ class NavActionsTest {
     }
 
     @Test
+    fun `a ride reminder lands on the ride, with back through planned rides and routes`() {
+        val s = plannedRideNotificationStack("r1").toMutableList()
+        assertEquals(Destination.PlannedRideDetail("r1"), s.last())
+        s.pop()
+        assertEquals(listOf(Destination.Map, Destination.Hub, Destination.Routes, Destination.PlannedRides), s)
+    }
+
+    @Test
     fun `a circle notification without an id lands on the circles list`() {
         assertEquals(
             listOf(Destination.Map, Destination.Hub, Destination.Circles),

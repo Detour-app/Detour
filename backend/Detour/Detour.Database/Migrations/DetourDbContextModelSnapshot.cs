@@ -697,6 +697,10 @@ namespace Detour.Database.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("owner_id");
 
+                    b.Property<DateTimeOffset?>("RemindedForStartsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reminded_for_starts_at");
+
                     b.Property<DateTimeOffset>("StartsAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("starts_at");
@@ -712,6 +716,9 @@ namespace Detour.Database.Migrations
 
                     b.HasIndex("OwnerId")
                         .HasDatabaseName("ix_planned_rides_owner_id");
+
+                    b.HasIndex("StartsAt")
+                        .HasDatabaseName("ix_planned_rides_starts_at");
 
                     b.ToTable("planned_rides", "detour");
                 });

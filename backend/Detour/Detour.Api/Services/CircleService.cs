@@ -346,7 +346,7 @@ public class CircleService(
             // the token is the whole message.
             var offline = recipients.Where(id => !delivered.Contains(id)).ToArray();
             if (offline.Length > 0)
-                pushQueue.TryEnqueue(new PushJob(offline, groupId.ToString()));
+                pushQueue.TryEnqueue(new PushJob(offline, PushWake.CircleActivity(groupId.ToString())));
 
             return Task.CompletedTask;
         });

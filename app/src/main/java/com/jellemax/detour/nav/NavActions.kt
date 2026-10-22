@@ -117,6 +117,20 @@ fun circleNotificationStack(circleId: String?): List<Destination> = buildList {
 }
 
 /**
+ * The stack a tapped planned-ride reminder lands on: the ride, with back walking
+ * out through the Planned list and Routes it is reached from. Same reasoning as
+ * [tripNotificationStack]. No missing-ride fallback is needed here - the detail
+ * screen already backs out to the Planned list when the ride is gone.
+ */
+fun plannedRideNotificationStack(rideId: String): List<Destination> = listOf(
+    Destination.Map,
+    Destination.Hub,
+    Destination.Routes,
+    Destination.PlannedRides,
+    Destination.PlannedRideDetail(rideId),
+)
+
+/**
  * The stack a tapped update notification lands on.
  *
  * Same reasoning as [tripNotificationStack]: back must walk out through the

@@ -175,6 +175,33 @@ class PlannedRidesTest {
         assertFalse(ownerless.canStart(RiderId("")), "a /me that has not answered is nobody")
     }
 
+    // --- reminder rule ------------------------------------------------------------
+
+    @Test
+    fun goingAndMaybeAreRemindedOfARideStillAhead() {
+        val ahead = ride().copy(startsAtMs = 2_000L)
+
+        assertTrue(ahead.copy(myAnswer = RsvpAnswer.GOING).wantsReminder(nowMs = 1_000L))
+        assertTrue(ahead.copy(myAnswer = RsvpAnswer.MAYBE).wantsReminder(nowMs = 1_000L))
+    }
+
+    @Test
+    fun pendingDeclinedAndTheOwnerAreNotReminded() {
+        val ahead = ride().copy(startsAtMs = 2_000L)
+
+        assertFalse(ahead.copy(myAnswer = RsvpAnswer.PENDING).wantsReminder(nowMs = 1_000L))
+        assertFalse(ahead.copy(myAnswer = RsvpAnswer.DECLINED).wantsReminder(nowMs = 1_000L))
+        assertFalse(ahead.copy(myAnswer = null).wantsReminder(nowMs = 1_000L), "the owner holds no answer")
+    }
+
+    @Test
+    fun aRideThatHasStartedIsNotReminded() {
+        val going = ride().copy(myAnswer = RsvpAnswer.GOING, startsAtMs = 2_000L)
+
+        assertFalse(going.wantsReminder(nowMs = 2_000L))
+        assertFalse(going.wantsReminder(nowMs = 3_000L))
+    }
+
     // --- RSVP moves -------------------------------------------------------------
 
     @Test

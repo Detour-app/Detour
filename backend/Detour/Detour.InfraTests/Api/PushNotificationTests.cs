@@ -29,7 +29,7 @@ public class PushDispatcherTests
         public PushSendResult NextResult { get; set; } = PushSendResult.Empty;
 
         public Task<PushSendResult> SendWakeAsync(
-            IReadOnlyCollection<string> tokens, string collapseKey, CancellationToken ct)
+            IReadOnlyCollection<string> tokens, PushWake wake, CancellationToken ct)
         {
             SeenTokens.AddRange(tokens);
             return Task.FromResult(NextResult);
@@ -57,7 +57,7 @@ public class PushDispatcherTests
         var apns = new FakeGateway(DevicePlatform.Ios);
 
         var dispatcher = new PushDispatcher(repo.Object, [fcm, apns], NullLogger<PushDispatcher>.Instance);
-        await dispatcher.DispatchAsync(new PushJob([alex, blake], "circle-1"), default);
+        await dispatcher.DispatchAsync(new PushJob([alex, blake], PushWake.CircleActivity("circle-1")), default);
 
         fcm.SeenTokens.Should().BeEquivalentTo(["fcm-alex", "fcm-blake"]);
         apns.SeenTokens.Should().BeEquivalentTo(["apns-alex"]);
@@ -80,7 +80,7 @@ public class PushDispatcherTests
         };
 
         var dispatcher = new PushDispatcher(repo.Object, [fcm, apns], NullLogger<PushDispatcher>.Instance);
-        await dispatcher.DispatchAsync(new PushJob([alex], "circle-1"), default);
+        await dispatcher.DispatchAsync(new PushJob([alex], PushWake.CircleActivity("circle-1")), default);
 
         repo.Verify(r => r.DeleteByTokensAsync(
             It.Is<IReadOnlyCollection<string>>(t => t.Contains("fcm-dead") && t.Contains("apns-dead")),
@@ -98,7 +98,7 @@ public class PushDispatcherTests
 
         // Only the Android gateway is registered; the iOS token has nowhere to go.
         var dispatcher = new PushDispatcher(repo.Object, [fcm], NullLogger<PushDispatcher>.Instance);
-        var act = async () => await dispatcher.DispatchAsync(new PushJob([alex], "circle-1"), default);
+        var act = async () => await dispatcher.DispatchAsync(new PushJob([alex], PushWake.CircleActivity("circle-1")), default);
 
         await act.Should().NotThrowAsync();
         fcm.SeenTokens.Should().BeEquivalentTo(["fcm-alex"]);
@@ -111,7 +111,7 @@ public class PushDispatcherTests
         var fcm = new FakeGateway(DevicePlatform.Android);
 
         var dispatcher = new PushDispatcher(repo.Object, [fcm], NullLogger<PushDispatcher>.Instance);
-        await dispatcher.DispatchAsync(new PushJob([Guid.NewGuid()], "circle-1"), default);
+        await dispatcher.DispatchAsync(new PushJob([Guid.NewGuid()], PushWake.CircleActivity("circle-1")), default);
 
         fcm.SeenTokens.Should().BeEmpty();
     }
@@ -150,7 +150,7 @@ public class FcmGatewayTests
             StubHandler.Factory(new StubHandler(_ => new(HttpStatusCode.OK))),
             NullLogger<FcmGateway>.Instance);
 
-        var result = await gateway.SendWakeAsync(["fcm-a"], "circle-1", default);
+        var result = await gateway.SendWakeAsync(["fcm-a"], PushWake.CircleActivity("circle-1"), default);
 
         result.Outcomes.Should().BeEmpty();
     }
@@ -160,7 +160,7 @@ public class FcmGatewayTests
     {
         var gateway = Configured(new StubHandler(_ => new(HttpStatusCode.OK)));
 
-        var result = await gateway.SendWakeAsync(["fcm-live"], "circle-1", default);
+        var result = await gateway.SendWakeAsync(["fcm-live"], PushWake.CircleActivity("circle-1"), default);
 
         result.Outcomes.Should().ContainSingle()
             .Which.Should().BeEquivalentTo(new { Token = "fcm-live", Delivered = true, ShouldPrune = false });
@@ -172,9 +172,37 @@ public class FcmGatewayTests
         var gateway = Configured(new StubHandler(_ => Json(HttpStatusCode.NotFound,
             new { error = new { details = new[] { new { errorCode = "UNREGISTERED" } } } })));
 
-        var result = await gateway.SendWakeAsync(["fcm-dead"], "circle-1", default);
+        var result = await gateway.SendWakeAsync(["fcm-dead"], PushWake.CircleActivity("circle-1"), default);
 
         result.TokensToPrune.Should().ContainSingle().Which.Should().Be("fcm-dead");
+    }
+
+    [Fact]
+    public async Task A_circle_wake_carries_only_its_type()
+    {
+        var handler = new StubHandler(_ => new(HttpStatusCode.OK));
+
+        await Configured(handler).SendWakeAsync(["fcm-live"], PushWake.CircleActivity("circle-1"), default);
+
+        var message = JsonDocument.Parse(handler.Bodies.Single()).RootElement.GetProperty("message");
+        message.GetProperty("data").EnumerateObject().Select(p => (p.Name, p.Value.GetString()))
+            .Should().Equal(("type", "circle_wake"));
+        message.GetProperty("android").GetProperty("collapse_key").GetString().Should().Be("circle-1");
+    }
+
+    [Fact]
+    public async Task A_ride_reminder_carries_its_type_and_the_ride_id_and_nothing_else()
+    {
+        var handler = new StubHandler(_ => new(HttpStatusCode.OK));
+        var rideId = Guid.NewGuid();
+
+        await Configured(handler).SendWakeAsync(["fcm-live"], PushWake.RideReminder(rideId), default);
+
+        var message = JsonDocument.Parse(handler.Bodies.Single()).RootElement.GetProperty("message");
+        message.GetProperty("data").EnumerateObject().Select(p => (p.Name, p.Value.GetString()))
+            .Should().BeEquivalentTo([("type", "ride_reminder"), ("rideId", rideId.ToString())]);
+        message.TryGetProperty("notification", out _).Should().BeFalse();
+        message.GetProperty("android").GetProperty("collapse_key").GetString().Should().Be($"ride-{rideId}");
     }
 
     [Fact]
@@ -182,7 +210,7 @@ public class FcmGatewayTests
     {
         var gateway = Configured(new StubHandler(_ => new(HttpStatusCode.Unauthorized)));
 
-        var result = await gateway.SendWakeAsync(["fcm-live"], "circle-1", default);
+        var result = await gateway.SendWakeAsync(["fcm-live"], PushWake.CircleActivity("circle-1"), default);
 
         result.TokensToPrune.Should().BeEmpty();
     }
@@ -225,7 +253,7 @@ public class ApnsGatewayTests
             StubHandler.Factory(new StubHandler(_ => new(HttpStatusCode.OK))),
             NullLogger<ApnsGateway>.Instance);
 
-        var result = await gateway.SendWakeAsync(["apns-a"], "circle-1", default);
+        var result = await gateway.SendWakeAsync(["apns-a"], PushWake.CircleActivity("circle-1"), default);
 
         result.Outcomes.Should().BeEmpty();
     }
@@ -236,7 +264,7 @@ public class ApnsGatewayTests
         var handler = new StubHandler(_ => new(HttpStatusCode.OK));
         var gateway = Configured(handler);
 
-        var result = await gateway.SendWakeAsync(["apns-live"], "circle-42", default);
+        var result = await gateway.SendWakeAsync(["apns-live"], PushWake.CircleActivity("circle-42"), default);
 
         result.Outcomes.Should().ContainSingle().Which.Delivered.Should().BeTrue();
         var request = handler.Requests.Single();
@@ -246,11 +274,25 @@ public class ApnsGatewayTests
     }
 
     [Fact]
+    public async Task A_ride_reminder_has_its_own_placeholder_and_collapse_id()
+    {
+        var handler = new StubHandler(_ => new(HttpStatusCode.OK));
+        var rideId = Guid.NewGuid();
+
+        await Configured(handler).SendWakeAsync(["apns-live"], PushWake.RideReminder(rideId), default);
+
+        handler.Requests.Single().Headers.GetValues("apns-collapse-id").Single().Should().Be($"ride-{rideId}");
+        JsonDocument.Parse(handler.Bodies.Single()).RootElement
+            .GetProperty("aps").GetProperty("alert").GetProperty("body").GetString()
+            .Should().Be("A planned ride starts soon");
+    }
+
+    [Fact]
     public async Task A_410_Unregistered_prunes_the_token()
     {
         var gateway = Configured(new StubHandler(_ => new(HttpStatusCode.Gone)));
 
-        var result = await gateway.SendWakeAsync(["apns-dead"], "circle-1", default);
+        var result = await gateway.SendWakeAsync(["apns-dead"], PushWake.CircleActivity("circle-1"), default);
 
         result.TokensToPrune.Should().ContainSingle().Which.Should().Be("apns-dead");
     }
@@ -265,7 +307,7 @@ public class ApnsGatewayTests
                     "{\"reason\":\"BadDeviceToken\"}", System.Text.Encoding.UTF8, "application/json"),
             }));
 
-        var result = await gateway.SendWakeAsync(["apns-bad"], "circle-1", default);
+        var result = await gateway.SendWakeAsync(["apns-bad"], PushWake.CircleActivity("circle-1"), default);
 
         result.TokensToPrune.Should().ContainSingle().Which.Should().Be("apns-bad");
     }
@@ -275,7 +317,7 @@ public class ApnsGatewayTests
     {
         var gateway = Configured(new StubHandler(_ => new(HttpStatusCode.TooManyRequests)));
 
-        var result = await gateway.SendWakeAsync(["apns-live"], "circle-1", default);
+        var result = await gateway.SendWakeAsync(["apns-live"], PushWake.CircleActivity("circle-1"), default);
 
         result.TokensToPrune.Should().BeEmpty();
     }
@@ -289,9 +331,9 @@ public class PushQueueTests
         var queue = new PushQueue(
             new NotificationSettings { QueueCapacity = 2 }, NullLogger<PushQueue>.Instance);
 
-        queue.TryEnqueue(new PushJob([Guid.NewGuid()], "c1")).Should().BeTrue();
-        queue.TryEnqueue(new PushJob([Guid.NewGuid()], "c2")).Should().BeTrue();
-        queue.TryEnqueue(new PushJob([Guid.NewGuid()], "c3")).Should().BeFalse();
+        queue.TryEnqueue(new PushJob([Guid.NewGuid()], PushWake.CircleActivity("c1"))).Should().BeTrue();
+        queue.TryEnqueue(new PushJob([Guid.NewGuid()], PushWake.CircleActivity("c2"))).Should().BeTrue();
+        queue.TryEnqueue(new PushJob([Guid.NewGuid()], PushWake.CircleActivity("c3"))).Should().BeFalse();
     }
 }
 
@@ -301,11 +343,15 @@ internal sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> 
 {
     public List<HttpRequestMessage> Requests { get; } = [];
 
-    protected override Task<HttpResponseMessage> SendAsync(
+    /// <summary>Each request's body, read as it is sent: the gateway disposes the request after.</summary>
+    public List<string> Bodies { get; } = [];
+
+    protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
-        return Task.FromResult(responder(request));
+        Bodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
+        return responder(request);
     }
 
     public static IHttpClientFactory Factory(StubHandler handler)
