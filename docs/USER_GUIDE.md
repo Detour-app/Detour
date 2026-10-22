@@ -329,10 +329,10 @@ each with its stop count, distance and time.
   directions.
 
 Saved routes sync to your server when you are signed in, so a reinstall or a
-second phone brings them back, and deleting a saved route on one phone removes
-it from your other phones too. (A deleted trip does not yet reach your other
-devices.) Without an account they live on the phone only; export the ones you
-want to keep before a reinstall.
+second phone brings them back. Deleting a route does not reliably reach your
+other phones yet: one that still has the route can bring it back, and a deleted
+trip behaves the same way. Without an account they live on the phone only;
+export the ones you want to keep before a reinstall.
 
 ## You: logbook, badges, friends
 
