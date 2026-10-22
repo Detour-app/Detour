@@ -45,8 +45,9 @@ private const val MAX_CORRIDOR_BYTES = 150L * 1024 * 1024
  * first and the previous one (and any #704 leftover) is deleted only when the
  * new one is complete or capped. Deleting a region evicts its tiles, and a
  * reroute needs only enough signal for one routing response, so deleting first
- * could leave the rider with less map than before. Until then two corridors
- * coexist, which is still bounded by [MAX_CORRIDOR_BYTES] each plus MapLibre's
+ * could leave the rider with less map than before. Until then the superseded
+ * corridors stay on disk but are paused, so only the newest one downloads and the
+ * total is bounded by [MAX_CORRIDOR_BYTES] fetched per route plus MapLibre's
  * own ambient cache. The same route again (car nav resuming, the phone restarting it) keeps
  * the corridor it already has: deleting it evicts its tiles, and with no signal
  * the replacement could not fetch them back. Every call is from the main thread,
@@ -56,10 +57,19 @@ object RouteTileCache {
     /** Bumped per [prefetch] and [clear]; a region created for an older call is deleted on arrival. */
     private var generation = 0
 
+    /**
+     * The region being downloaded now. Kept so the next [prefetch] or [clear] can pause it:
+     * every [OfflineRegion] object carries its own download state, so pausing a copy
+     * found by listing would leave this one running, and a reroute before the newest
+     * corridor settles would pile up one more concurrent download each time.
+     */
+    private var downloading: OfflineRegion? = null
+
     fun prefetch(context: Context, polyline: List<LatLon>, darkTheme: Boolean) {
         val boxes = RouteCorridor.boxes(polyline)
         if (boxes.isEmpty()) return
         val gen = ++generation
+        pauseDownloading()
         val manager = OfflineManager.getInstance(context)
         // Keyed on the area alone, not the style: light and dark draw the same
         // OpenFreeMap tiles, so a theme switch between phone and car is the same corridor.
@@ -101,6 +111,7 @@ object RouteTileCache {
     /** Deletes the corridor and empties MapLibre's ambient tile cache, then calls [onDone]. */
     fun clear(context: Context, onDone: () -> Unit) {
         generation++
+        pauseDownloading()
         val manager = OfflineManager.getInstance(context)
         deleteCorridors(manager, keep = null) {
             manager.clearAmbientCache(object : OfflineManager.FileSourceCallback {
@@ -114,11 +125,18 @@ object RouteTileCache {
         }
     }
 
+    private fun pauseDownloading() {
+        downloading?.setDownloadState(OfflineRegion.STATE_INACTIVE)
+        downloading = null
+    }
+
     /** Downloads [region] until complete or capped, then calls [onSettled] once. */
     private fun download(region: OfflineRegion, onSettled: () -> Unit) {
         var done = false
+        downloading = region
         val settle = {
             region.setDownloadState(OfflineRegion.STATE_INACTIVE)
+            if (downloading === region) downloading = null
             if (!done) {
                 done = true
                 onSettled()
