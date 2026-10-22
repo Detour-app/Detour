@@ -71,8 +71,8 @@ public class AdminController(
     [HttpDelete("accounts/{id:guid}")]
     [EndpointSummary("Delete an account and everything it owns.")]
     [EndpointDescription(
-        "Trips, traces, points, shortcuts, badges, friendships, group memberships, shared "
-        + "routes, circle places and dashboard keys all go with it — every table referencing the "
+        "Trips, traces, points, shortcuts, saved routes, badges, friendships, group memberships, "
+        + "shared routes, circle places and dashboard keys all go with it — every table referencing the "
         + "account cascades. Removing the rider from Keycloak is a separate act; doing only that "
         + "leaves their data here, and doing only this leaves them able to sign in and start "
         + "again.")]
