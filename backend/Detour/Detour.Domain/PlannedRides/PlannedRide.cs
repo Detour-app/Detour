@@ -38,6 +38,13 @@ public sealed class PlannedRide : Entity
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    /// <summary>
+    /// The <see cref="StartsAt"/> the last reminder went out for, or null if none has. Keyed on
+    /// the start time rather than a flag, so rescheduling moves the reminder with no reset step:
+    /// a new start time simply has not been reminded of yet.
+    /// </summary>
+    public DateTimeOffset? RemindedForStartsAt { get; private set; }
+
     public IReadOnlyCollection<PlannedRideRsvp> Rsvps => _rsvps;
 
     private PlannedRide(Guid ownerId, PlannedRideDetails details)
@@ -91,6 +98,31 @@ public sealed class PlannedRide : Entity
         var rsvp = PlannedRideRsvp.CreateInvited(Id, inviteeId);
         _rsvps.Add(rsvp);
         return rsvp;
+    }
+
+    /// <summary>
+    /// Whether the reminder for the current start time is due at <paramref name="now"/>: the
+    /// start is within <paramref name="lead"/> and still ahead, and this start time has not been
+    /// reminded of. A ride created or moved inside the window is due at once; one already
+    /// started is never reminded.
+    /// </summary>
+    public bool IsReminderDue(DateTimeOffset now, TimeSpan lead) =>
+        StartsAt > now && StartsAt - lead <= now && RemindedForStartsAt != StartsAt;
+
+    /// <summary>
+    /// Records the reminder for the current start time as sent and returns who it goes to:
+    /// every invitee who answered going or maybe. Pending and declined get none, and an
+    /// invitation that ended with a friendship is already gone from <see cref="Rsvps"/>.
+    /// </summary>
+    public IReadOnlyCollection<Guid> MarkReminded()
+    {
+        RemindedForStartsAt = StartsAt;
+        return
+        [
+            .. _rsvps
+                .Where(r => r.Answer == RsvpAnswer.Going || r.Answer == RsvpAnswer.Maybe)
+                .Select(r => r.UserId)
+        ];
     }
 
     private void Apply(PlannedRideDetails details)
@@ -163,4 +195,11 @@ public interface IPlannedRideRepository : IBaseRepository<PlannedRide>
     /// rides, the same rule shared routes follow.
     /// </summary>
     Task<int> DeleteRsvpsBetweenAsync(Guid a, Guid b, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Tracked rides, RSVPs included, whose reminder is due at <paramref name="now"/> — the
+    /// query form of <see cref="PlannedRide.IsReminderDue"/>.
+    /// </summary>
+    Task<List<PlannedRide>> GetDueForReminderAsync(
+        DateTimeOffset now, TimeSpan lead, CancellationToken cancellationToken);
 }

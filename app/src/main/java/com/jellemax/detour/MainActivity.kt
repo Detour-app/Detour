@@ -39,6 +39,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.nav.circleNotificationStack
+import com.jellemax.detour.nav.plannedRideNotificationStack
 import com.jellemax.detour.nav.pop
 import com.jellemax.detour.nav.push
 import com.jellemax.detour.nav.returnToMap
@@ -61,6 +62,7 @@ import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.CircleSyncWorker
 import com.jellemax.detour.notif.PendingCircleOpen
+import com.jellemax.detour.notif.PendingRideOpen
 import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PendingUpdateOpen
 import com.jellemax.detour.notif.PlaceNotifications
@@ -104,6 +106,7 @@ class MainActivity : ComponentActivity() {
         takeSignInRedirect(intent)
         PlaceNotifications.takeOpenCircleId(intent)
         PendingTripOpen.take(intent)
+        PendingRideOpen.take(intent)
         PendingUpdateOpen.take(intent)
         // The app is open, so an offer to reopen it is stale — whether it was
         // tapped, swiped, or ignored until the rider came back another way.
@@ -163,6 +166,7 @@ class MainActivity : ComponentActivity() {
         takeSignInRedirect(intent)
         PlaceNotifications.takeOpenCircleId(intent)
         PendingTripOpen.take(intent)
+        PendingRideOpen.take(intent)
         PendingUpdateOpen.take(intent)
     }
 
@@ -353,6 +357,15 @@ private fun AppRoot() {
         backStack.resetTo(tripNotificationStack(if (exists) start else null))
         // Clearing is what lets a second tap navigate again.
         PendingTripOpen.clear()
+    }
+
+    // A tapped planned-ride reminder opens that ride.
+    val openRideId by PendingRideOpen.rideId.collectAsStateWithLifecycle()
+    LaunchedEffect(openRideId) {
+        val id = openRideId ?: return@LaunchedEffect
+        backStack.resetTo(plannedRideNotificationStack(id))
+        // Clearing is what lets a second tap navigate again.
+        PendingRideOpen.clear()
     }
 
     // A tapped update notification opens the Settings row that can install it.

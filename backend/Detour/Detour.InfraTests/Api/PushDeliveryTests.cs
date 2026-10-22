@@ -187,9 +187,9 @@ public class PushDeliveryTests(PostgresFixture postgres) : IAsyncLifetime
         public bool Enabled => true;
 
         public Task<PushSendResult> SendWakeAsync(
-            IReadOnlyCollection<string> tokens, string collapseKey, CancellationToken ct)
+            IReadOnlyCollection<string> tokens, PushWake wake, CancellationToken ct)
         {
-            _wakes.Enqueue(new Wake([.. tokens], collapseKey));
+            _wakes.Enqueue(new Wake([.. tokens], wake.CollapseKey));
             return Task.FromResult(new PushSendResult(
                 [.. tokens.Select(t => new PushTokenOutcome(t, Delivered: true, ShouldPrune: false))]));
         }

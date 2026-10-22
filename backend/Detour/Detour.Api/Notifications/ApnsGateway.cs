@@ -24,13 +24,6 @@ public sealed class ApnsGateway : IPushGateway
 {
     public const string HttpClientName = "apns";
 
-    // The alert body is a fixed English placeholder. iOS throttles pure silent
-    // pushes, so the wake carries a minimal visible alert; the Notification Service
-    // Extension rewrites it from the fetched event, and the client — never this
-    // backend — owns the copy. This constant is only what survives if that fetch
-    // does not finish in time.
-    private const string PlaceholderBody = "New circle activity";
-
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly Config? _config;
@@ -59,10 +52,12 @@ public sealed class ApnsGateway : IPushGateway
     }
 
     public async Task<PushSendResult> SendWakeAsync(
-        IReadOnlyCollection<string> tokens, string collapseKey, CancellationToken cancellationToken)
+        IReadOnlyCollection<string> tokens, PushWake wake, CancellationToken cancellationToken)
     {
         if (_config is null || _jwt is null || tokens.Count == 0)
             return PushSendResult.Empty;
+
+        var collapseKey = wake.CollapseKey;
 
         string bearer;
         try
@@ -89,7 +84,7 @@ public sealed class ApnsGateway : IPushGateway
                 // negotiate down to 1.1 (which APNs refuses).
                 Version = HttpVersion.Version20,
                 VersionPolicy = HttpVersionPolicy.RequestVersionExact,
-                Content = JsonContent.Create(WakePayload, options: Json),
+                Content = JsonContent.Create(WakePayload(wake), options: Json),
             };
             request.Headers.TryAddWithoutValidation("authorization", $"bearer {bearer}");
             request.Headers.TryAddWithoutValidation("apns-topic", _config.Topic);
@@ -114,11 +109,11 @@ public sealed class ApnsGateway : IPushGateway
         return new PushSendResult(outcomes);
     }
 
-    private static readonly object WakePayload = new
+    private static object WakePayload(PushWake wake) => new
     {
         aps = new Dictionary<string, object>
         {
-            ["alert"] = new { body = PlaceholderBody },
+            ["alert"] = new { body = wake.AlertBody },
             ["content-available"] = 1,
             ["mutable-content"] = 1,
         },
