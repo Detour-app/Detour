@@ -81,6 +81,7 @@ import com.jellemax.detour.ui.MapScreen
 import com.jellemax.detour.ui.GraphiteDark
 import com.jellemax.detour.ui.GraphiteLight
 import com.jellemax.detour.ui.PlannedRideDetailScreen
+import com.jellemax.detour.ui.PlannedRideEditorScreen
 import com.jellemax.detour.ui.PlannedRidesScreen
 import com.jellemax.detour.ui.ProfileScreen
 import com.jellemax.detour.ui.RiderFocusHolder
@@ -555,10 +556,22 @@ private fun AppRoot() {
                     PlannedRidesScreen(
                         onBack = { backStack.pop() },
                         onOpenRide = { id -> backStack.push(Destination.PlannedRideDetail(id)) },
+                        onNewRide = { backStack.push(Destination.PlannedRideEditor(null)) },
                     )
                 }
                 entry<Destination.PlannedRideDetail> { key ->
-                    PlannedRideDetailScreen(rideId = key.rideId, onBack = { backStack.pop() })
+                    PlannedRideDetailScreen(
+                        rideId = key.rideId,
+                        onBack = { backStack.pop() },
+                        onEdit = { backStack.push(Destination.PlannedRideEditor(key.rideId)) },
+                    )
+                }
+                entry<Destination.PlannedRideEditor> { key ->
+                    PlannedRideEditorScreen(
+                        rideId = key.rideId,
+                        onBack = { backStack.pop() },
+                        onFinish = { backStack.pop() },
+                    )
                 }
                 entry<Destination.RouteEditor> { key ->
                     RouteEditorEntry(
