@@ -69,6 +69,15 @@ data class PlannedRide(
 
     /** Whether [me] holds an invitation to answer. The owner never does. */
     fun canAnswer(me: RiderId): Boolean = !canStart(me) && myAnswer != null
+
+    /**
+     * Whether a reminder wake-ping (#759, docs/PUSH.md §11) should still become a notification at
+     * [nowMs]: the caller answered going or maybe, and the ride has not started. Re-checked on
+     * the device because the answer or the start time can change between the server's pass and
+     * the fetch; the server sends at most one ping per start time, so there is nothing to dedupe.
+     */
+    fun wantsReminder(nowMs: Long): Boolean =
+        (myAnswer == RsvpAnswer.GOING || myAnswer == RsvpAnswer.MAYBE) && startsAtMs > nowMs
 }
 
 /** What the owner sets on create and on every edit: an edit replaces every field. */

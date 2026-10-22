@@ -66,7 +66,8 @@ payload. The device is expected to call `GET /api/circles/{id}/events?since=…`
 decide from the feed what to say, and post the notification itself.
 
 Google and Apple therefore see only "something happened for user X" — no circle
-name, no place, no other member, no event kind.
+name, no place, no other member, no event kind. (The planned-ride reminder, §11,
+also carries the ride's id, which its collapse key already shows.)
 
 `collapse_key` (FCM) and `apns-collapse-id` (APNs) are both set to the circle id,
 so a burst of arrivals in one circle coalesces into a single wake rather than a
@@ -76,7 +77,7 @@ stack of them.
 
 iOS throttles pure silent pushes, so the APNs message carries a minimal visible
 `alert` with `content-available: 1` and `mutable-content: 1`. The alert body is a
-fixed English constant, `"New circle activity"`, hard-coded in `ApnsGateway`. It
+fixed English constant per kind — `"New circle activity"` here — hard-coded in `PushWake`. It
 is never localised there — the client owns copy. The Notification Service
 Extension (§7) rewrites it after it has fetched the real event; the constant is
 only what survives if that fetch does not finish in time.
@@ -305,3 +306,38 @@ Two things make the retirement safe rather than merely quieter:
   (§2), and `CircleCatchUp.sweep` posts from the feed.
 
 `CircleSyncWorker`'s 15-minute tick and the foreground sweep cover the rest.
+
+## 11. Planned-ride reminders
+
+The second kind of wake-ping (#759). An hour before a planned ride starts, every
+invitee who answered *going* or *maybe* gets one; pending, declined and the owner
+get none, and an invitation that ended with a friendship (or a deleted ride) is
+already gone. On Android it carries:
+
+```
+data: { "type": "ride_reminder", "rideId": "<ride id>" }
+```
+
+The id is the one exception to §2's "only a type", and it adds nothing the cloud
+did not already see: the collapse key is `ride-<ride id>`. Still no title, time
+or meeting point — the device calls `GET /api/planned-rides/{id}`, re-checks that
+the rider is still going or maybe and the ride has not started
+(`PlannedRide.wantsReminder` in shared/), and posts "Ride starts soon" itself.
+Tapping it opens the ride. The iOS placeholder alert for this kind is
+`"A planned ride starts soon"`; each kind's data, collapse key and placeholder
+live together in `PushWake`.
+
+**Server side.** `PlannedRideReminderWorker` runs `PlannedRideReminders` once a
+minute. A pass picks every ride whose start is within the hour and still ahead
+and whose `reminded_for_starts_at` is not its current start time, sets that
+column to the start time, saves, and only then enqueues one `PushJob` per ride
+on the queue from §4. Keying on the start time rather than a "sent" flag is what
+makes a reschedule move the reminder with no reset step. Saving before sending
+means a failed save sends nothing and the next pass retries; a ping lost after
+the save is not retried.
+
+A ride created or moved to less than an hour ahead is reminded on the next pass.
+A rider who answers going after the pass gets no reminder for that start time.
+With more than one API instance each runs its own pass, and two passes that read
+the same ride before either saves would both send; one instance is the supported
+deployment today, as for the live relay.

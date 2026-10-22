@@ -157,11 +157,7 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     fun edit(trip: Trip, edit: RideEdit) = scope.launch {
         when (edit) {
             is RideEdit.Rename -> withContext(Dispatchers.IO) { TripTitleStore.set(trip.startTimeMs, edit.title) }
-            is RideEdit.ChangeMode -> {
-                withContext(Dispatchers.IO) { TripStore.updateMode(trip.startTimeMs, edit.mode) }
-                // Push the correction so it survives a reinstall / other devices.
-                SyncClient.syncQuietly()
-            }
+            is RideEdit.ChangeMode -> withContext(Dispatchers.IO) { TripStore.updateMode(trip.startTimeMs, edit.mode) }
             RideEdit.Delete -> {
                 // TripStore.delete rewrites trips.json and the tombstone file;
                 // either write can fail. Reloading anyway would redraw the row
@@ -173,6 +169,10 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
                 }
             }
         }
+        // Push every edit now, not at the next unrelated sync: a rename or a
+        // correction survives a reinstall, and a delete's tombstone stops other
+        // devices resurrecting the trip. No-op when signed out.
+        SyncClient.syncQuietly()
         reload() // clears any message on its way in
     }
 

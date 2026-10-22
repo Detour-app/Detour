@@ -200,6 +200,16 @@ class ConvoysStateWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+class ConvoyInvitesStateWatcher internal constructor(
+    private val flow: StateFlow<ConvoyInvitesState>,
+) : Watcher() {
+    var value: ConvoyInvitesState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 class CirclesStateWatcher internal constructor(
     private val flow: StateFlow<CirclesState>,
 ) : Watcher() {
@@ -422,6 +432,7 @@ object StoreFlows {
 object FeatureFlows {
     fun friends() = FriendsStateWatcher(FriendsStore.state)
     fun convoys() = ConvoysStateWatcher(ConvoysStore.state)
+    fun convoyInvites() = ConvoyInvitesStateWatcher(ConvoyInvitesStore.state)
     fun circles() = CirclesStateWatcher(CirclesStore.state)
     fun plannedRides() = PlannedRidesStateWatcher(PlannedRidesStore.state)
 }

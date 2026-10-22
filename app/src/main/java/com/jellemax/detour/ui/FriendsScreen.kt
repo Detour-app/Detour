@@ -73,8 +73,10 @@ import com.jellemax.detour.data.Friends
 import com.jellemax.detour.data.FriendsStore
 import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.Groups
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.handleFor
+import com.jellemax.detour.data.isOwnedBy
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.presentation.FriendRequestRow
 import com.jellemax.detour.presentation.FriendsPresenter
@@ -672,6 +674,8 @@ private fun ConvoysSection() {
     val state by ConvoysStore.state.collectAsStateWithLifecycle()
     var createOpen by remember { mutableStateOf(false) }
     var inviteFor by remember { mutableStateOf<Group?>(null) }
+    var inviteLinkFor by remember { mutableStateOf<Group?>(null) }
+    val selfId by Settings.authRiderId.collectAsStateWithLifecycle()
     val liveConvoyId by ConvoyLiveClient.activeConvoyId.collectAsStateWithLifecycle()
     // "Live" above only means this device is *trying* to stay connected. A
     // relay it can't reach, a join the server rejects, and a peer who simply
@@ -788,8 +792,11 @@ private fun ConvoysSection() {
             convoy = convoy,
             onDismiss = { inviteFor = null },
             onInvite = { target -> scope.launch { ConvoysStore.invite(convoy.id, target) }; inviteFor = null },
+            // Host only: the link endpoints answer 403 to every other member (§4.1).
+            onInviteByLink = { inviteFor = null; inviteLinkFor = convoy }.takeIf { convoy.isOwnedBy(selfId) },
         )
     }
+    inviteLinkFor?.let { ConvoyInviteLinkDialog(convoy = it, onDismiss = { inviteLinkFor = null }) }
 }
 
 @Composable
@@ -916,20 +923,32 @@ private fun CreateConvoyDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
 }
 
 /** Invite by username, same shape as [AddFriendDialog] — the server rejects
- *  anyone not already a friend, so there's nothing else to validate here. */
+ *  anyone not already a friend, so there's nothing else to validate here.
+ *  [onInviteByLink] is the way to someone who isn't a friend: non-null only
+ *  for the convoy's host, who alone may mint a link. */
 @Composable
-private fun InviteToConvoyDialog(convoy: Group, onDismiss: () -> Unit, onInvite: (String) -> Unit) {
+private fun InviteToConvoyDialog(
+    convoy: Group,
+    onDismiss: () -> Unit,
+    onInvite: (String) -> Unit,
+    onInviteByLink: (() -> Unit)?,
+) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.friends_convoy_invite_title, convoy.name)) },
         text = {
-            OutlinedTextField(
-                value = name, onValueChange = { name = it },
-                label = { Text(stringResource(R.string.friends_friend_username)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Column {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.friends_friend_username)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                onInviteByLink?.let {
+                    TextButton(onClick = it) { Text(stringResource(R.string.convoy_link_open)) }
+                }
+            }
         },
         confirmButton = {
             TextButton(enabled = name.isNotBlank(), onClick = { onInvite(name.trim()) }) {

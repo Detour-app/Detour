@@ -445,6 +445,7 @@ object Auth {
         riderIdResolveFailed = false
         FriendsStore.reset()
         ConvoysStore.reset()
+        ConvoyInvitesStore.reset()
         CirclesStore.reset()
         PlannedRidesStore.reset()
         FriendFog.clear()

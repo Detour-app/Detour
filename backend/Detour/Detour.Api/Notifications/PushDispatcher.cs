@@ -41,7 +41,7 @@ public sealed class PushDispatcher(
             }
 
             var platformTokens = group.Select(t => t.Token).Distinct().ToArray();
-            var result = await gateway.SendWakeAsync(platformTokens, job.CollapseKey, cancellationToken);
+            var result = await gateway.SendWakeAsync(platformTokens, job.Wake, cancellationToken);
             toPrune.AddRange(result.TokensToPrune);
         }
 
