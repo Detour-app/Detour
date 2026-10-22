@@ -3,7 +3,6 @@ package com.jellemax.detour
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -20,6 +19,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -109,8 +110,6 @@ class MainActivity : ComponentActivity() {
         // tapped, swiped, or ignored until the rider came back another way.
         ReopenNotification.cancel(this)
         enableEdgeToEdge()
-        // A map app is glanced at while driving: keep the screen awake while visible.
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         ColdStartTiming.timed("Settings.init") { Settings.init() }
         if (Settings.externalDisplayEnabled.value) BleNavServer.start(this)
         // Cheap, synchronous no-op unless signed in with a server configured
@@ -222,6 +221,22 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val TAG = "DetourAuth"
+
+/**
+ * Keeps the display awake for as long as the caller is composed (#703). A map
+ * app is glanced at while driving, so the map entry holds this - and only the
+ * map: it used to be FLAG_KEEP_SCREEN_ON on the whole window, which kept
+ * History, Settings and every other screen awake too. The flag is the view's, so
+ * it also lapses while the app is in the background.
+ */
+@Composable
+private fun KeepScreenOn() {
+    val view = LocalView.current
+    DisposableEffect(view) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
+}
 
 @Composable
 private fun AppRoot() {
@@ -397,6 +412,7 @@ private fun AppRoot() {
             },
             entryProvider = entryProvider {
                 entry<Destination.Map> {
+                    KeepScreenOn()
                     MapScreen(
                         onOpenHub = { backStack.push(Destination.Hub) },
                         // The home sheet's two cards. Both destinations already
