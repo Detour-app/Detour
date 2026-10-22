@@ -225,7 +225,7 @@ android {
 dependencies {
     // Roulette/routing/trip logic, shared verbatim with the iOS app in iosApp/.
     implementation(project(":shared"))
-    implementation(platform("androidx.compose:compose-bom:2026.02.00"))
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
@@ -239,10 +239,10 @@ dependencies {
     // image cannot be fetched: opening the expander makes no request of its own,
     // to any host a release author chose. That is omission, not a setting to
     // regress — GitHub's generator emits no images, so nothing is lost.
-    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.35.0")
-    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.46.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.46.0")
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     // Custom Tabs, for the sign-in leg. A native app must not put the identity
     // provider's login form in a WebView (RFC 8252): a tab keeps the address bar
     // and the browser's own session, so the user can see who they are typing a
@@ -265,7 +265,7 @@ dependencies {
     // Android Automotive OS. Same version as :app above, so this pulls no new
     // transitive graph — it is the host half of a library the app already uses.
     "automotiveImplementation"("androidx.car.app:app-automotive:1.7.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.12.0")
     // Parked-state circle position sync (#90): the 2-min loop inside
     // TripTrackingService dies when the service stops while parked, so a
     // 15-min periodic worker carries the "still here" post + on-device
@@ -286,7 +286,7 @@ dependencies {
     // consumer's compile classpath, so it has to be declared here too,
     // pinned to the same version shared uses to resolve to one identical
     // class rather than risk two.
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     // QR generation only (#762, owner decision): the convoy invite link as a code
     // a rider beside the host can scan. Core alone is pure Java with no camera
     // or scanner; ui/QrCode.kt draws its matrix in Compose, no bitmap.
