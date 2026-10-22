@@ -328,10 +328,11 @@ each with its stop count, distance and time.
   name. Un-friending someone deletes every route shared between you, in both
   directions.
 
-Like trips and fog, saved routes sync to your server when you are signed in, so
-a reinstall or a second phone brings them back, and deleting one on a phone
-deletes it everywhere. Without an account they live on the phone only; export
-the ones you want to keep before a reinstall.
+Saved routes sync to your server when you are signed in, so a reinstall or a
+second phone brings them back, and deleting a saved route on one phone removes
+it from your other phones too. (A deleted trip does not yet reach your other
+devices.) Without an account they live on the phone only; export the ones you
+want to keep before a reinstall.
 
 ## You: logbook, badges, friends
 
