@@ -162,12 +162,17 @@ object TripStore {
      * also tombstoned, so the server's copy — the /sync merge returns the union
      * and replaces the local store — can't quietly bring it back on the next
      * sync. Tombstones are honoured in [replaceRaw].
+     *
+     * Its trace goes with it (owner decision on #696), which is what shrinks the
+     * fog and the coverage percentages it fed.
      */
     fun delete(startTimeMs: Long) {
         val tombstones = tombstones()
         tombstones.add(startTimeMs)
         writeTombstones(tombstones)
-        writeAll(load().filterNot { it.startTimeMs == startTimeMs })
+        val trips = load()
+        writeAll(trips.filterNot { it.startTimeMs == startTimeMs })
+        trips.firstOrNull { it.startTimeMs == startTimeMs }?.let { TraceStore.removeWindow(it.startTimeMs, it.endTimeMs) }
         // The removed trip may have held the top speed, the longest ride or
         // the deepest lean, and a maximum cannot be walked backwards from the
         // record alone. A recompute is the only correct answer.
