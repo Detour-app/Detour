@@ -80,6 +80,8 @@ import com.jellemax.detour.ui.HubScreen
 import com.jellemax.detour.ui.MapScreen
 import com.jellemax.detour.ui.GraphiteDark
 import com.jellemax.detour.ui.GraphiteLight
+import com.jellemax.detour.ui.PlannedRideDetailScreen
+import com.jellemax.detour.ui.PlannedRidesScreen
 import com.jellemax.detour.ui.ProfileScreen
 import com.jellemax.detour.ui.RiderFocusHolder
 import com.jellemax.detour.ui.RouteEditorScreen
@@ -546,7 +548,17 @@ private fun AppRoot() {
                         // (plus the one it is animating from), so the single
                         // retained MapView is never asked for two parents at once.
                         onNavigate = { backStack.push(Destination.Map) },
+                        onOpenPlannedRides = { backStack.push(Destination.PlannedRides) },
                     )
+                }
+                entry<Destination.PlannedRides> {
+                    PlannedRidesScreen(
+                        onBack = { backStack.pop() },
+                        onOpenRide = { id -> backStack.push(Destination.PlannedRideDetail(id)) },
+                    )
+                }
+                entry<Destination.PlannedRideDetail> { key ->
+                    PlannedRideDetailScreen(rideId = key.rideId, onBack = { backStack.pop() })
                 }
                 entry<Destination.RouteEditor> { key ->
                     RouteEditorEntry(

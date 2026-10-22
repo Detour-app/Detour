@@ -103,6 +103,14 @@ sealed interface Destination : NavKey {
     @Serializable
     data class RouteEditor(val routeId: Long?) : Destination
 
+    /** Rides planned ahead (#633): ones this rider hosts or is invited to. Reached from Routes. */
+    @Serializable
+    data object PlannedRides : Destination
+
+    /** One planned ride, by its server id. */
+    @Serializable
+    data class PlannedRideDetail(val rideId: String) : Destination
+
     /** The Settings root: the six rows that lead to the [SettingsSpoke]s. */
     @Serializable
     data object Settings : Destination

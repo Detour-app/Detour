@@ -107,4 +107,26 @@
     <string name="circles_share_place_title">Een plaats delen</string>
     <string name="circles_share_place_text">De kring ziet hier aankomsten en vertrekken, niet je live positie.</string>
     <string name="circles_radius_m">Straal (meter)</string>
+    <!-- Planned rides (#754) -->
+    <string name="planned_title">Geplande ritten</string>
+    <string name="planned_ride">Geplande rit</string>
+    <string name="planned_refresh">Geplande ritten vernieuwen</string>
+    <string name="planned_no_server">Geen sync-server ingesteld. Stel er eerst een in bij Instellingen — geplande ritten staan op je eigen server.</string>
+    <string name="planned_sign_in_first">Meld je eerst aan bij Vrienden — je plant ritten met diezelfde vriendenlijst.</string>
+    <string name="planned_setting_up">Je account wordt ingesteld — kijk zo meteen opnieuw.</string>
+    <string name="planned_empty_title">Niets gepland</string>
+    <string name="planned_empty_text">Ritten waarvoor je bent uitgenodigd verschijnen hier.</string>
+    <string name="planned_load_failed">Je geplande ritten konden niet worden geladen.</string>
+    <string name="planned_retry">Opnieuw proberen</string>
+    <string name="planned_you_host">Jij organiseert</string>
+    <string name="planned_hosted_by">Georganiseerd door %1$s</string>
+    <string name="planned_your_answer">Jouw antwoord: %1$s</string>
+    <string name="planned_meeting_point">Verzamelpunt</string>
+    <string name="planned_are_you_coming">Kom je?</string>
+    <string name="planned_invitees">Uitgenodigd</string>
+    <string name="planned_no_invitees">Nog niemand uitgenodigd.</string>
+    <string name="planned_answer_going">Ik kom</string>
+    <string name="planned_answer_maybe">Misschien</string>
+    <string name="planned_answer_declined">Kan niet</string>
+    <string name="planned_answer_pending">Nog geen antwoord</string>
 </resources>
