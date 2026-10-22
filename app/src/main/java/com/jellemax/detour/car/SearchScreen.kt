@@ -22,6 +22,7 @@ import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.map.startHeading
 import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.tracking.hasLocationPermission
 import kotlinx.coroutines.Dispatchers
@@ -166,6 +167,9 @@ class SearchScreen(
         lifecycleScope.launch {
             try {
                 val config = withContext(Dispatchers.IO) { RoutingServer.load() }
+                // #719: picked on the move, the first line continues forward
+                // like NavScreen's reroute does, instead of leaving via an onramp.
+                val heading = startHeading()
                 val route = withContext(Dispatchers.IO) {
                     // The rider's preferences, because `NavScreen`'s reroute
                     // passes them and a trip whose first reroute changes its
@@ -173,7 +177,7 @@ class SearchScreen(
                     // consistently. RoutingClient.route defaults to none, so
                     // omitting them silently requested a default route.
                     RoutingClient.route(config, from, result.location, TravelMode.CAR.ghProfile,
-                        Settings.routePreferences())
+                        Settings.routePreferences(), heading)
                 }
                 withContext(Dispatchers.IO) { RecentSearchStore.save(result) }
                 searching = false

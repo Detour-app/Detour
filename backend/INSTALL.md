@@ -130,6 +130,7 @@ form too (`Idp__Authority`, `ConnectionStrings__DefaultConnection`, and so on).
 | `Cors:AllowedOrigins` | Only needed for a browser origin. The app is not one. |
 | `Cache:RedisConnectionString` | Empty means memory-only, which is a correct single-instance deployment. |
 | `ForwardedHeaders:KnownProxies` / `KnownNetworks` | **Set one of these if anything sits in front of the API.** See below. |
+| `AccountDeletion:WebhookUrl` | Where to `POST` a JSON note (`event`, `subject`, `username`, `deletedAtMs`) when a rider deletes their own account, so you can remove their realm user too — the API deletes only its own data. Optional — blank sends nothing, and a deleted rider's realm user stays until you remove it in the Keycloak console. A failing webhook is logged as a warning, never a failed delete. |
 | `Notifications:*` | Circle push wake-pings. Optional — unset means no push, and circles still deliver over the socket and the foreground sweep. FCM (`FirebaseCredentialsPath`) and APNs (`ApnsKeyPath` + `ApnsKeyId` / `ApnsTeamId` / `ApnsTopic`) are configured independently. Full table and cloud setup in [`../docs/PUSH.md`](../docs/PUSH.md) §5–6. |
 
 **Import before riders use the server.** The API serves `/api/cameras`, `/api/speedlimits`,

@@ -67,9 +67,11 @@ passes over the file:
    cameras, upgrading a coincident node to `SpeedAndRedLight` when both
    encodings hit the same physical camera, falling back to a device node's
    own `maxspeed` tag when the relation has none) and `enforcement=average_speed`
-   (sections: the referenced way's own geometry when the relation has a way
-   member, else the same furthest-apart-member-points straight line as
-   before) against pass 1/3's locations.
+   (sections: the member ways' own geometry, chained end to end by shared
+   end nodes whatever order and direction the relation lists them in, along
+   one carriageway where both one-way halves are members; else the same
+   furthest-apart-member-points straight line as before) against pass 1/3's
+   locations.
 
 Passes 2-3 only ever hold the small want-lists relations flag, not every
 way/node in the file, so this stays cheap at country scale — the tradeoff is

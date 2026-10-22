@@ -95,10 +95,12 @@ public class MemberFixConfiguration : IEntityTypeConfiguration<MemberFix>
             .HasForeignKey(f => f.GroupId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Cascade on the rider leg too, so deleting an account clears what it left in circles
+        // it doesn't own (#700). PostgreSQL accepts the second cascade path via the group.
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(f => f.UserId)
-            .OnDelete(DeleteBehavior.NoAction);
+            .OnDelete(DeleteBehavior.Cascade);
 
         // One row per member per circle, overwritten in place. The unique index is what makes
         // "no history, no trail" a property of the schema rather than of the write path.
@@ -131,10 +133,12 @@ public class CirclePlaceConfiguration : IEntityTypeConfiguration<CirclePlace>
             .HasForeignKey(p => p.GroupId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Cascade on the rider leg too, so deleting an account clears what it left in circles
+        // it doesn't own (#700). PostgreSQL accepts the second cascade path via the group.
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(p => p.OwnerId)
-            .OnDelete(DeleteBehavior.NoAction);
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Unique per (circle, owner, client id) — deliberately not per (circle, client id),
         // because the id is assigned on the owner's device and two members can pick the same
@@ -166,10 +170,12 @@ public class PlaceEventConfiguration : IEntityTypeConfiguration<PlaceEvent>
             .HasForeignKey(e => e.GroupId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        // Cascade on the rider leg too, so deleting an account clears what it left in circles
+        // it doesn't own (#700). PostgreSQL accepts the second cascade path via the group.
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(e => e.UserId)
-            .OnDelete(DeleteBehavior.NoAction);
+            .OnDelete(DeleteBehavior.Cascade);
 
         // The feed read (events since an instant) and the retention sweep both use this.
         builder.HasIndex(e => new { e.GroupId, e.TimestampMs });

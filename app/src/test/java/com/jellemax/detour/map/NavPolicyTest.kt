@@ -1,9 +1,11 @@
 package com.jellemax.detour.map
 
+import com.jellemax.detour.data.HeadingHint
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -193,5 +195,26 @@ class NavPolicyTest {
         assertEquals(120, NavPolicy.rerouteHeadingPenaltySec(0.0))
         assertEquals(300, NavPolicy.rerouteHeadingPenaltySec(8.0))
         assertEquals(1200, NavPolicy.rerouteHeadingPenaltySec(17.0))
+    }
+
+    /** A hint needs a course and real movement: parked or before GPS has a
+     *  course, the request goes out bare (#719, same guard as the reroute). */
+    @Test
+    fun headingHintNeedsCourseAndSpeed() {
+        assertEquals(HeadingHint(90.0, 1200), NavPolicy.headingHint(90f, 25.0))
+        assertEquals(HeadingHint(270.0, 120), NavPolicy.headingHint(270f, 2.0))
+        assertNull(NavPolicy.headingHint(90f, 1.9))
+        assertNull(NavPolicy.headingHint(null, 25.0))
+    }
+
+    /** Start is pressed whenever, and lastFix is never cleared: a course from a
+     *  fix past the age bound must not steer the first route. */
+    @Test
+    fun startHeadingHintDropsStaleFix() {
+        val bound = NavPolicy.START_HEADING_MAX_AGE_MS
+        assertEquals(HeadingHint(45.0, 1200), NavPolicy.startHeadingHint(45f, 30.0, fixAgeMs = 500))
+        assertEquals(HeadingHint(45.0, 1200), NavPolicy.startHeadingHint(45f, 30.0, fixAgeMs = bound))
+        assertNull(NavPolicy.startHeadingHint(45f, 30.0, fixAgeMs = bound + 1))
+        assertNull(NavPolicy.startHeadingHint(45f, 0.5, fixAgeMs = 500))
     }
 }
