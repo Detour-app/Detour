@@ -24,10 +24,15 @@ import com.jellemax.detour.data.RiderId
  * it can be the rider ahead someone fell behind, or the lead. Events about
  * [Roster.selfId] are dropped: you know you stopped.
  *
- * Phone, car and iOS step this the same way; the cadence and the clock are the
- * caller's.
+ * Phone and iOS step this the same way, every [TICK_MS]; the clock is the
+ * caller's. The car screen does not step it yet (#655).
  */
 object ConvoyGapFeed {
+
+    /** How often a surface steps this. Signal loss is the one alert no frame
+     *  announces, so something has to look on a timer; a second is well
+     *  inside its 30 s threshold. */
+    const val TICK_MS = 1_000L
 
     /** The detector's state plus, per rider, the sender's stamp on the last
      *  frame seen. */
