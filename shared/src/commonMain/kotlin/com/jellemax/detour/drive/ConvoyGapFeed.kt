@@ -24,8 +24,8 @@ import com.jellemax.detour.data.RiderId
  * it can be the rider ahead someone fell behind, or the lead. Events about
  * [Roster.selfId] are dropped: you know you stopped.
  *
- * Phone, car and iOS step this the same way, every [TICK_MS]; the clock is the
- * caller's.
+ * Phone and iOS step this the same way, every [TICK_MS]; the clock is the
+ * caller's. The car screen does not step it yet (#655).
  */
 object ConvoyGapFeed {
 
