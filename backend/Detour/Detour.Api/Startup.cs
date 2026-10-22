@@ -55,6 +55,7 @@ public class Startup(IConfiguration configuration)
         services.Configure<RoadSettings>(configuration.GetSection(RoadSettings.SectionName));
         services.Configure<MunicipalitySettings>(configuration.GetSection(MunicipalitySettings.SectionName));
         services.Configure<PoiSettings>(configuration.GetSection(PoiSettings.SectionName));
+        services.Configure<AccountDeletionSettings>(configuration.GetSection(AccountDeletionSettings.SectionName));
 
         services.AddTrustedProxies(ForwardedHeaders);
 

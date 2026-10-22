@@ -124,4 +124,26 @@
     <string name="circles_share_place_title">Share a place</string>
     <string name="circles_share_place_text">The circle sees arrivals and departures here, not your live position.</string>
     <string name="circles_radius_m">Radius (metres)</string>
+    <!-- Planned rides (#754) -->
+    <string name="planned_title">Planned rides</string>
+    <string name="planned_ride">Planned ride</string>
+    <string name="planned_refresh">Refresh planned rides</string>
+    <string name="planned_no_server">No sync server configured. Set one in Settings first — planned rides live on your own server.</string>
+    <string name="planned_sign_in_first">Sign in under Friends first — you plan rides with that same friends list.</string>
+    <string name="planned_setting_up">Setting up your account — check back in a moment.</string>
+    <string name="planned_empty_title">Nothing planned</string>
+    <string name="planned_empty_text">Rides you\'re invited to show up here.</string>
+    <string name="planned_load_failed">Couldn\'t load your planned rides.</string>
+    <string name="planned_retry">Try again</string>
+    <string name="planned_you_host">You\'re hosting</string>
+    <string name="planned_hosted_by">Hosted by %1$s</string>
+    <string name="planned_your_answer">Your answer: %1$s</string>
+    <string name="planned_meeting_point">Meeting point</string>
+    <string name="planned_are_you_coming">Are you coming?</string>
+    <string name="planned_invitees">Invited</string>
+    <string name="planned_no_invitees">Nobody invited yet.</string>
+    <string name="planned_answer_going">Going</string>
+    <string name="planned_answer_maybe">Maybe</string>
+    <string name="planned_answer_declined">Can\'t</string>
+    <string name="planned_answer_pending">Not answered</string>
 </resources>

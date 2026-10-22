@@ -382,6 +382,118 @@ public class ConvoyInviteTests(PostgresFixture postgres) : IAsyncLifetime
             .Should().Be(HttpStatusCode.TooManyRequests);
     }
 
+    [Fact]
+    public async Task A_preview_shows_the_host_and_convoy_without_joining()
+    {
+        var host = await _factory.SignInAsync();
+        var stranger = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+
+        var response = await Preview(stranger, invite);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var preview = await response.Content.ReadFromJsonAsync<JsonElement>();
+        preview.GetProperty("convoyName").GetString().Should().Be("Sunday ride");
+        preview.GetProperty("hostUsername").GetString().Should().Be(host.Username);
+        preview.GetProperty("riderCount").GetInt32().Should().Be(1);
+        preview.GetProperty("expiresAtMs").GetInt64()
+            .Should().Be(invite.GetProperty("expiresAtMs").GetInt64());
+        preview.GetProperty("alreadyMember").GetBoolean().Should().BeFalse();
+
+        (await ConvoyIds(stranger)).Should().NotContain(convoy);
+        (await Guests(host, convoy)).GetProperty("guests").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_preview_by_a_rider_already_in_says_so()
+    {
+        var host = await _factory.SignInAsync();
+        var guest = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+        (await Join(guest, invite)).EnsureSuccessStatusCode();
+
+        var preview = await (await Preview(guest, invite)).Content.ReadFromJsonAsync<JsonElement>();
+
+        preview.GetProperty("alreadyMember").GetBoolean().Should().BeTrue();
+        preview.GetProperty("riderCount").GetInt32().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_preview_of_an_unknown_token_is_not_found()
+    {
+        var rider = await _factory.SignInAsync();
+
+        var response = await rider.PostAsJsonAsync("/api/convoys/join/preview", new { token = "not-a-real-token" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_preview_of_a_revoked_or_expired_link_is_gone()
+    {
+        var host = await _factory.SignInAsync();
+        var rider = await _factory.SignInAsync();
+        var revokedConvoy = await CreateConvoy(host);
+        var revoked = await CreateLink(host, revokedConvoy);
+        (await host.DeleteAsync($"/api/convoys/{revokedConvoy}/invite-link")).EnsureSuccessStatusCode();
+
+        var expiredConvoy = await CreateConvoy(host);
+        var expired = await CreateLink(host, expiredConvoy);
+        using (var scope = _factory.Services.CreateScope())
+        await using (var db = scope.ServiceProvider
+                         .GetRequiredService<ICustomDbContextFactory<DetourDbContext>>().CreateNew())
+        {
+            await db.Set<Detour.Domain.Groups.ConvoyInvite>()
+                .Where(i => i.GroupId == expiredConvoy)
+                .ExecuteUpdateAsync(s => s.SetProperty(i => i.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(-1)));
+        }
+
+        (await Preview(rider, revoked)).StatusCode.Should().Be(HttpStatusCode.Gone);
+        (await Preview(rider, expired)).StatusCode.Should().Be(HttpStatusCode.Gone);
+    }
+
+    [Fact]
+    public async Task A_preview_by_a_removed_guest_is_forbidden()
+    {
+        var host = await _factory.SignInAsync();
+        var guest = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        (await Join(guest, await CreateLink(host, convoy))).EnsureSuccessStatusCode();
+        (await host.DeleteAsync($"/api/convoys/{convoy}/guests/{guest.UserId}")).EnsureSuccessStatusCode();
+
+        (await Preview(guest, await CreateLink(host, convoy))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_preview_of_a_full_convoy_is_refused()
+    {
+        var host = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+        for (var i = 0; i < DetourLimits.MaxConvoyGuests; i++)
+            (await Join(await _factory.SignInAsync(), invite)).EnsureSuccessStatusCode();
+
+        (await Preview(await _factory.SignInAsync(), invite)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Previews_count_against_the_join_limit()
+    {
+        var host = await _factory.SignInAsync();
+        var rider = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+
+        var allowed = Math.Min(DetourLimits.ConvoyJoinsPerToken, DetourLimits.ConvoyJoinsPerIp);
+        for (var i = 0; i < allowed; i++)
+            (await Preview(rider, invite)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await Join(rider, invite)).StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        (await ConvoyIds(rider)).Should().NotContain(convoy);
+    }
+
     private static async Task Befriend(SignedInClient a, SignedInClient b)
     {
         (await a.PostAsJsonAsync("/api/friends/requests", new { username = b.Username }))
@@ -406,6 +518,9 @@ public class ConvoyInviteTests(PostgresFixture postgres) : IAsyncLifetime
 
     private static Task<HttpResponseMessage> Join(SignedInClient client, JsonElement invite) =>
         client.PostAsJsonAsync("/api/convoys/join", new { token = invite.GetProperty("token").GetString() });
+
+    private static Task<HttpResponseMessage> Preview(SignedInClient client, JsonElement invite) =>
+        client.PostAsJsonAsync("/api/convoys/join/preview", new { token = invite.GetProperty("token").GetString() });
 
     private static async Task<JsonElement> Guests(SignedInClient host, Guid convoy)
     {

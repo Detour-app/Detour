@@ -41,6 +41,43 @@ def parse_maxspeed(v):
         return None
 
 
+def chain_ways(ways):
+    """One polyline along a section's member ways, end to end (#772).
+
+    Relations list their ways in any order and either direction, and a split carriageway puts
+    both one-way halves in, so joining them in member order zigzags — and the polyline's first
+    and last points are the gates the app times between. The ways form a graph whose nodes are
+    way end points (shared OSM nodes have identical coordinates); the polyline is the longest of
+    the shortest paths between any two of them, which runs leaf to leaf along one carriageway.
+    Ways that don't connect at all fall back to the longest connected stretch."""
+    ends = sorted({w[0] for w in ways} | {w[-1] for w in ways})
+    adj = {e: [] for e in ends}
+    for w in ways:
+        length = sum(hav(a, b) for a, b in zip(w, w[1:]))
+        adj[w[0]].append((w[-1], length, w))
+        adj[w[-1]].append((w[0], length, w[::-1]))
+    best, best_len = [], -1.0
+    for start in ends:
+        dist, prev, todo = {start: 0.0}, {}, {start}
+        while todo:
+            u = min(todo, key=dist.get)
+            todo.remove(u)
+            for v, length, pts in adj[u]:
+                if dist[u] + length < dist.get(v, math.inf):
+                    dist[v], prev[v] = dist[u] + length, (u, pts)
+                    todo.add(v)
+        end = max(dist, key=dist.get)
+        if dist[end] > best_len:
+            legs, v = [], end
+            while v in prev:
+                v, pts = prev[v][0], prev[v][1]
+                legs.append(pts)
+            best, best_len = [start], dist[end]
+            for pts in reversed(legs):
+                best.extend(pts[1:])
+    return best
+
+
 class NodeLocationPass(osmium.SimpleHandler):
     """Pass 1: every speed_camera node, plus every node id referenced by an enforcement
     relation (device/from/to members) — those are looked up by id in pass 2, and pyosmium's
@@ -194,7 +231,7 @@ class RelationPass(osmium.SimpleHandler):
 
     def _add_section(self, r):
         way_ids = [m.ref for m in r.members if m.type == "w"]
-        way_pts = [pt for wid in way_ids for pt in self.way_points.get(wid, [])]
+        way_pts = chain_ways([self.way_points[wid] for wid in way_ids if wid in self.way_points])
         if way_pts:
             if hav(way_pts[0], way_pts[-1]) < MIN_SPAN_M:
                 return

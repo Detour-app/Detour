@@ -14,6 +14,9 @@ public static class ServiceInstaller
         services.AddScoped<ICircleService, CircleService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IDeviceService, DeviceService>();
+        services.AddHttpClient(AccountDeletionNotifier.HttpClientName, client =>
+            client.Timeout = AccountDeletionNotifier.Timeout);
+        services.AddSingleton<IAccountDeletionNotifier, AccountDeletionNotifier>();
 
         return services;
     }
