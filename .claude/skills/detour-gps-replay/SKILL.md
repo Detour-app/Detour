@@ -268,9 +268,10 @@ map on screen, `public-trajectcontrole.txt` plus a 330-line standstill tail at 5
 The last two rows are the useful part. While `MockService` holds its overrides on gps, fused
 and network, the real receiver's fixes did not reach the app at all on this phone; they came
 back the moment the harness finished and removed its overrides, and kept arriving until
-`stop-replay.sh` cleared `mock_only`. So the gate's work is mostly at the edges of a run — and a
-trip whose standstill tail runs past the end of the route file would, without it, be kept
-alive by the desk. Give a route enough standstill to end the trip *inside* the file
+`stop-replay.sh` cleared `mock_only`. So on this phone the gate's work was all at the edges of
+the run; the CPH2449 runs in `ReplayFixGate`'s KDoc and #40 also saw real fixes mid-route, so do
+not count on a quiet middle. A trip whose standstill tail runs past the end of the route file
+could, without the gate, be kept alive by the desk. Give a route enough standstill to end the trip *inside* the file
 (`STATIONARY_END_MS` is 5 min of drive time, a minute of wall time at 5x), and read
 `DetourFixGate`'s rejected count, not just the trip, before trusting a run.
 
