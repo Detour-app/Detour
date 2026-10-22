@@ -87,7 +87,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "3.75.0"
+        versionName = "3.76.0"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -287,6 +287,10 @@ dependencies {
     // pinned to the same version shared uses to resolve to one identical
     // class rather than risk two.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    // QR generation only (#762, owner decision): the convoy invite link as a code
+    // a rider beside the host can scan. Core alone is pure Java with no camera
+    // or scanner; ui/QrCode.kt draws its matrix in Compose, no bitmap.
+    implementation("com.google.zxing:core:3.5.4")
     // Plain JUnit4, the default AGP test runner wires up for testDebugUnitTest
     // with no extra plugin - app/ had no unit tests before PlaceNotifications'
     // catch-up planning logic, which is pure Kotlin and worth covering.

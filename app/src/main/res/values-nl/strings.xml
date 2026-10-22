@@ -59,6 +59,7 @@
     <string name="convoy_link_create">Link maken</string>
     <string name="convoy_link_new">Nieuwe link</string>
     <string name="convoy_link_share">Link delen</string>
+    <string name="convoy_link_qr">QR-code van de uitnodigingslink</string>
     <string name="convoy_link_revoke">Intrekken</string>
     <string name="convoy_link_expires">Geldig tot %1$s</string>
     <string name="convoy_link_elsewhere">Een link van een ander toestel is geldig tot %1$s. Het adres staat niet op deze telefoon; een nieuwe link vervangt hem.</string>
