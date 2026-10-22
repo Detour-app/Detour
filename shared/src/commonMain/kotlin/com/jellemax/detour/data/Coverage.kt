@@ -347,15 +347,7 @@ object Coverage {
         val entries = if (municipalities.isEmpty()) emptyList() else {
             val points = TraceStore.loadAll().flatten()
             pointCount = points.size
-            municipalities.map { m ->
-                val explored = HashSet<Long>()
-                for (p in points) {
-                    if (!m.boundingBoxContains(p)) continue
-                    val cell = m.cellOf(p)
-                    if (cell in m.insideCells) explored.add(cell)
-                }
-                Entry(m.name, explored.size, m.insideCells.size, m.id)
-            }.filter { it.totalCells > 0 }.sortedByDescending { it.percent }
+            entriesOf(points, municipalities)
         }
 
         cache = Cache(traceVersion, municipalities, entries)
@@ -367,4 +359,17 @@ object Coverage {
         }
         return entries
     }
+
+    /** [compute]'s walk with the store read taken out, so what a change to the
+     *  traces does to the percentages is testable without a file system. */
+    internal fun entriesOf(points: List<LatLon>, municipalities: List<Municipality>): List<Entry> =
+        municipalities.map { m ->
+            val explored = HashSet<Long>()
+            for (p in points) {
+                if (!m.boundingBoxContains(p)) continue
+                val cell = m.cellOf(p)
+                if (cell in m.insideCells) explored.add(cell)
+            }
+            Entry(m.name, explored.size, m.insideCells.size, m.id)
+        }.filter { it.totalCells > 0 }.sortedByDescending { it.percent }
 }

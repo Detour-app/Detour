@@ -199,6 +199,45 @@ object TraceStore {
         null
     }
 
+    /**
+     * Drop every point recorded in [fromMs]..[toMs], for a deleted trip (#779).
+     * A line is a flush of the tracker's buffer, not a trip, so one line can
+     * straddle the window: its points either side are kept as separate lines.
+     *
+     * The bumped [version] is what makes the fog and [Coverage] drop the removed
+     * points; both are keyed on it. Same re-read-then-write shape as
+     * [replaceLines], with the same narrow window against [append].
+     */
+    fun removeWindow(fromMs: Long, toMs: Long) {
+        val current = rawLines()
+        val kept = withoutWindow(current, fromMs, toMs)
+        if (kept == current) return
+        accountFile(FILE_NAME).writeText(if (kept.isEmpty()) "" else kept.joinToString("\n", postfix = "\n"))
+        _version.value++
+    }
+
+    /** [lines] with the points in [fromMs]..[toMs] cut out. A line with no
+     *  point inside is returned byte-for-byte, so sync still recognises it as
+     *  already uploaded; a cut line becomes one line per run of at least two
+     *  surviving points. A line that doesn't decode, and a point written before
+     *  points carried a time, can't be placed in the window and are kept. */
+    internal fun withoutWindow(lines: List<String>, fromMs: Long, toMs: Long): List<String> = lines.flatMap { line ->
+        val points = parsePoints(line)
+        if (points == null || points.none { it.timeMs in fromMs..toMs }) return@flatMap listOf(line)
+        val runs = ArrayList<List<TracePoint>>()
+        var run = ArrayList<TracePoint>()
+        for (p in points) {
+            if (p.timeMs in fromMs..toMs) {
+                runs += run
+                run = ArrayList()
+            } else {
+                run += p
+            }
+        }
+        runs += run
+        runs.filter { it.size >= 2 }.map { encodeLine(it) }
+    }
+
     fun clear() {
         accountFile(FILE_NAME).deleteIfExists()
         _version.value++
