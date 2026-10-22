@@ -146,4 +146,12 @@
     <string name="planned_answer_maybe">Maybe</string>
     <string name="planned_answer_declined">Can\'t</string>
     <string name="planned_answer_pending">Not answered</string>
+    <string name="planned_invite">Invite friends or circles</string>
+    <string name="planned_invite_title">Invite to %1$s</string>
+    <string name="planned_invite_friends">Friends</string>
+    <string name="planned_invite_circles">Circles</string>
+    <string name="planned_invite_circle_note">A circle invites its members as they are now; someone who joins it later isn\'t added.</string>
+    <string name="planned_invite_nobody">Nobody left to invite: friends and circle members you haven\'t asked yet show up here.</string>
+    <string name="planned_invite_send">Invite</string>
+    <string name="planned_invite_cancel">Cancel</string>
 </resources>

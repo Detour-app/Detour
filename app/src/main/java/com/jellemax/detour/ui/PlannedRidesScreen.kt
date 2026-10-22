@@ -7,14 +7,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -23,6 +26,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,9 +34,11 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -98,8 +104,8 @@ private fun PlannedScaffold(
 }
 
 /**
- * Rides this rider hosts or is invited to, soonest first (#754). Read-only: creating, editing
- * and inviting are #755/#756. Reads [PlannedRidesStore] directly — like Circles, there is no
+ * Rides this rider hosts or is invited to, soonest first (#754). Creating and editing are #755;
+ * inviting is on the detail screen (#756). Reads [PlannedRidesStore] directly — like Circles, there is no
  * cached copy to go stale under a mutation.
  *
  * `rides` is null until the first load lands, so the three bodies stay apart: a spinner while
@@ -157,6 +163,10 @@ fun PlannedRidesScreen(onBack: () -> Unit, onOpenRide: (String) -> Unit, modifie
  * A [rideId] the loaded list no longer holds (the host deleted it, or the rider was unfriended)
  * pops back to the list, the way a vanished circle does — only once a load has landed and none
  * is running, or a legitimate open would pop during its first frame.
+ *
+ * The host gets an Invite action (#756). The invite runs in this screen's scope rather than the
+ * picker's, so closing the picker mid-request cannot cancel it and leave the store busy; the
+ * picker closes once the invite lands, and the new invitees show in the list below as pending.
  */
 @Composable
 fun PlannedRideDetailScreen(rideId: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
@@ -166,6 +176,7 @@ fun PlannedRideDetailScreen(rideId: String, onBack: () -> Unit, modifier: Modifi
     LaunchedEffect(Unit) { PlannedRidesStore.reloadIfStale() }
     val ride = state.rides?.find { it.id == rideId }
     val detail = remember(ride, riderId) { ride?.let { plannedRideDetailStateFrom(it, riderId) } }
+    var inviting by remember { mutableStateOf(false) }
 
     // Not a key: a new onBack lambda on recomposition must not re-run the check.
     val currentOnBack by rememberUpdatedState(onBack)
@@ -189,9 +200,28 @@ fun PlannedRideDetailScreen(rideId: String, onBack: () -> Unit, modifier: Modifi
                         onAnswer = { answer -> scope.launch { PlannedRidesStore.answer(detail.id, answer) } },
                     )
                 }
+                if (detail.canInvite) {
+                    OutlinedButton(enabled = !state.busy, onClick = { inviting = true }) {
+                        Icon(Icons.Rounded.PersonAdd, contentDescription = null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.planned_invite))
+                    }
+                }
                 Invitees(detail.invitees)
             }
         }
+    }
+
+    if (inviting && ride != null && detail?.canInvite == true) {
+        PlannedInviteDialog(
+            ride = ride,
+            busy = state.busy,
+            error = state.error,
+            onInvite = { riderIds, circleIds ->
+                scope.launch { if (PlannedRidesStore.invite(rideId, riderIds, circleIds)) inviting = false }
+            },
+            onDismiss = { inviting = false },
+        )
     }
 }
 
