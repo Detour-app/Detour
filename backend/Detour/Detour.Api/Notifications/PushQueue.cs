@@ -43,7 +43,7 @@ public sealed class PushQueue : IPushQueue
         // full is visible rather than silent.
         _logger.LogWarning(
             "Push queue full at capacity {Capacity}; dropped wake-ping for collapseKey {CollapseKey}",
-            _capacity, job.CollapseKey);
+            _capacity, job.Wake.CollapseKey);
         return false;
     }
 

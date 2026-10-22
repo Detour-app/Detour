@@ -70,12 +70,18 @@ object SpeedCameras {
      * they are not labelled start/end here. [maxspeedKmh] is the posted limit
      * the average is judged against, from the relation's own `maxspeed` tag or,
      * failing that, from the gantry nodes at its ends.
+     *
+     * [line] is the polyline the backend sent, [endA] first: the section's own road
+     * when the relation names its ways, only the device nodes when it doesn't. Empty
+     * from a disk cache written before it was kept. [SectionAverageTracker] reads it
+     * to tell the section's road from one crossing it at a gantry (#740).
      */
     data class Section(
         val endA: List<LatLon>,
         val endB: List<LatLon>,
         val spanMeters: Double,
         val maxspeedKmh: Double?,
+        val line: List<LatLon> = emptyList(),
     )
 
     data class Result(val cameras: List<Camera>, val sections: List<Section>)
@@ -171,8 +177,8 @@ object SpeedCameras {
     /**
      * The pure half of [nearViaBackend]: turns one `/api/cameras` response body into a [Result].
      *
-     * `Section`/`AverageSpeedZone` kinds carry a `polyline` — folded down to the two endpoints
-     * [Section] actually needs, with [Section.spanMeters] summed along every leg of the polyline
+     * `Section`/`AverageSpeedZone` kinds carry a `polyline` — kept as [Section.line] and folded
+     * down to the two endpoints [Section] gates on, with [Section.spanMeters] summed along every leg of the polyline
      * rather than the straight-line endpoint distance, since a real road curves. A polyline with
      * fewer than two points is dropped rather than producing a zero-length section. `RedLight` and
      * `SpeedAndRedLight` map to the matching [CameraKind]; every other kind string (`FixedSpeed`,
@@ -193,7 +199,7 @@ object SpeedCameras {
                 "Section", "AverageSpeedZone" -> if (polyline != null && polyline.size >= 2) {
                     val pts = polyline.arrays().map { LatLon(it.optDouble(0), it.optDouble(1)) }
                     val span = pts.zipWithNext { a, b -> RoadRoulette.distanceMeters(a, b) }.sum()
-                    sections.add(Section(listOf(pts.first()), listOf(pts.last()), span, maxspeed))
+                    sections.add(Section(listOf(pts.first()), listOf(pts.last()), span, maxspeed, pts))
                 }
                 "RedLight" -> if (!lat.isNaN()) cameras.add(Camera(LatLon(lat, el.optDouble("lon")), maxspeed, CameraKind.RED_LIGHT))
                 "SpeedAndRedLight" -> if (!lat.isNaN()) cameras.add(Camera(LatLon(lat, el.optDouble("lon")), maxspeed, CameraKind.COMBINED))

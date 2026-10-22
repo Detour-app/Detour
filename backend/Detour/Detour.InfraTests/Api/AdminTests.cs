@@ -98,6 +98,25 @@ public class AdminTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Deleting_an_account_clears_what_it_left_with_other_riders()
+    {
+        var earlier = await Footprinted();
+        var leaver = await Footprinted();
+        var later = await Footprinted();
+        await AccountFootprint.Seed(leaver, earlier, later);
+        await using (var before = postgres.CreateContext())
+            (await AccountFootprint.Remaining(before, leaver.Id)).Should().AllSatisfy(t => t.Value.Should().BeTrue(t.Key));
+
+        var (admin, _) = await NewAdministrator();
+        (await admin.DeleteAsync($"/api/admin/accounts/{leaver.Id}")).StatusCode
+            .Should().Be(HttpStatusCode.NoContent);
+
+        await using var db = postgres.CreateContext();
+        (await AccountFootprint.Remaining(db, leaver.Id)).Should().AllSatisfy(t => t.Value.Should().BeFalse(t.Key));
+        (await db.Groups.AnyAsync(g => g.OwnerId == earlier.Id)).Should().BeTrue("the circle was someone else's");
+    }
+
+    [Fact]
     public async Task Deleting_a_host_takes_their_live_invite_link_with_them()
     {
         // The link row references both the convoy and the host who made it (#641).
@@ -172,6 +191,12 @@ public class AdminTests(PostgresFixture postgres) : IAsyncLifetime
             $"subject-{Guid.NewGuid():N}", username, null, roles));
         (await client.GetAsync("/api/me")).EnsureSuccessStatusCode();
         return (client, username);
+    }
+
+    private async Task<AccountFootprint.Rider> Footprinted()
+    {
+        var (client, username) = await NewRider();
+        return new(client, username, await IdOf(username));
     }
 
     private async Task<Guid> IdOf(string username)

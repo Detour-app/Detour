@@ -53,6 +53,20 @@
     <string name="friends_convoy_create">Aanmaken</string>
     <string name="friends_cancel">Annuleren</string>
     <string name="friends_convoy_invite_title">Uitnodigen voor %1$s</string>
+    <string name="convoy_link_open">Uitnodigen met een link</string>
+    <string name="convoy_link_title">Uitnodigingslink voor %1$s</string>
+    <string name="convoy_link_explainer">Iedereen met de link kan meedoen met dit konvooi, ook zonder vriendschap, en deelt zijn live locatie ermee tot het konvooi stopt. Een link blijft 12 uur geldig; een nieuwe link maakt de oude ongeldig.</string>
+    <string name="convoy_link_create">Link maken</string>
+    <string name="convoy_link_new">Nieuwe link</string>
+    <string name="convoy_link_share">Link delen</string>
+    <string name="convoy_link_qr">QR-code van de uitnodigingslink</string>
+    <string name="convoy_link_revoke">Intrekken</string>
+    <string name="convoy_link_expires">Geldig tot %1$s</string>
+    <string name="convoy_link_elsewhere">Een link van een ander toestel is geldig tot %1$s. Het adres staat niet op deze telefoon; een nieuwe link vervangt hem.</string>
+    <string name="convoy_link_guests">Via een link erbij</string>
+    <string name="convoy_link_no_guests">Nog niemand doet mee via een link.</string>
+    <string name="convoy_link_joined">Kwam %1$s erbij</string>
+    <string name="convoy_link_remove_guest">%1$s verwijderen</string>
     <string name="friends_friend_username">Gebruikersnaam van je vriend</string>
 
     <!-- CirclesScreen.kt -->
@@ -107,4 +121,44 @@
     <string name="circles_share_place_title">Een plaats delen</string>
     <string name="circles_share_place_text">De kring ziet hier aankomsten en vertrekken, niet je live positie.</string>
     <string name="circles_radius_m">Straal (meter)</string>
+    <!-- Planned rides (#754) -->
+    <string name="planned_title">Geplande ritten</string>
+    <string name="planned_ride">Geplande rit</string>
+    <string name="planned_refresh">Geplande ritten vernieuwen</string>
+    <string name="planned_new">Rit plannen</string>
+    <string name="planned_edit">Rit bewerken</string>
+    <string name="planned_delete">Rit verwijderen</string>
+    <string name="planned_delete_title">Deze rit verwijderen?</string>
+    <string name="planned_delete_text">\"%1$s\" verdwijnt voor iedereen die je uitnodigde. Dit kan niet ongedaan worden.</string>
+    <string name="planned_delete_confirm">Verwijderen</string>
+    <string name="planned_form_title">Titel</string>
+    <string name="planned_form_description">Beschrijving (optioneel)</string>
+    <string name="planned_form_start">Vertrek</string>
+    <string name="planned_form_pick_start">Kies datum en tijd</string>
+    <string name="planned_form_pick_meeting">Kies een opgeslagen plaats</string>
+    <string name="planned_form_not_set">Nog niet gekozen</string>
+    <string name="planned_form_no_places">Nog geen opgeslagen plaatsen. Voeg de verzamelplek eerst toe onder Opgeslagen plaatsen.</string>
+    <string name="planned_form_start_past">Kies een vertrek in de toekomst.</string>
+    <string name="planned_form_too_long">Hoogstens %1$d tekens.</string>
+    <string name="planned_form_next">Volgende</string>
+    <string name="planned_form_cancel">Annuleren</string>
+    <string name="planned_form_save">Opslaan</string>
+    <string name="planned_no_server">Geen sync-server ingesteld. Stel er eerst een in bij Instellingen — geplande ritten staan op je eigen server.</string>
+    <string name="planned_sign_in_first">Meld je eerst aan bij Vrienden — je plant ritten met diezelfde vriendenlijst.</string>
+    <string name="planned_setting_up">Je account wordt ingesteld — kijk zo meteen opnieuw.</string>
+    <string name="planned_empty_title">Niets gepland</string>
+    <string name="planned_empty_text">Ritten waarvoor je bent uitgenodigd verschijnen hier.</string>
+    <string name="planned_load_failed">Je geplande ritten konden niet worden geladen.</string>
+    <string name="planned_retry">Opnieuw proberen</string>
+    <string name="planned_you_host">Jij organiseert</string>
+    <string name="planned_hosted_by">Georganiseerd door %1$s</string>
+    <string name="planned_your_answer">Jouw antwoord: %1$s</string>
+    <string name="planned_meeting_point">Verzamelpunt</string>
+    <string name="planned_are_you_coming">Kom je?</string>
+    <string name="planned_invitees">Uitgenodigd</string>
+    <string name="planned_no_invitees">Nog niemand uitgenodigd.</string>
+    <string name="planned_answer_going">Ik kom</string>
+    <string name="planned_answer_maybe">Misschien</string>
+    <string name="planned_answer_declined">Kan niet</string>
+    <string name="planned_answer_pending">Nog geen antwoord</string>
 </resources>

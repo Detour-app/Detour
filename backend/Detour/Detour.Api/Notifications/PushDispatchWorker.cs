@@ -20,7 +20,7 @@ internal sealed class PushDispatchWorker(
                 // One failed job must not stop the drain — the next event's
                 // wake-ping is unaffected, and this one's recipients catch up
                 // on foreground.
-                logger.LogWarning(ex, "Push dispatch failed for collapseKey {CollapseKey}", job.CollapseKey);
+                logger.LogWarning(ex, "Push dispatch failed for collapseKey {CollapseKey}", job.Wake.CollapseKey);
             }
         }
     }

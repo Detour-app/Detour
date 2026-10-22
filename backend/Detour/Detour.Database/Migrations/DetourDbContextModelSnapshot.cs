@@ -697,6 +697,10 @@ namespace Detour.Database.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("owner_id");
 
+                    b.Property<DateTimeOffset?>("RemindedForStartsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reminded_for_starts_at");
+
                     b.Property<DateTimeOffset>("StartsAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("starts_at");
@@ -712,6 +716,9 @@ namespace Detour.Database.Migrations
 
                     b.HasIndex("OwnerId")
                         .HasDatabaseName("ix_planned_rides_owner_id");
+
+                    b.HasIndex("StartsAt")
+                        .HasDatabaseName("ix_planned_rides_starts_at");
 
                     b.ToTable("planned_rides", "detour");
                 });
@@ -1285,7 +1292,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("OwnerId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_circle_places_users_owner_id");
                 });
@@ -1302,7 +1309,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_place_events_users_user_id");
                 });
@@ -1312,7 +1319,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("HighUserId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_friendships_users_high_user_id");
 
@@ -1397,7 +1404,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_member_fixes_users_user_id");
                 });
@@ -1464,7 +1471,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("FromUserId")
-                        .OnDelete(DeleteBehavior.NoAction)
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_shared_routes_users_from_user_id");
 

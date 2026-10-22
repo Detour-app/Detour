@@ -27,6 +27,14 @@ public interface IConvoyInviteService
 
     Task<Result<GroupResponse>> JoinAsync(
         User caller, string token, string clientIp, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What <see cref="JoinAsync"/> would answer, without joining: the same refusals, and on
+    /// success who hosts the convoy, so the join confirm screen can show it (#775). Spends an
+    /// attempt from the same buckets as join, so preview is no faster a way to probe tokens.
+    /// </summary>
+    Task<Result<ConvoyInvitePreviewResponse>> PreviewAsync(
+        User caller, string token, string clientIp, CancellationToken cancellationToken);
 }
 
 public class ConvoyInviteService(
@@ -140,32 +148,13 @@ public class ConvoyInviteService(
         string clientIp,
         CancellationToken cancellationToken)
     {
-        var tokenHash = ConvoyInvite.HashOf(token.Trim());
-        if (!throttle.TryAcquire(tokenHash, clientIp))
-            return Result.Error(ValidationKeys.ConvoyInvite.TooManyAttempts);
+        var (opened, link) = await OpenAsync(caller.Id, token, clientIp, cancellationToken);
+        if (opened.IsFailure)
+            return opened;
 
-        var invite = await invites.GetByHashAsync(tokenHash, cancellationToken);
-        var group = invite is null
-            ? null
-            : await groups.GetWithMembersAsync(invite.GroupId, cancellationToken);
-        if (invite is null || group is null)
-            return Result.Error(ValidationKeys.ConvoyInvite.NotFound);
-
-        // Already riding in it, by friendship or an earlier tap on the same link: nothing to
-        // record, and not worth refusing just because the link has since expired.
-        if (!group.IsAcceptedMember(caller.Id))
+        var (invite, group, alreadyIn) = link;
+        if (!alreadyIn)
         {
-            var all = await invites.GetForGroupAsync(group.Id, cancellationToken);
-
-            // A removal is from the convoy, not from one link: without this, the host sharing a
-            // fresh link would let every rider they removed straight back in (#698).
-            if (all.SelectMany(i => i.Guests).Any(g => g.UserId == caller.Id && g.IsRemoved))
-                return Result.Error(ValidationKeys.ConvoyInvite.GuestRemoved);
-
-            var guestsIn = CurrentGuests(all, group).Count();
-            if (guestsIn >= DetourLimits.MaxConvoyGuests)
-                return Result.Error(ValidationKeys.ConvoyInvite.ConvoyFull, DetourLimits.MaxConvoyGuests);
-
             var (admitted, _) = invite.Admit(caller.Id, time.GetUtcNow());
             if (admitted.IsFailure)
                 return admitted;
@@ -180,6 +169,75 @@ public class ConvoyInviteService(
             .ToDictionary(u => u.Id, u => u.Username);
         return GroupResponseMapper.Map(group, caller.Id, usernames);
     }
+
+    public async Task<Result<ConvoyInvitePreviewResponse>> PreviewAsync(
+        User caller,
+        string token,
+        string clientIp,
+        CancellationToken cancellationToken)
+    {
+        var (opened, link) = await OpenAsync(caller.Id, token, clientIp, cancellationToken);
+        if (opened.IsFailure)
+            return opened;
+
+        var (invite, group, alreadyIn) = link;
+        var host = (await users.GetManyAsync([group.OwnerId], cancellationToken)).FirstOrDefault();
+        if (host is null)
+            return Result.Error(ValidationKeys.ConvoyInvite.NotFound);
+
+        return new ConvoyInvitePreviewResponse(
+            group.Name,
+            host.Username,
+            group.Members.Count(m => m.IsAccepted),
+            invite.ExpiresAt.ToUnixTimeMilliseconds(),
+            alreadyIn);
+    }
+
+    /// <summary>
+    /// Everything join checks before it writes, shared with preview so the two cannot drift:
+    /// the throttle, the lookup, and for a rider not already in, removal, the guest cap and
+    /// expiry, in the order join has always answered them.
+    /// </summary>
+    private async Task<Result<OpenedLink>> OpenAsync(
+        Guid callerId,
+        string token,
+        string clientIp,
+        CancellationToken cancellationToken)
+    {
+        var tokenHash = ConvoyInvite.HashOf(token.Trim());
+        if (!throttle.TryAcquire(tokenHash, clientIp))
+            return Result.Error(ValidationKeys.ConvoyInvite.TooManyAttempts);
+
+        var invite = await invites.GetByHashAsync(tokenHash, cancellationToken);
+        var group = invite is null
+            ? null
+            : await groups.GetWithMembersAsync(invite.GroupId, cancellationToken);
+        if (invite is null || group is null)
+            return Result.Error(ValidationKeys.ConvoyInvite.NotFound);
+
+        // Already riding in it, by friendship or an earlier tap on the same link: nothing to
+        // record, and not worth refusing just because the link has since expired.
+        if (group.IsAcceptedMember(callerId))
+            return new OpenedLink(invite, group, AlreadyIn: true);
+
+        var all = await invites.GetForGroupAsync(group.Id, cancellationToken);
+
+        // A removal is from the convoy, not from one link: without this, the host sharing a
+        // fresh link would let every rider they removed straight back in (#698).
+        if (all.SelectMany(i => i.Guests).Any(g => g.UserId == callerId && g.IsRemoved))
+            return Result.Error(ValidationKeys.ConvoyInvite.GuestRemoved);
+
+        var guestsIn = CurrentGuests(all, group).Count();
+        if (guestsIn >= DetourLimits.MaxConvoyGuests)
+            return Result.Error(ValidationKeys.ConvoyInvite.ConvoyFull, DetourLimits.MaxConvoyGuests);
+
+        if (!invite.IsUsable(time.GetUtcNow()))
+            return Result.Error(ValidationKeys.ConvoyInvite.Expired);
+
+        return new OpenedLink(invite, group, AlreadyIn: false);
+    }
+
+    private sealed record OpenedLink(ConvoyInvite Invite, Group Group, bool AlreadyIn);
 
     /// <summary>
     /// Link guests still in the convoy, one row per rider (their latest join): neither removed

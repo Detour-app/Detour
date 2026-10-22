@@ -40,6 +40,11 @@ public static class NotificationsInstaller
         services.AddScoped<PushDispatcher>();
         services.AddHostedService<PushDispatchWorker>();
 
+        // Planned-ride reminders feed the same queue. Scoped like the dispatcher: the ride
+        // repository is scoped, and the worker opens a scope per pass.
+        services.AddScoped<PlannedRideReminders>();
+        services.AddHostedService<PlannedRideReminderWorker>();
+
         return services;
     }
 

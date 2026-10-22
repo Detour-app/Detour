@@ -33,6 +33,28 @@ class SpeedCameraStoreTest {
         assertEquals(listOf(original), back)
     }
 
+    /** The section's road line survives the cache (#740), and a tile written before it was
+     *  kept reads back with none rather than failing to parse. */
+    @Test
+    fun aSectionLineRoundTripsAndAnOlderTileReadsWithoutOne() {
+        val line = listOf(LatLon(50.85, 4.35), LatLon(50.855, 4.352), LatLon(50.86, 4.35))
+        val withLine = CachedTile(
+            key = "505:435:4000",
+            fetchedAtMs = 1_700_000_000_000L,
+            result = SpeedCameras.Result(
+                cameras = emptyList(),
+                sections = listOf(SpeedCameras.Section(listOf(line.first()), listOf(line.last()), 111.0, 90.0, line)),
+            ),
+        )
+        assertEquals(listOf(withLine), SpeedCameraStore.parseAll(SpeedCameraStore.serialise(listOf(withLine))))
+
+        val older = SpeedCameraStore.parseAll(
+            """[{"key":"505:435:4000","fetchedAtMs":1700000000000,"cameras":[],""" +
+                """"sections":[{"endA":[[50.85,4.35]],"endB":[[50.86,4.35]],"spanMeters":111.0}]}]""",
+        )
+        assertEquals(emptyList(), older.single().result.sections.single().line)
+    }
+
     // --- (ii) same key overwrites rather than duplicates ---------------------
 
     @Test
