@@ -125,6 +125,16 @@ only the second leaves their data here.
 A rider can read their own handle, address, fog-sharing preference, aggregate
 stats and badge map, and can set the fog-sharing preference.
 
+A rider can also delete their own account (issue #700). It is the same cascade
+as an administrator's delete (§13), and is allowed for an administrator too —
+the role lives in the realm, so nobody is locked out. The realm user is not
+removed: this backend holds no realm admin credential. When
+`AccountDeletion:WebhookUrl` is set, the realm subject and handle (no address)
+are posted there once the delete has committed, so the realm's administrator
+can remove the sign-in. Best effort: an unreachable or failing webhook is
+logged, never a failed delete. Until the realm user is removed, signing in again
+starts a new, empty account.
+
 ## 5. Device synchronisation
 
 One capability performs a **bidirectional merge** of everything the device

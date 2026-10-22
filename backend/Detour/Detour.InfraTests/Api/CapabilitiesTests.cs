@@ -399,7 +399,7 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     private sealed record StubGateway(DevicePlatform Platform, bool Enabled) : IPushGateway
     {
         public Task<PushSendResult> SendWakeAsync(
-            IReadOnlyCollection<string> tokens, string collapseKey, CancellationToken ct) =>
+            IReadOnlyCollection<string> tokens, PushWake wake, CancellationToken ct) =>
             Task.FromResult(PushSendResult.Empty);
     }
 

@@ -24,6 +24,7 @@ public class PlannedRideConfiguration : IEntityTypeConfiguration<PlannedRide>
         builder.Property(r => r.ClientRouteId);
         builder.Property(r => r.Description).HasMaxLength(DetourLimits.PlannedRideDescriptionMaxLength);
         builder.Property(r => r.CreatedAt);
+        builder.Property(r => r.RemindedForStartsAt);
 
         builder.HasOne<User>()
             .WithMany()
@@ -42,6 +43,9 @@ public class PlannedRideConfiguration : IEntityTypeConfiguration<PlannedRide>
             .HasField("_rsvps");
 
         builder.HasIndex(r => r.OwnerId);
+
+        // The reminder sweep's range scan, once a minute.
+        builder.HasIndex(r => r.StartsAt);
     }
 }
 

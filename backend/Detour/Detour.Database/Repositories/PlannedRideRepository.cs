@@ -26,4 +26,15 @@ public class PlannedRideRepository(ICustomDbContextFactory<DetourDbContext> fact
             .Where(v => (v.UserId == b && Context.PlannedRides.Any(r => r.Id == v.RideId && r.OwnerId == a))
                         || (v.UserId == a && Context.PlannedRides.Any(r => r.Id == v.RideId && r.OwnerId == b)))
             .ExecuteDeleteAsync(cancellationToken);
+
+    public Task<List<PlannedRide>> GetDueForReminderAsync(
+        DateTimeOffset now, TimeSpan lead, CancellationToken cancellationToken)
+    {
+        var windowEnd = now + lead;
+        return Set.Include(r => r.Rsvps)
+            .TagWith(Tag(nameof(GetDueForReminderAsync)))
+            .Where(r => r.StartsAt > now && r.StartsAt <= windowEnd
+                        && (r.RemindedForStartsAt == null || r.RemindedForStartsAt != r.StartsAt))
+            .ToListAsync(cancellationToken);
+    }
 }

@@ -137,6 +137,18 @@ public static class GroupResponseMapper
 public record JoinConvoyBody([Required] string Token);
 
 /// <summary>
+/// What the join confirm screen shows before the rider commits (#775). <c>riderCount</c> is the
+/// accepted members, host included. <c>alreadyMember</c> is true when the caller is already
+/// riding in it, in which case join answers 200 even if the link has since expired.
+/// </summary>
+public record ConvoyInvitePreviewResponse(
+    [Required] string ConvoyName,
+    [Required] string HostUsername,
+    [Required] int RiderCount,
+    [Required] long ExpiresAtMs,
+    [Required] bool AlreadyMember);
+
+/// <summary>
 /// The plaintext token is in this response and nowhere else, ever: only its hash is stored.
 /// The app builds the shareable link around it.
 /// </summary>
