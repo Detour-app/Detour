@@ -5,6 +5,7 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.handleFor
+import com.jellemax.detour.data.isOwnedBy
 import com.jellemax.detour.drive.BreakRequest
 import com.jellemax.detour.drive.RegroupPin
 
@@ -102,6 +103,6 @@ fun convoyBreakRegroupStateFrom(
     return ConvoyBreakRegroupState(
         breaks = breaks,
         regroup = regroup,
-        isHost = selfId.value.isNotBlank() && convoy?.ownerId == selfId,
+        isHost = convoy?.isOwnedBy(selfId) == true,
     )
 }
