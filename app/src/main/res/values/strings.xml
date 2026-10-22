@@ -63,6 +63,7 @@
     <string name="convoy_link_create">Create link</string>
     <string name="convoy_link_new">New link</string>
     <string name="convoy_link_share">Share link</string>
+    <string name="convoy_link_qr">QR code of the invite link</string>
     <string name="convoy_link_revoke">Revoke</string>
     <string name="convoy_link_expires">Works until %1$s</string>
     <string name="convoy_link_elsewhere">A link made on another device works until %1$s. Its address isn\'t on this phone; a new link replaces it.</string>

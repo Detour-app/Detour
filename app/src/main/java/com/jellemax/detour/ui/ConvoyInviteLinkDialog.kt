@@ -43,9 +43,10 @@ import kotlinx.coroutines.launch
 import java.util.Date
 
 /**
- * The host's invite link for [convoy] (#761): mint one, share it through the system share sheet,
- * revoke it, and remove a guest who came in by it. Only offered to the convoy's owner; the server
- * answers 403 to anyone else (CIRCLES_AND_CONVOYS.md §4.1), which would land here as the error.
+ * The host's invite link for [convoy] (#761): mint one, share it through the system share sheet
+ * or show it as a QR code to a rider standing beside the host (#762), revoke it, and remove a
+ * guest who came in by it. Only offered to the convoy's owner; the server answers 403
+ * to anyone else (CIRCLES_AND_CONVOYS.md §4.1), which would land here as the error.
  *
  * All state is [ConvoyInvitesStore]'s, so closing and reopening this keeps the link the host can
  * share: the server never hands a token out twice.
@@ -78,6 +79,11 @@ internal fun ConvoyInviteLinkDialog(convoy: Group, onDismiss: () -> Unit) {
                 Text(stringResource(R.string.convoy_link_explainer), style = MaterialTheme.typography.bodySmall)
                 when {
                     link != null && shareable != null -> {
+                        QrCode(
+                            link,
+                            contentDescription = stringResource(R.string.convoy_link_qr),
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        )
                         SelectionContainer { Text(link, style = MaterialTheme.typography.bodyMedium) }
                         Text(
                             stringResource(R.string.convoy_link_expires, clockTime(context, shareable.expiresAtMs)),
