@@ -111,6 +111,10 @@ sealed interface Destination : NavKey {
     @Serializable
     data class PlannedRideDetail(val rideId: String) : Destination
 
+    /** The planned-ride form. A null [rideId] means a new ride. */
+    @Serializable
+    data class PlannedRideEditor(val rideId: String?) : Destination
+
     /** The Settings root: the six rows that lead to the [SettingsSpoke]s. */
     @Serializable
     data object Settings : Destination
