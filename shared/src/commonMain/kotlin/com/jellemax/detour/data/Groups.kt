@@ -42,6 +42,13 @@ data class Group(
 )
 
 /**
+ * True when [rider] is this group's owner — for a convoy, its host. False for a blank [rider]
+ * (signed out, or `/me` not resolved yet) and for a group whose owner is unknown, so a server
+ * from before #676 never makes everyone the host.
+ */
+fun Group.isOwnedBy(rider: RiderId): Boolean = rider.value.isNotBlank() && ownerId == rider
+
+/**
  * Convoys and circles are one entity on the server, discriminated by [kind]
  * ("convoy" or "circle") — see docs/CIRCLES_AND_CONVOYS.md. This object is
  * membership CRUD only, the same shape `Convoys.kt` used to be: creating,

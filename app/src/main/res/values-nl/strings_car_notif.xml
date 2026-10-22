@@ -32,6 +32,9 @@
     <string name="notif_channel_circle_arrivals">Aankomsten in kringen</string>
     <string name="notif_channel_circle_service">Kringmeldingen actief</string>
     <string name="notif_circle_service_text">Houdt je kringen in de gaten voor aankomsten en vertrekken</string>
+    <string name="notif_channel_ride_reminders">Herinneringen voor geplande ritten</string>
+    <string name="notif_ride_reminder_title">Rit begint zo</string>
+    <string name="notif_ride_reminder_text">%1$s om %2$s</string>
 
     <!-- update/* -->
     <string name="update_channel">Updates</string>

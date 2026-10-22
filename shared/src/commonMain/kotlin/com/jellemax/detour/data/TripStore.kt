@@ -172,7 +172,9 @@ object TripStore {
         writeTombstones(tombstones)
         val trips = load()
         writeAll(trips.filterNot { it.startTimeMs == startTimeMs })
-        trips.firstOrNull { it.startTimeMs == startTimeMs }?.let { TraceStore.removeWindow(it.startTimeMs, it.endTimeMs) }
+        trips.firstOrNull { it.startTimeMs == startTimeMs }?.let {
+            TraceStore.removeWindow(it.startTimeMs, it.endTimeMs)
+        }
         // The removed trip may have held the top speed, the longest ride or
         // the deepest lean, and a maximum cannot be walked backwards from the
         // record alone. A recompute is the only correct answer.
