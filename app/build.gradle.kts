@@ -265,7 +265,7 @@ dependencies {
     // Android Automotive OS. Same version as :app above, so this pulls no new
     // transitive graph — it is the host half of a library the app already uses.
     "automotiveImplementation"("androidx.car.app:app-automotive:1.7.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
     // Parked-state circle position sync (#90): the 2-min loop inside
     // TripTrackingService dies when the service stops while parked, so a
     // 15-min periodic worker carries the "still here" post + on-device
