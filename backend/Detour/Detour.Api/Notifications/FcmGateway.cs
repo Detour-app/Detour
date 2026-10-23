@@ -34,10 +34,12 @@ public sealed class FcmGateway(
     public bool Enabled => projectId is not null && accessToken is not null;
 
     public async Task<PushSendResult> SendWakeAsync(
-        IReadOnlyCollection<string> tokens, string collapseKey, CancellationToken cancellationToken)
+        IReadOnlyCollection<string> tokens, PushWake wake, CancellationToken cancellationToken)
     {
         if (!Enabled || tokens.Count == 0)
             return PushSendResult.Empty;
+
+        var collapseKey = wake.CollapseKey;
 
         string bearer;
         try
@@ -60,7 +62,7 @@ public sealed class FcmGateway(
         {
             var payload = new FcmSend(new FcmMessage(
                 token,
-                new Dictionary<string, string> { ["type"] = "circle_wake" },
+                wake.Data,
                 new FcmAndroid("high", collapseKey)));
 
             using var request = new HttpRequestMessage(HttpMethod.Post, url)

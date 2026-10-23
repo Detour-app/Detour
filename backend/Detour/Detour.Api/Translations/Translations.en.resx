@@ -95,6 +95,12 @@
   <data name="SavedPlace.PayloadRequired" xml:space="preserve">
     <value>A saved place needs its details.</value>
   </data>
+  <data name="SavedRoute.IdRequired" xml:space="preserve">
+    <value>A saved route needs an identifier.</value>
+  </data>
+  <data name="SavedRoute.PayloadRequired" xml:space="preserve">
+    <value>A saved route needs its details.</value>
+  </data>
   <data name="Friendship.CannotFriendYourself" xml:space="preserve">
     <value>You are already your own friend.</value>
   </data>

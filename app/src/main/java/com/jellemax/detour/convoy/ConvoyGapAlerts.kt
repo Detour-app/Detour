@@ -25,11 +25,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
-/** How often the convoy is re-judged. Signal loss is the one alert no frame
- *  announces, so something has to look on a timer; a second is well inside its
- *  30 s threshold. */
-private const val TICK_MS = 1_000L
-
 /**
  * Convoy gap alerts on the phone (#647): steps [ConvoyGapFeed] for the joined
  * convoy and publishes the banner's lines and the sentences to speak.
@@ -79,7 +74,7 @@ object ConvoyGapAlerts {
                 var state = ConvoyGapFeed.State()
                 while (true) {
                     state = tick(state, id, peers.value)
-                    delay(TICK_MS)
+                    delay(ConvoyGapFeed.TICK_MS)
                 }
             }
         }

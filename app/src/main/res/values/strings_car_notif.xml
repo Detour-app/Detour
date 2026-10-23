@@ -32,6 +32,10 @@
     <string name="notif_channel_circle_arrivals">Circle arrivals</string>
     <string name="notif_channel_circle_service">Circle notifications running</string>
     <string name="notif_circle_service_text">Watching your circles for arrivals and departures</string>
+    <string name="notif_channel_ride_reminders">Planned ride reminders</string>
+    <string name="notif_ride_reminder_title">Ride starts soon</string>
+    <!-- %1$s: the ride's title, %2$s: its start time, e.g. "Ardennes loop at 14:00" -->
+    <string name="notif_ride_reminder_text">%1$s at %2$s</string>
 
     <!-- update/* -->
     <string name="update_channel">Updates</string>

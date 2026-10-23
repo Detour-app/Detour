@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
@@ -67,7 +70,7 @@ import java.util.Locale
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlannedScaffold(
+internal fun PlannedScaffold(
     title: String,
     onBack: () -> Unit,
     actions: @Composable RowScope.() -> Unit = {},
@@ -104,8 +107,8 @@ private fun PlannedScaffold(
 }
 
 /**
- * Rides this rider hosts or is invited to, soonest first (#754). Creating and editing are #755;
- * inviting is on the detail screen (#756). Reads [PlannedRidesStore] directly — like Circles, there is no
+ * Rides this rider hosts or is invited to, soonest first (#754). The "+" plans a new one
+ * (#755); inviting is on the detail screen (#756). Reads [PlannedRidesStore] directly — like Circles, there is no
  * cached copy to go stale under a mutation.
  *
  * `rides` is null until the first load lands, so the three bodies stay apart: a spinner while
@@ -114,7 +117,12 @@ private fun PlannedScaffold(
  * list already shown keeps the list and puts the error above it.
  */
 @Composable
-fun PlannedRidesScreen(onBack: () -> Unit, onOpenRide: (String) -> Unit, modifier: Modifier = Modifier) {
+fun PlannedRidesScreen(
+    onBack: () -> Unit,
+    onOpenRide: (String) -> Unit,
+    onNewRide: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val scope = rememberCoroutineScope()
     val state by PlannedRidesStore.state.collectAsStateWithLifecycle()
     val riderId by Account.riderId.collectAsStateWithLifecycle()
@@ -125,6 +133,9 @@ fun PlannedRidesScreen(onBack: () -> Unit, onOpenRide: (String) -> Unit, modifie
         title = stringResource(R.string.planned_title),
         onBack = onBack,
         actions = {
+            IconButton(onClick = onNewRide) {
+                Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.planned_new))
+            }
             IconButton(
                 enabled = !state.busy,
                 onClick = { scope.launch { PlannedRidesStore.reload() } },
@@ -169,7 +180,12 @@ fun PlannedRidesScreen(onBack: () -> Unit, onOpenRide: (String) -> Unit, modifie
  * picker closes once the invite lands, and the new invitees show in the list below as pending.
  */
 @Composable
-fun PlannedRideDetailScreen(rideId: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun PlannedRideDetailScreen(
+    rideId: String,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val scope = rememberCoroutineScope()
     val state by PlannedRidesStore.state.collectAsStateWithLifecycle()
     val riderId by Account.riderId.collectAsStateWithLifecycle()
@@ -184,7 +200,16 @@ fun PlannedRideDetailScreen(rideId: String, onBack: () -> Unit, modifier: Modifi
         if (ride == null && state.rides != null && !state.busy) currentOnBack()
     }
 
-    PlannedScaffold(title = detail?.title ?: stringResource(R.string.planned_ride), onBack = onBack) {
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    PlannedScaffold(
+        title = detail?.title ?: stringResource(R.string.planned_ride),
+        onBack = onBack,
+        // Host only (#755): the server refuses an invitee's edit or delete with a 403.
+        actions = {
+            if (detail?.hosting == true) HostActions(!state.busy, onEdit, onDelete = { confirmDelete = true })
+        },
+    ) {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             state.error?.let { ErrorLine(it) }
             if (detail == null) {
@@ -222,6 +247,29 @@ fun PlannedRideDetailScreen(rideId: String, onBack: () -> Unit, modifier: Modifi
             },
             onDismiss = { inviting = false },
         )
+    }
+
+    if (confirmDelete && detail != null) {
+        ConfirmDialog(
+            title = stringResource(R.string.planned_delete_title),
+            text = stringResource(R.string.planned_delete_text, detail.title),
+            confirmLabel = stringResource(R.string.planned_delete_confirm),
+            // The ride drops out of the reloaded list, and the check above pops back to it.
+            onConfirm = { scope.launch { PlannedRidesStore.cancel(rideId) } },
+            onDismiss = { confirmDelete = false },
+        )
+    }
+}
+
+@Composable
+private fun HostActions(enabled: Boolean, onEdit: () -> Unit, onDelete: () -> Unit) {
+    Row(Modifier.padding(end = 8.dp)) {
+        IconButton(enabled = enabled, onClick = onEdit) {
+            Icon(Icons.Rounded.Edit, contentDescription = stringResource(R.string.planned_edit))
+        }
+        IconButton(enabled = enabled, onClick = onDelete) {
+            Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.planned_delete))
+        }
     }
 }
 
