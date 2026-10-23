@@ -239,8 +239,8 @@ dependencies {
     // image cannot be fetched: opening the expander makes no request of its own,
     // to any host a release author chose. That is omission, not a setting to
     // regress — GitHub's generator emits no images, so nothing is lost.
-    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.46.0")
-    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.46.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.35.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.core:core-ktx:1.19.1")
     // Custom Tabs, for the sign-in leg. A native app must not put the identity
