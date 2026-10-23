@@ -2,6 +2,7 @@ using System.Text.Json;
 using Detour.Api.Contracts;
 using Detour.Domain;
 using Detour.Domain.Places;
+using Detour.Domain.Routes;
 using Detour.Domain.Traces;
 using Detour.Domain.Trips;
 using Detour.Domain.Users;
@@ -27,6 +28,7 @@ public class SyncService(
     ITraceRepository traces,
     ITrackPointRepository trackPoints,
     ISavedPlaceRepository savedPlaces,
+    ISavedRouteRepository savedRoutes,
     IBadgeAwardRepository badges,
     ITripTitleRepository tripTitles,
     ILogger<SyncService> logger) : ISyncService
@@ -48,6 +50,7 @@ public class SyncService(
         await MergeTripsAsync(user.Id, request, cancellationToken);
         await MergeTracesAsync(user.Id, request.Traces, cancellationToken);
         await MergeSavedPlacesAsync(user.Id, request, cancellationToken);
+        await MergeSavedRoutesAsync(user.Id, request, cancellationToken);
         await MergeBadgesAsync(user.Id, request.Badges, cancellationToken);
         await MergeTripTitlesAsync(user.Id, request.TripTitles, cancellationToken);
 
@@ -81,6 +84,12 @@ public class SyncService(
         {
             if (place.Id == 0)
                 messages.Add(ValidationMessage.Create(ValidationKeys.SavedPlace.IdRequired));
+        }
+
+        foreach (var route in request.SavedRoutes ?? [])
+        {
+            if (route.Id == 0)
+                messages.Add(ValidationMessage.Create(ValidationKeys.SavedRoute.IdRequired));
         }
 
         foreach (var line in request.Traces ?? [])
@@ -264,6 +273,55 @@ public class SyncService(
         }
     }
 
+    private async Task MergeSavedRoutesAsync(
+        Guid userId,
+        SyncRequest request,
+        CancellationToken cancellationToken)
+    {
+        await UpsertSavedRoutesAsync(userId, request.SavedRoutes, cancellationToken);
+
+        // After the upserts, as for saved places: a route saved and deleted between two syncs is
+        // sent in both lists and has to end up gone.
+        var deleted = request.DeletedSavedRouteIds ?? [];
+        if (deleted.Count > 0)
+        {
+            await savedRoutes.FlushChangesAsync(cancellationToken);
+            await savedRoutes.DeleteByClientIdsAsync(userId, [.. deleted.Distinct()], cancellationToken);
+        }
+    }
+
+    private async Task UpsertSavedRoutesAsync(
+        Guid userId,
+        IReadOnlyList<SavedRoutePayload>? incoming,
+        CancellationToken cancellationToken)
+    {
+        if (incoming is not { Count: > 0 })
+            return;
+
+        var ids = incoming.Select(r => r.Id).Distinct().ToArray();
+        var existing = (await savedRoutes.GetByClientIdsAsync(userId, ids, cancellationToken))
+            .ToDictionary(r => r.ClientRouteId);
+
+        foreach (var payload in incoming)
+        {
+            var document = JsonSerializer.Serialize(payload, PayloadOptions);
+
+            // Last upload wins, as for saved places: a route carries no edit stamp to compare.
+            if (existing.TryGetValue(payload.Id, out var stored))
+            {
+                stored.Replace(document);
+                continue;
+            }
+
+            var (result, route) = SavedRoute.Create(userId, payload.Id, document);
+            if (result.IsFailure)
+                continue;
+
+            await savedRoutes.SaveAsync(route, cancellationToken);
+            existing[payload.Id] = route;
+        }
+    }
+
     private async Task MergeBadgesAsync(
         Guid userId,
         IReadOnlyDictionary<string, long>? incoming,
@@ -339,6 +397,7 @@ public class SyncService(
         var storedTrips = await trips.GetForUserAsync(user.Id, cancellationToken);
         var storedTraces = await traces.GetForUserAsync(user.Id, cancellationToken);
         var storedPlaces = await savedPlaces.GetForUserAsync(user.Id, cancellationToken);
+        var storedRoutes = await savedRoutes.GetForUserAsync(user.Id, cancellationToken);
         var storedBadges = await badges.GetForUserAsync(user.Id, cancellationToken);
         var storedTitles = await tripTitles.GetForUserAsync(user.Id, cancellationToken);
 
@@ -346,6 +405,7 @@ public class SyncService(
             [.. storedTrips.Select(t => JsonSerializer.Deserialize<JsonElement>(t.Payload))],
             [.. storedTraces.Select(t => t.Line)],
             [.. storedPlaces.Select(p => JsonSerializer.Deserialize<JsonElement>(p.Payload))],
+            [.. storedRoutes.Select(r => JsonSerializer.Deserialize<JsonElement>(r.Payload))],
             storedBadges.ToDictionary(b => b.BadgeId, b => b.EarnedAtMs),
             [.. storedTitles.Select(t => new TripTitlePayload(t.TripStartTimeMs, t.Title, t.EditedAtMs))],
             user.ShareFog);

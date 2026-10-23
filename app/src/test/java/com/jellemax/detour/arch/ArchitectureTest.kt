@@ -132,7 +132,8 @@ class ArchitectureTest {
     @Test
     fun `shared functions stay under 100 lines - section 8`() {
         val pinned = mapOf(
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#syncLocked" to 113,
+            // +1: #592 the routes snapshot the write-back keeps mid-sync saves against
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#syncLocked" to 114,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 150,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             // +3: #587 the three graph-dependent avoid options
