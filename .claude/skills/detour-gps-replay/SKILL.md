@@ -249,12 +249,31 @@ true`). Backgrounding the app is not a substitute: fused thins the stream and th
 gate is never cleared. On the port rig a crash also leaves no `files/replay-run.txt` line, so
 grep logcat for `SIGSEGV` before believing an empty result.
 
-**A real device cannot finish a trip-level comparison yet**, for a different reason. Fused
-blends the real providers with the mock, and any blended fix over the 2.0 m/s moving gate
-resets `lastMovingMs`, so `STATIONARY_END_MS` never elapses and the trip is never saved — the
-trace grows and `trips.json` stays `[]`. That is #47, and on a phone reached over Wi-Fi adb you
-cannot turn the real providers off without dropping your own connection. Compare on an
-emulator, or use USB adb and disable Wi-Fi.
+**A real device can finish a trip-level comparison, with its radios left on.** It used to be
+impossible: fused blended the real providers with the mock, any blended fix over the 2.0 m/s
+moving gate reset `lastMovingMs`, so `STATIONARY_END_MS` never elapsed and `trips.json` stayed
+`[]` (#47). `ReplayFixGate` fixed that in the debug build — while `start-replay.sh`'s
+`mock_only` is on, only fixes stamped `FixOrigin.MOCK_PROVIDER` reach the ingest path.
+Measured 2026-10-22 on an SM-S928B (Android 16), USB adb, **Wi-Fi, GNSS and location left on**,
+map on screen, `public-trajectcontrole.txt` plus a 330-line standstill tail at 5x:
+
+| quantity | value |
+|---|---|
+| trips saved | 1 (`CAR`), `trips.json` grew by one |
+| distance / top speed | 12694.33 m / 27.880 m/s (CPH2449 mock-rig baseline: 12700.18 m / 27.934 m/s) |
+| delivered (`files/replay-run.txt`) | 783 of 788 |
+| real fixes rejected while the route played | 0 |
+| real fixes rejected after `replay finished` | 60 |
+
+The last two rows are the useful part. While `MockService` holds its overrides on gps, fused
+and network, the real receiver's fixes did not reach the app at all on this phone; they came
+back the moment the harness finished and removed its overrides, and kept arriving until
+`stop-replay.sh` cleared `mock_only`. So on this phone the gate's work was all at the edges of
+the run; the CPH2449 runs in `ReplayFixGate`'s KDoc and #40 also saw real fixes mid-route, so do
+not count on a quiet middle. A trip whose standstill tail runs past the end of the route file
+could, without the gate, be kept alive by the desk. Give a route enough standstill to end the trip *inside* the file
+(`STATIONARY_END_MS` is 5 min of drive time, a minute of wall time at 5x), and read
+`DetourFixGate`'s rejected count, not just the trip, before trusting a run.
 
 **Only the `.debug` variant can be told.** `DebugReplayReceiver` is in the debug source
 set, so a release install replays at 1x whatever you pass — its clock has no way to be moved.
@@ -305,17 +324,29 @@ camera chime. So a section baseline recorded without Overpass looks like a clean
 exactly the quantity you wanted missing — which has now happened twice, and is why stage 3's
 precondition counts `AVG-ON` markers rather than trusting that the directory exists.
 
-## Turn off every real location source first
+## Real location sources: the gate handles them, the radios do not
 
-Wi-Fi scanning, cell positioning, a paired GPS accessory — all of it. `MockService` registers
-test providers on **gps, fused, network and passive** (`MockService.kt:44-49`), and its comment
-says exactly why: "fused blends whatever is enabled, so leaving a real provider live makes it
-alternate between the mock route and the phone's actual position — which reads as a device
-teleporting hundreds of kilometres between fixes."
+`MockService` registers test providers on **gps, fused, network and passive**
+(`MockService.kt:44-49`), and its comment says why: "fused blends whatever is enabled, so
+leaving a real provider live makes it alternate between the mock route and the phone's actual
+position — which reads as a device teleporting hundreds of kilometres between fixes."
 
-That teleport is the symptom to recognise. If the map jumps between your route and your desk,
-or the trip distance comes out absurd, you have a live real provider — not a bug in the code
-you were testing.
+Turning the network sources off does **not** stop that. During #40 Wi-Fi, mobile data, Wi-Fi
+scanning and BLE scanning were all turned off and the run re-measured: still 56 intruding
+samples out of 198, because the source is the GNSS receiver itself. Turning the radios off is
+not the remedy, and over Wi-Fi adb it drops your own connection.
+
+The remedy is `ReplayFixGate` (debug build only): `start-replay.sh` broadcasts `mock_only`,
+and from then until `stop-replay.sh` every fix not stamped `FixOrigin.MOCK_PROVIDER` is
+dropped before it reaches any state. The port rig needs nothing — it rejects every platform fix
+while armed. So on the `.debug` variant, leave the radios as they are, and check the gate's
+count instead: `adb logcat -s DetourFixGate`, or `rejected=` in `files/replay-run.txt`. A
+release install has no gate and replays only at 1x; do not measure on it.
+
+The teleport is still the symptom to recognise. If the map jumps between your route and your
+desk on the `.debug` variant, the gate is not armed — `start-replay.sh` warned that it could
+not reach the replay rig, or the run outlived a `stop-replay.sh` — not a bug in the code you
+were testing.
 
 ## Why the fixes clear the app's accuracy gate
 

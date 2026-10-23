@@ -265,10 +265,10 @@ printf 'replay started: %s lines at %s ms, %sx = %d s wall (%d s of drive)\n' \
 cat <<EOF
 
 Before trusting anything you see:
-  * Turn off Wi-Fi scanning, cell positioning and any paired GPS accessory. MockService
-    registers test providers on gps, fused, network and passive, but fused blends whatever
-    is enabled — a live real provider makes the device alternate between the route and your
-    desk, which reads as teleporting hundreds of kilometres between fixes.
+  * Real fixes (the phone's own GNSS) still arrive; turning radios off does not stop them.
+    The .debug app's ReplayFixGate drops them while mock_only is on — check its count with
+    adb -s $SERIAL logcat -s DetourFixGate. If the map jumps between the route and your
+    desk, the gate is not armed (see the warning above, if any).
   * Test against the .debug variant, which has its own applicationId and its own data.
   * Watch it: adb -s $SERIAL logcat -s MockLocation
   * Stop it with stop-replay.sh — NOT with force-stop, see that script's header.
