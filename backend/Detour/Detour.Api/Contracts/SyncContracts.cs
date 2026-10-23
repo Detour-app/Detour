@@ -39,6 +39,18 @@ public record SyncRequest
     /// </summary>
     public IReadOnlyList<long>? DeletedSavedPlaceIds { get; init; }
 
+    /// <summary>
+    /// The rider's own saved routes (#592). Keyed by the client's identifier; the document —
+    /// stops, routed polyline — is stored as sent.
+    /// </summary>
+    public IReadOnlyList<SavedRoutePayload>? SavedRoutes { get; init; }
+
+    /// <summary>
+    /// Route identifiers the device has deleted. Applied after the upserts, like
+    /// <see cref="DeletedSavedPlaceIds"/>, so the merged union stops handing the route back.
+    /// </summary>
+    public IReadOnlyList<long>? DeletedSavedRouteIds { get; init; }
+
     /// <summary>Badge identifier to the instant it was earned. The earliest instant wins.</summary>
     public IReadOnlyDictionary<string, long>? Badges { get; init; }
 
@@ -85,6 +97,14 @@ public record SavedPlacePayload
     public Dictionary<string, JsonElement>? Extra { get; init; }
 }
 
+public record SavedRoutePayload
+{
+    [Required] public long Id { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; init; }
+}
+
 public record TripTitlePayload(
     [Required] long StartTimeMs,
     [Required(AllowEmptyStrings = true)] string Title,
@@ -107,6 +127,7 @@ public record SyncResponse(
     [Required] IReadOnlyList<JsonElement> Trips,
     [Required] IReadOnlyList<string> Traces,
     [Required] IReadOnlyList<JsonElement> SavedPlaces,
+    [Required] IReadOnlyList<JsonElement> SavedRoutes,
     [Required] IReadOnlyDictionary<string, long> Badges,
     [Required] IReadOnlyList<TripTitlePayload> TripTitles,
     [Required] bool ShareFog);

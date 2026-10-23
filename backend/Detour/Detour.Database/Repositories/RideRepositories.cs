@@ -1,4 +1,5 @@
 using Detour.Domain.Places;
+using Detour.Domain.Routes;
 using Detour.Domain.Traces;
 using Detour.Domain.Trips;
 using Microsoft.EntityFrameworkCore;
@@ -235,6 +236,42 @@ public class SavedPlaceRepository(ICustomDbContextFactory<DetourDbContext> facto
             return Task.FromResult(0);
 
         return Set.Where(p => p.UserId == userId && clientPlaceIds.Contains(p.ClientPlaceId))
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+}
+
+public class SavedRouteRepository(ICustomDbContextFactory<DetourDbContext> factory)
+    : BaseRepository<SavedRoute, DetourDbContext>(factory), ISavedRouteRepository
+{
+    public Task<List<SavedRoute>> GetForUserAsync(Guid userId, CancellationToken cancellationToken) =>
+        Set.AsNoTracking()
+            .TagWith(Tag(nameof(GetForUserAsync)))
+            .Where(r => r.UserId == userId)
+            .OrderBy(r => r.ClientRouteId)
+            .ToListAsync(cancellationToken);
+
+    public Task<List<SavedRoute>> GetByClientIdsAsync(
+        Guid userId,
+        IReadOnlyCollection<long> clientRouteIds,
+        CancellationToken cancellationToken)
+    {
+        if (clientRouteIds.Count == 0)
+            return Task.FromResult(new List<SavedRoute>());
+
+        return Set.TagWith(Tag(nameof(GetByClientIdsAsync)))
+            .Where(r => r.UserId == userId && clientRouteIds.Contains(r.ClientRouteId))
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> DeleteByClientIdsAsync(
+        Guid userId,
+        IReadOnlyCollection<long> clientRouteIds,
+        CancellationToken cancellationToken)
+    {
+        if (clientRouteIds.Count == 0)
+            return Task.FromResult(0);
+
+        return Set.Where(r => r.UserId == userId && clientRouteIds.Contains(r.ClientRouteId))
             .ExecuteDeleteAsync(cancellationToken);
     }
 }
