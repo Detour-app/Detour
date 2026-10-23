@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Navigation
 import androidx.compose.material.icons.rounded.Refresh
@@ -147,6 +148,7 @@ fun RoutesScreen(
     onCreateNew: () -> Unit,
     onEdit: (SavedRoute) -> Unit,
     onNavigate: () -> Unit,
+    onOpenPlannedRides: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -273,6 +275,11 @@ fun RoutesScreen(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             SubScreenTopBar(stringResource(R.string.routes_title), onBack, scrollBehavior) {
+                // Planned rides (#633) sit next to Routes rather than in Social: a planned ride
+                // is a route with a date and company, and this is where riders pick routes.
+                IconButton(onClick = onOpenPlannedRides) {
+                    Icon(Icons.Rounded.Event, contentDescription = stringResource(R.string.planned_title))
+                }
                 IconButton(
                     enabled = !refreshing,
                     onClick = { refresh() },

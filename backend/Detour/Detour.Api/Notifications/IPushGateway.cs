@@ -47,6 +47,6 @@ public interface IPushGateway
     ///  the tokens the cloud reported permanently dead.</summary>
     Task<PushSendResult> SendWakeAsync(
         IReadOnlyCollection<string> tokens,
-        string collapseKey,
+        PushWake wake,
         CancellationToken cancellationToken);
 }

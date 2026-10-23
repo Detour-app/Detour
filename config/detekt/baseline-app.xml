@@ -22,7 +22,7 @@
     <ID>CyclomaticComplexMethod:Obd2PairingScreen.kt$@Composable fun Obd2PairingScreen()</ID>
     <ID>CyclomaticComplexMethod:PlaceGeofenceReceiver.kt$PlaceGeofenceReceiver$override fun onReceive(context: Context, intent: Intent)</ID>
     <ID>CyclomaticComplexMethod:RouteEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RouteEditorScreen(editing: SavedRoute?, onBack: () -&gt; Unit, onSaved: () -&gt; Unit)</ID>
-    <ID>CyclomaticComplexMethod:RoutesScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RoutesScreen( onBack: () -&gt; Unit, onCreateNew: () -&gt; Unit, onEdit: (SavedRoute) -&gt; Unit, onNavigate: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:RoutesScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RoutesScreen( onBack: () -&gt; Unit, onCreateNew: () -&gt; Unit, onEdit: (SavedRoute) -&gt; Unit, onNavigate: () -&gt; Unit, onOpenPlannedRides: () -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:SearchIsland.kt$@Composable fun SearchIsland( open: Boolean, onOpenChange: (Boolean) -&gt; Unit, username: String, onAvatarClick: () -&gt; Unit, onPick: (GeocodeResult) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>CyclomaticComplexMethod:SettingsScreen.kt$@Composable private fun ParkedDormancyNotice(autoDetect: Boolean, context: Context)</ID>
     <ID>CyclomaticComplexMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable private fun VehicleSection()</ID>
@@ -44,7 +44,7 @@
     <ID>LongMethod:MapScreen.kt$@Composable fun MapScreen( onOpenHub: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSocial: () -&gt; Unit, retained: RetainedMap, )</ID>
     <ID>LongMethod:Obd2PairingScreen.kt$@Composable fun Obd2PairingScreen()</ID>
     <ID>LongMethod:RouteEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RouteEditorScreen(editing: SavedRoute?, onBack: () -&gt; Unit, onSaved: () -&gt; Unit)</ID>
-    <ID>LongMethod:RoutesScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RoutesScreen( onBack: () -&gt; Unit, onCreateNew: () -&gt; Unit, onEdit: (SavedRoute) -&gt; Unit, onNavigate: () -&gt; Unit, )</ID>
+    <ID>LongMethod:RoutesScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RoutesScreen( onBack: () -&gt; Unit, onCreateNew: () -&gt; Unit, onEdit: (SavedRoute) -&gt; Unit, onNavigate: () -&gt; Unit, onOpenPlannedRides: () -&gt; Unit, )</ID>
     <ID>LongMethod:SearchIsland.kt$@Composable fun SearchIsland( open: Boolean, onOpenChange: (Boolean) -&gt; Unit, username: String, onAvatarClick: () -&gt; Unit, onPick: (GeocodeResult) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongMethod:SettingsHub.kt$@Composable fun SettingsScreen(onBack: () -&gt; Unit, onOpenSpoke: (Destination.SettingsSpoke) -&gt; Unit)</ID>
     <ID>LongMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable private fun VehicleSection()</ID>

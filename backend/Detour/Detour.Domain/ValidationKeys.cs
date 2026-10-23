@@ -94,6 +94,17 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.PayloadRequired");
     }
 
+    public static class SavedRoute
+    {
+        private const string Base = "SavedRoute";
+
+        public static readonly ValidationKeyDefinition IdRequired =
+            ValidationKeyDefinition.Create($"{Base}.IdRequired");
+
+        public static readonly ValidationKeyDefinition PayloadRequired =
+            ValidationKeyDefinition.Create($"{Base}.PayloadRequired");
+    }
+
     public static class Friendship
     {
         private const string Base = "Friendship";
