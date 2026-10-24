@@ -396,25 +396,32 @@ object BleNavServer {
             put("remainingTimeMs", progress.remainingTimeMs ?: JSONObject.NULL)
             put("speedKmh", currentSpeedKmh)
             put("speedLimitKmh", progress.speedLimitKmh ?: JSONObject.NULL)
-            // The maneuver after this one, for the display's "then" chip — the
-            // phone's thenPill. Both null past the last turn; the display hides
-            // the chip on a null or missing thenSign.
-            val thenDistance = progress.distanceToNextNextMeters
-            val thenSign = progress.nextNextInstruction?.sign?.takeIf { thenDistance != null }
-            put("thenSign", thenSign ?: JSONObject.NULL)
-            put("thenDistanceMeters", thenSign?.let { thenDistance } ?: JSONObject.NULL)
             // Roundabout exit heading change, the number RoundaboutGlyph draws
             // the phone's exit spur from, so the display's exit points the same
             // way instead of guessing from the exit number. Whole degrees: the
             // extra digits only cost MTU. Null off a roundabout.
             put("exitTurnDeg", instruction?.roundaboutTurnDeg?.roundToInt() ?: JSONObject.NULL)
-            val thenTurnDeg = thenSign?.let { progress.nextNextInstruction?.roundaboutTurnDeg }
-            put("thenExitTurnDeg", thenTurnDeg?.roundToInt() ?: JSONObject.NULL)
+            putThenChip(progress)
             put("navigating", true)
         }.toString().toByteArray()
 
         characteristic.value = payload
         notifySubscribers(characteristic)
+    }
+
+    /**
+     * The maneuver after this one, for the display's "then" chip — the phone's
+     * thenPill. All null past the last turn; the display hides the chip on a
+     * null or missing thenSign. thenExitTurnDeg is [send]'s exitTurnDeg for
+     * that maneuver.
+     */
+    private fun JSONObject.putThenChip(progress: NavEngine.Progress) {
+        val thenDistance = progress.distanceToNextNextMeters
+        val thenSign = progress.nextNextInstruction?.sign?.takeIf { thenDistance != null }
+        put("thenSign", thenSign ?: JSONObject.NULL)
+        put("thenDistanceMeters", thenSign?.let { thenDistance } ?: JSONObject.NULL)
+        val thenTurnDeg = thenSign?.let { progress.nextNextInstruction?.roundaboutTurnDeg }
+        put("thenExitTurnDeg", thenTurnDeg?.roundToInt() ?: JSONObject.NULL)
     }
 
     fun clear(context: Context) {
