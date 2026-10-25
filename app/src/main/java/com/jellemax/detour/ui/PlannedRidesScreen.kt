@@ -210,31 +210,14 @@ fun PlannedRideDetailScreen(
             if (detail?.hosting == true) HostActions(!state.busy, onEdit, onDelete = { confirmDelete = true })
         },
     ) {
-        Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            state.error?.let { ErrorLine(it) }
-            if (detail == null) {
-                Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                RideFacts(detail)
-                if (detail.canAnswer) {
-                    AnswerRow(
-                        detail = detail,
-                        enabled = !state.busy,
-                        onAnswer = { answer -> scope.launch { PlannedRidesStore.answer(detail.id, answer) } },
-                    )
-                }
-                if (detail.canInvite) {
-                    OutlinedButton(enabled = !state.busy, onClick = { inviting = true }) {
-                        Icon(Icons.Rounded.PersonAdd, contentDescription = null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.planned_invite))
-                    }
-                }
-                Invitees(detail.invitees)
-            }
-        }
+        RideDetailBody(
+            detail = detail,
+            error = state.error,
+            enabled = !state.busy,
+            onAnswer = { id, answer -> scope.launch { PlannedRidesStore.answer(id, answer) } },
+            onInvite = { inviting = true },
+            modifier = modifier,
+        )
     }
 
     if (inviting && ride != null && detail?.canInvite == true) {
@@ -258,6 +241,38 @@ fun PlannedRideDetailScreen(
             onConfirm = { scope.launch { PlannedRidesStore.cancel(rideId) } },
             onDismiss = { confirmDelete = false },
         )
+    }
+}
+
+@Composable
+private fun RideDetailBody(
+    detail: PlannedRideDetailState?,
+    error: String?,
+    enabled: Boolean,
+    onAnswer: (rideId: String, RsvpAnswer) -> Unit,
+    onInvite: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        error?.let { ErrorLine(it) }
+        if (detail == null) {
+            Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return@Column
+        }
+        RideFacts(detail)
+        if (detail.canAnswer) {
+            AnswerRow(detail = detail, enabled = enabled, onAnswer = { answer -> onAnswer(detail.id, answer) })
+        }
+        if (detail.canInvite) {
+            OutlinedButton(enabled = enabled, onClick = onInvite) {
+                Icon(Icons.Rounded.PersonAdd, contentDescription = null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.planned_invite))
+            }
+        }
+        Invitees(detail.invitees)
     }
 }
 
