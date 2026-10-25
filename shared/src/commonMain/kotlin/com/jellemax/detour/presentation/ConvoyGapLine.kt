@@ -36,19 +36,30 @@ fun convoyGapLinesFrom(
     }
 
 /**
+ * The English sentence for [kind] about [name]: what is spoken on every
+ * surface, and the banner line on iOS, which has no translations. The phone's
+ * banner words it from its own string resources instead, so Dutch reads Dutch.
+ */
+fun convoyGapSentence(kind: ConvoyGapKind, name: String): String = when (kind) {
+    ConvoyGapKind.BEHIND -> "$name fell behind"
+    ConvoyGapKind.STOPPED -> "$name stopped"
+    ConvoyGapKind.SIGNAL_LOST -> "Lost $name's signal"
+}
+
+/**
  * The sentence spoken for [event], or null for [ConvoyGapDetector.Event.Rejoined],
  * which only clears the banner. English, like every other spoken prompt: the
  * voice is chosen for GraphHopper's English instructions (`NavVoice`), and a
  * Dutch sentence read by it is worse than an English one.
  */
 fun convoyGapSpokenLine(event: ConvoyGapDetector.Event, members: List<GroupMember>): String? {
-    val name = members.handleFor(event.rider)
-    return when (event) {
-        is ConvoyGapDetector.Event.FellBehind -> "$name fell behind"
-        is ConvoyGapDetector.Event.Stopped -> "$name stopped"
-        is ConvoyGapDetector.Event.SignalLost -> "Lost $name's signal"
-        is ConvoyGapDetector.Event.Rejoined -> null
+    val kind = when (event) {
+        is ConvoyGapDetector.Event.FellBehind -> ConvoyGapKind.BEHIND
+        is ConvoyGapDetector.Event.Stopped -> ConvoyGapKind.STOPPED
+        is ConvoyGapDetector.Event.SignalLost -> ConvoyGapKind.SIGNAL_LOST
+        is ConvoyGapDetector.Event.Rejoined -> return null
     }
+    return convoyGapSentence(kind, members.handleFor(event.rider))
 }
 
 /** This device in a convoy: its rider [id] and, once it has one, its own [fix]. */

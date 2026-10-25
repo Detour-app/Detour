@@ -3,6 +3,7 @@ package com.jellemax.detour.data
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
@@ -131,6 +132,7 @@ fun routeFromJson(o: JsonObject): SavedRoute? {
 object RouteStore {
 
     private const val FILE_NAME = "routes.json"
+    private const val DELETED_FILE_NAME = "deleted_routes.json"
 
     // internal, not private, for the same reason `loaded` below is — see
     // SavedPlaces._places for the full why: asserting on `loaded` alone leaves
@@ -182,8 +184,12 @@ object RouteStore {
             .sortedByDescending { it.createdMs })
     }
 
+    /** Remove a route. Its id is also tombstoned, so the server's copy — the
+     *  /sync merge returns the union — can't bring it back on the next sync.
+     *  Same pattern as [SavedPlaces.remove]. */
     fun remove(id: Long) {
         ensureLoaded() // see save(): a remove can be the first call to touch the store.
+        writeTombstones(tombstones() + id)
         write(_routes.value.filterNot { it.id == id })
     }
 
@@ -192,23 +198,30 @@ object RouteStore {
         return _routes.value.find { it.id == id }
     }
 
-    /** Raw stored JSON array, uploaded to the sync server. Reads the file so it
-     *  works even before any screen has triggered [ensureLoaded]. */
-    fun rawJson(): String {
-        val f = accountFile(FILE_NAME)
-        return if (f.exists()) f.readText() else "[]"
-    }
+    /** The stored routes as uploaded to the sync server, or null when the
+     *  file can't be read — then routes are left out of the sync both ways,
+     *  rather than failing the whole sync or overwriting a file this build
+     *  can't parse. Reads the file so it works even before any screen has
+     *  triggered [ensureLoaded]. */
+    fun forUpload(): List<SavedRoute>? =
+        readOrNull()?.filter { it.id != 0L } // the server rejects a whole sync over one
 
-    /** Overwrite the local store with the server's merged array (the union it
-     *  holds), so a reinstall restores every route on the first sync. */
-    fun replaceFromServer(json: String) {
-        val routes = try {
-            jsonArrayOf(json).objects().mapNotNull { routeFromJson(it) }
+    /** Ids removed on this device, uploaded with the sync payload so the
+     *  server deletes its copy too. See [remove]. */
+    fun deletedIds(): Set<Long> = tombstones()
+
+    /** Replace the local store with the server's merged array (the union it
+     *  holds), so a reinstall restores every route on the first sync. See
+     *  [mergeServerRoutes] for what survives from this device. */
+    fun replaceFromServer(server: JsonArray, uploaded: List<SavedRoute>) {
+        val incoming = try {
+            server.objects().mapNotNull { routeFromJson(it) }
         } catch (e: Exception) {
             return // malformed payload: keep what we have
         }
+        val local = readOrNull() ?: return // unreadable here: don't write over it
         loaded = true
-        write(routes.sortedByDescending { it.createdMs })
+        write(mergeServerRoutes(incoming, uploaded, local, tombstones()))
     }
 
     private fun write(routes: List<SavedRoute>) {
@@ -217,14 +230,53 @@ object RouteStore {
         accountFile(FILE_NAME).writeText(array.string())
     }
 
-    private fun read(): List<SavedRoute> {
+    private fun tombstones(): Set<Long> {
+        val f = accountFile(DELETED_FILE_NAME)
+        if (!f.exists()) return emptySet()
+        return try {
+            decodeDeletedIds(f.readText())
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
+
+    private fun writeTombstones(ids: Set<Long>) {
+        accountFile(DELETED_FILE_NAME).writeText(encodeDeletedIds(ids))
+    }
+
+    private fun read(): List<SavedRoute> =
+        readOrNull()?.sortedByDescending { it.createdMs } ?: emptyList()
+
+    /** The file's routes, empty when there is no file, null when it can't be read. */
+    private fun readOrNull(): List<SavedRoute>? {
         val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return try {
             jsonArrayOf(f.readText()).objects().mapNotNull { routeFromJson(it) }
-                .sortedByDescending { it.createdMs }
         } catch (e: Exception) {
-            emptyList()
+            null
         }
     }
+}
+
+/**
+ * The routes to store after a sync: the server's union [server], minus the
+ * ids removed on this device ([deletedIds] — a server that predates the
+ * delete field, or another device re-uploading its copy, still returns them),
+ * with this device's copy winning for each route saved or edited while the
+ * request was out — any [local] route that differs from what was [uploaded].
+ * Without that, a route saved mid-sync would vanish (#693's rule, here for
+ * routes). Newest first, as the store keeps them. Pure, so it is testable
+ * without the store's files.
+ */
+internal fun mergeServerRoutes(
+    server: List<SavedRoute>,
+    uploaded: List<SavedRoute>,
+    local: List<SavedRoute>,
+    deletedIds: Set<Long>,
+): List<SavedRoute> {
+    val uploadedById = uploaded.associateBy { it.id }
+    val changedHere = local.filter { uploadedById[it.id] != it }.associateBy { it.id }
+    val merged = server.associateBy { it.id } + changedHere
+    return merged.values.filterNot { it.id in deletedIds }.sortedByDescending { it.createdMs }
 }

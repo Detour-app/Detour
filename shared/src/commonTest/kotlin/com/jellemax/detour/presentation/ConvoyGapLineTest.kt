@@ -52,4 +52,11 @@ class ConvoyGapLineTest {
         assertEquals("Lost BOB's signal", convoyGapSpokenLine(Event.SignalLost(bob), members))
         assertNull(convoyGapSpokenLine(Event.Rejoined(bob), members))
     }
+
+    @Test
+    fun `a banner line reads as the sentence spoken for the same alert`() {
+        assertEquals("BOB fell behind", convoyGapSentence(ConvoyGapKind.BEHIND, "BOB"))
+        assertEquals("BOB stopped", convoyGapSentence(ConvoyGapKind.STOPPED, "BOB"))
+        assertEquals("Lost BOB's signal", convoyGapSentence(ConvoyGapKind.SIGNAL_LOST, "BOB"))
+    }
 }
