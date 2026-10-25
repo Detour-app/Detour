@@ -18,9 +18,9 @@ public record SyncRequest
     public IReadOnlyList<TripPayload>? Trips { get; init; }
 
     /// <summary>
-    /// Start instants the device has deleted. Applied after the upserts, so a trip present in
-    /// both lists ends up deleted and the removal propagates to every other device instead of
-    /// the server's copy resurrecting it on the next sync.
+    /// Start instants the device has deleted. Each is kept as a tombstone (#778): a trip in both
+    /// lists, or uploaded later by a device that still holds it, is not stored again, and the
+    /// tombstone goes back to every device in <see cref="SyncResponse.DeletedTripStartTimes"/>.
     /// </summary>
     public IReadOnlyList<long>? DeletedTripStartTimes { get; init; }
 
@@ -123,8 +123,13 @@ public record RiderStatsPayload(
 /// The merged union, which is what restores a device after a reinstall. Idempotent: syncing the
 /// same input twice yields the same result.
 /// </summary>
+/// <param name="DeletedTripStartTimes">
+/// Every ride this rider has deleted on any device (#778). A device drops its copy of each and
+/// stops uploading it; an older client ignores the field, and the server ignores its upload.
+/// </param>
 public record SyncResponse(
     [Required] IReadOnlyList<JsonElement> Trips,
+    [Required] IReadOnlyList<long> DeletedTripStartTimes,
     [Required] IReadOnlyList<string> Traces,
     [Required] IReadOnlyList<JsonElement> SavedPlaces,
     [Required] IReadOnlyList<JsonElement> SavedRoutes,

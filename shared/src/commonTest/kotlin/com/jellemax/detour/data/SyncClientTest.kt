@@ -73,4 +73,34 @@ class SyncClientTest {
     fun aResponseWithoutShareFogKeepsTheLocalValue() {
         assertNull(SyncClient.shareFogFromServer(server = null, editsAtUpload = 0, editsNow = 0))
     }
+
+    // --- deletedTripStartTimes: rides deleted on another device (#778) ------
+
+    @Test
+    fun aRideDeletedOnAnotherDeviceIsDroppedFromThisOnesMerge() {
+        // Device B still holds 1000 and uploaded it; the server kept A's
+        // tombstone, so the answer names it instead of returning it.
+        val merged = jsonObjectOf(
+            """{"trips":[{"startTimeMs":1000},{"startTimeMs":2000}],"deletedTripStartTimes":[1000]}""",
+        )
+
+        val tombstones = SyncClient.deletedTripStarts(merged)
+        val kept = TripStore.mergeServerTrips(merged.optArray("trips")!!, tombstones, mutableMapOf(), emptyMap())
+
+        assertEquals(setOf(1000L), tombstones)
+        assertEquals(listOf(2000L), kept.objects().map { it.optLong("startTimeMs") })
+    }
+
+    @Test
+    fun aResponseWithoutTombstonesAddsNone() {
+        // An older server omits the field; nothing is deleted on its account.
+        assertEquals(emptySet(), SyncClient.deletedTripStarts(jsonObjectOf("""{"trips":[]}""")))
+    }
+
+    @Test
+    fun anUnreadableTombstoneIsIgnored() {
+        val merged = jsonObjectOf("""{"deletedTripStartTimes":[0,"x",3000]}""")
+
+        assertEquals(setOf(3000L), SyncClient.deletedTripStarts(merged))
+    }
 }
