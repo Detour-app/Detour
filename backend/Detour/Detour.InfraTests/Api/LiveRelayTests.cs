@@ -140,13 +140,16 @@ public class LiveRelayTests
     [Fact]
     public async Task Consecutive_positions_are_written_as_one_frame()
     {
-        var connection = new Harness().Connect(Guid.CreateVersion7());
+        // Writer started only once all three are queued: started first, it can drain the first
+        // update on its own before the others arrive, and the test flakes on CI.
+        var connection = new CapturingConnection(Guid.CreateVersion7(), startWriter: false);
         var alice = Guid.CreateVersion7();
         var bob = Guid.CreateVersion7();
 
         connection.Connection.Enqueue(Position(alice, 1));
         connection.Connection.Enqueue(Position(bob, 2));
         connection.Connection.Enqueue(Position(alice, 3));
+        connection.StartWriter();
 
         var frame = await connection.ReadFrameAsync();
 
@@ -340,11 +343,14 @@ public class LiveRelayTests
             }
         }
 
-        public CapturingConnection(Guid userId)
+        public CapturingConnection(Guid userId, bool startWriter = true)
         {
             Connection = new LiveConnection(userId, new CapturingSocket(Record));
-            _ = Connection.RunWriterAsync(JsonOptions, CancellationToken.None);
+            if (startWriter)
+                StartWriter();
         }
+
+        public void StartWriter() => _ = Connection.RunWriterAsync(JsonOptions, CancellationToken.None);
 
         private void Record(string frame)
         {
