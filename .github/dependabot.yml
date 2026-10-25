@@ -26,6 +26,12 @@ updates:
     groups:
       nuget-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Microsoft.OpenApi is pinned only to patch an advisory in the 2.x that
+      # Microsoft.AspNetCore.OpenApi pulls in. 3.x breaks that package's XML
+      # comment source generator (#793), so it moves when ASP.NET Core does.
+      - dependency-name: Microsoft.OpenApi
+        update-types: [version-update:semver-major]
 
   # Also bumps the commit SHAs that build.yml pins third-party actions to,
   # keeping the `# vX.Y.Z` comment beside each in step.
