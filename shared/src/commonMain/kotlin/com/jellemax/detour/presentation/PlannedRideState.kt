@@ -1,5 +1,6 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.PlannedRide
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RsvpAnswer
@@ -29,7 +30,9 @@ data class PlannedInviteeRow(
  *
  * [meetingLabel] is the owner's label, null when they gave none — the screen falls back to the
  * coordinates. [canAnswer] is [PlannedRide.canAnswer]; [answers] are the buttons it shows, in
- * order, and never include [RsvpAnswer.PENDING], which a rider cannot send.
+ * order, and never include [RsvpAnswer.PENDING], which a rider cannot send. [routeName] is null
+ * when no route is attached; [routePreview] is the line to draw for it — the routed polyline, or
+ * the stops joined straight when the owner's copy was never routed — and empty without a route.
  */
 data class PlannedRideDetailState(
     val id: String = "",
@@ -45,6 +48,8 @@ data class PlannedRideDetailState(
     val canAnswer: Boolean = false,
     val myAnswer: RsvpAnswer? = null,
     val answers: List<RsvpAnswer> = emptyList(),
+    val routeName: String? = null,
+    val routePreview: List<LatLon> = emptyList(),
 )
 
 /**
@@ -93,6 +98,8 @@ fun plannedRideDetailStateFrom(ride: PlannedRide, me: RiderId): PlannedRideDetai
         canAnswer = canAnswer,
         myAnswer = if (hosting) null else ride.myAnswer,
         answers = if (canAnswer) RsvpAnswer.entries.filter { it.isAnswer } else emptyList(),
+        routeName = ride.route?.name,
+        routePreview = ride.route?.let { r -> r.polyline.ifEmpty { r.stops.map { it.at } } }.orEmpty(),
     )
 }
 

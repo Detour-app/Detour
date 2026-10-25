@@ -701,6 +701,10 @@ namespace Detour.Database.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("reminded_for_starts_at");
 
+                    b.Property<string>("RoutePayload")
+                        .HasColumnType("text")
+                        .HasColumnName("route_payload");
+
                     b.Property<DateTimeOffset>("StartsAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("starts_at");

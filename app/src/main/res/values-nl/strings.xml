@@ -142,6 +142,11 @@
     <string name="planned_form_too_long">Hoogstens %1$d tekens.</string>
     <string name="planned_form_next">Volgende</string>
     <string name="planned_form_cancel">Annuleren</string>
+    <string name="planned_route">Route (optioneel)</string>
+    <string name="planned_route_label">Route</string>
+    <string name="planned_form_pick_route">Kies een opgeslagen route</string>
+    <string name="planned_form_remove_route">Route verwijderen</string>
+    <string name="planned_form_no_routes">Nog geen opgeslagen routes. Plan eerst een route of bewaar een spin onder Routes.</string>
     <string name="planned_form_save">Opslaan</string>
     <string name="planned_no_server">Geen sync-server ingesteld. Stel er eerst een in bij Instellingen — geplande ritten staan op je eigen server.</string>
     <string name="planned_sign_in_first">Meld je eerst aan bij Vrienden — je plant ritten met diezelfde vriendenlijst.</string>

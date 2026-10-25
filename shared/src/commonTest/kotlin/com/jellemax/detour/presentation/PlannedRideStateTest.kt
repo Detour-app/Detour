@@ -1,11 +1,15 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MeetingPoint
 import com.jellemax.detour.data.PlannedRide
 import com.jellemax.detour.data.PlannedRideInvitee
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RiderRef
+import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RsvpAnswer
+import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.TravelMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -21,6 +25,7 @@ class PlannedRideStateTest {
         owner: RiderRef = host,
         myAnswer: RsvpAnswer? = RsvpAnswer.PENDING,
         invitees: List<PlannedRideInvitee> = emptyList(),
+        route: SavedRoute? = null,
     ) = PlannedRide(
         id = "r1",
         owner = owner,
@@ -32,7 +37,29 @@ class PlannedRideStateTest {
         createdAtMs = 1_790_000_000_000,
         myAnswer = myAnswer,
         invitees = invitees,
+        route = route,
     )
+
+    private fun route(polyline: List<LatLon>) = SavedRoute(
+        id = 7, name = "Ourthe valley", createdMs = 0, mode = TravelMode.CAR,
+        stops = listOf(RouteStop(LatLon(50.0, 5.0)), RouteStop(LatLon(50.2, 5.2))),
+        polyline = polyline, distanceMeters = null, timeMs = null,
+    )
+
+    @Test
+    fun anAttachedRouteIsPreviewedFromItsPolylineOrElseItsStops() {
+        val routed = listOf(LatLon(50.0, 5.0), LatLon(50.1, 5.05), LatLon(50.2, 5.2))
+        val withLine = plannedRideDetailStateFrom(ride(route = route(routed)), me)
+        assertEquals("Ourthe valley", withLine.routeName)
+        assertEquals(routed, withLine.routePreview)
+
+        val unrouted = plannedRideDetailStateFrom(ride(route = route(emptyList())), me)
+        assertEquals(listOf(LatLon(50.0, 5.0), LatLon(50.2, 5.2)), unrouted.routePreview)
+
+        val none = plannedRideDetailStateFrom(ride(), me)
+        assertNull(none.routeName)
+        assertEquals(emptyList(), none.routePreview)
+    }
 
     private fun invitee(name: String, answer: RsvpAnswer) = PlannedRideInvitee(RiderRef(RiderId(name), name), answer)
 
