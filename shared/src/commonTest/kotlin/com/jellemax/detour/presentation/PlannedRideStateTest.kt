@@ -154,6 +154,12 @@ class PlannedRideStateTest {
     }
 
     @Test
+    fun onlyTheOwnerSeesStart() {
+        assertTrue(plannedRideDetailStateFrom(hosted, me).canStart)
+        assertFalse(plannedRideDetailStateFrom(ride(), me).canStart, "a non-host never sees Start")
+    }
+
+    @Test
     fun friendsAlreadyInvitedAreNotOffered() {
         val ride = hosted.copy(invitees = listOf(invitee("bram", RsvpAnswer.DECLINED)))
         val choices = plannedInviteChoicesFrom(ride, listOf(friend("bram"), friend("Anna"), friend("cas")), emptyList(), me)

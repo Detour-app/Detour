@@ -22,9 +22,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -182,12 +184,17 @@ fun PlannedRidesScreen(
  * The host gets an Invite action (#756). The invite runs in this screen's scope rather than the
  * picker's, so closing the picker mid-request cannot cancel it and leave the store busy; the
  * picker closes once the invite lands, and the new invitees show in the list below as pending.
+ *
+ * The host also gets Start (#758): [PlannedRideStart], with [onRide] opening the map and
+ * [onNotice] carrying anything the rider should read after this screen is gone.
  */
 @Composable
 fun PlannedRideDetailScreen(
     rideId: String,
     onBack: () -> Unit,
     onEdit: () -> Unit,
+    onRide: () -> Unit,
+    onNotice: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -205,6 +212,8 @@ fun PlannedRideDetailScreen(
     }
 
     var confirmDelete by remember { mutableStateOf(false) }
+    val start = rememberPlannedRideStart(onRide, onNotice)
+    val enabled = !state.busy && !start.starting
 
     PlannedScaffold(
         title = detail?.title ?: stringResource(R.string.planned_ride),
@@ -216,13 +225,18 @@ fun PlannedRideDetailScreen(
     ) {
         RideDetailBody(
             detail = detail,
-            error = state.error,
-            enabled = !state.busy,
+            error = start.error ?: state.error,
+            enabled = enabled,
             onAnswer = { id, answer -> scope.launch { PlannedRidesStore.answer(id, answer) } },
-            onInvite = { inviting = true },
+            hostButtons = {
+                StartButton(enabled = enabled, onClick = { start.confirming = ride })
+                InviteButton(enabled = enabled, onClick = { inviting = true })
+            },
             modifier = modifier,
         )
     }
+
+    PlannedRideStartDialogs(start)
 
     if (inviting && ride != null && detail?.canInvite == true) {
         PlannedInviteDialog(
@@ -236,16 +250,24 @@ fun PlannedRideDetailScreen(
         )
     }
 
-    if (confirmDelete && detail != null) {
-        ConfirmDialog(
-            title = stringResource(R.string.planned_delete_title),
-            text = stringResource(R.string.planned_delete_text, detail.title),
-            confirmLabel = stringResource(R.string.planned_delete_confirm),
-            // The ride drops out of the reloaded list, and the check above pops back to it.
-            onConfirm = { scope.launch { PlannedRidesStore.cancel(rideId) } },
-            onDismiss = { confirmDelete = false },
-        )
+    if (confirmDelete) {
+        // The ride drops out of the reloaded list, and the check above pops back to it.
+        DeleteRideDialog(detail, onConfirm = { scope.launch { PlannedRidesStore.cancel(rideId) } }) {
+            confirmDelete = false
+        }
     }
+}
+
+@Composable
+private fun DeleteRideDialog(detail: PlannedRideDetailState?, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    if (detail == null) return
+    ConfirmDialog(
+        title = stringResource(R.string.planned_delete_title),
+        text = stringResource(R.string.planned_delete_text, detail.title),
+        confirmLabel = stringResource(R.string.planned_delete_confirm),
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
+    )
 }
 
 @Composable
@@ -254,7 +276,7 @@ private fun RideDetailBody(
     error: String?,
     enabled: Boolean,
     onAnswer: (rideId: String, RsvpAnswer) -> Unit,
-    onInvite: () -> Unit,
+    hostButtons: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -269,14 +291,27 @@ private fun RideDetailBody(
         if (detail.canAnswer) {
             AnswerRow(detail = detail, enabled = enabled, onAnswer = { answer -> onAnswer(detail.id, answer) })
         }
-        if (detail.canInvite) {
-            OutlinedButton(enabled = enabled, onClick = onInvite) {
-                Icon(Icons.Rounded.PersonAdd, contentDescription = null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.planned_invite))
-            }
-        }
+        // Start and Invite are the host's alone: canStart and canInvite are both "hosting".
+        if (detail.canStart) hostButtons()
         Invitees(detail.invitees)
+    }
+}
+
+@Composable
+private fun StartButton(enabled: Boolean, onClick: () -> Unit) {
+    Button(enabled = enabled, onClick = onClick) {
+        Icon(Icons.Rounded.Groups, contentDescription = null, Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(R.string.planned_start))
+    }
+}
+
+@Composable
+private fun InviteButton(enabled: Boolean, onClick: () -> Unit) {
+    OutlinedButton(enabled = enabled, onClick = onClick) {
+        Icon(Icons.Rounded.PersonAdd, contentDescription = null, Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(R.string.planned_invite))
     }
 }
 
