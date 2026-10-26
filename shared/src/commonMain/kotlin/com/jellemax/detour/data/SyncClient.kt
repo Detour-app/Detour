@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
@@ -209,6 +210,19 @@ object SyncClient {
         val traces = merged.optArray("traces") ?: JsonArrayEmpty
         val badges = merged.optObject("badges") ?: jsonObjectOf("{}")
 
+        writeBackTrips(merged, trips, uploadedTrips)
+        TraceStore.replaceLines(traces.indices.map { traces.optString(it) }, uploadedLines.toHashSet())
+        BadgeStore.replaceRaw(badges.string())
+        writeBackOptional(merged, fogEditsAtUpload, uploadedRoutes)
+        Settings.setLastSyncMs(nowMs())
+        return SyncResult(trips.size, traces.size, badges.size)
+    }
+
+    private fun writeBackTrips(merged: JsonObject, trips: JsonArray, uploadedTrips: JsonArray) {
+        // Before the trips: a ride another device deleted is dropped by the
+        // tombstone filter in replaceRaw rather than kept as "uploaded but not
+        // returned" luck, and it stays out of every later upload (#778).
+        TripStore.addTombstones(deletedTripStarts(merged))
         TripStore.replaceRaw(trips.string(), uploadedTrips.objects().mapTo(HashSet()) { it.optLong("startTimeMs") })
         // replaceRaw just invalidated the totals record — the merge is the
         // server's union against ours, so the delta is not knowable here. Refold
@@ -217,11 +231,6 @@ object SyncClient {
         // Dispatchers.IO scope in AndroidSync, a Task on iOS), and a rider
         // opening the Hub is not.
         RiderTotals.refreshIfStale()
-        TraceStore.replaceLines(traces.indices.map { traces.optString(it) }, uploadedLines.toHashSet())
-        BadgeStore.replaceRaw(badges.string())
-        writeBackOptional(merged, fogEditsAtUpload, uploadedRoutes)
-        Settings.setLastSyncMs(nowMs())
-        return SyncResult(trips.size, traces.size, badges.size)
     }
 
     /** The documents an older server omits from its response. Absent leaves
@@ -270,6 +279,13 @@ object SyncClient {
      */
     internal fun shareFogFromServer(server: Boolean?, editsAtUpload: Int, editsNow: Int): Boolean? =
         server.takeIf { editsAtUpload == editsNow }
+
+    /** The rides this rider deleted on any device, from the server's answer
+     *  (#778). Empty from an older server that omits the field. */
+    internal fun deletedTripStarts(merged: JsonObject): Set<Long> {
+        val starts = merged.optArray("deletedTripStartTimes") ?: return emptySet()
+        return starts.indices.mapNotNullTo(HashSet()) { i -> starts.optLong(i).takeIf { it > 0 } }
+    }
 
     private fun tripsForUpload() = buildJsonArray {
         for (trip in jsonArrayOf(TripStore.rawJson()).objects()) add(tripForUpload(trip))

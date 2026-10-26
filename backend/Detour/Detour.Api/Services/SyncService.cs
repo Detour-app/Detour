@@ -25,6 +25,7 @@ public interface ISyncService
 /// </summary>
 public class SyncService(
     ITripRepository trips,
+    ITripTombstoneRepository tripTombstones,
     ITraceRepository traces,
     ITrackPointRepository trackPoints,
     ISavedPlaceRepository savedPlaces,
@@ -105,7 +106,15 @@ public class SyncService(
 
     private async Task MergeTripsAsync(Guid userId, SyncRequest request, CancellationToken cancellationToken)
     {
-        var incoming = request.Trips ?? [];
+        // A ride deleted on any device — earlier, or in this very request — is never taken back
+        // from an upload. The device uploading it has not heard of the deletion yet; it hears of
+        // it in the response instead (#778).
+        var tombstoned = (await tripTombstones.GetStartsForUserAsync(userId, cancellationToken)).ToHashSet();
+        var deleted = (request.DeletedTripStartTimes ?? []).Where(s => s > 0).Distinct().ToArray();
+
+        var incoming = (request.Trips ?? [])
+            .Where(t => !tombstoned.Contains(t.StartTimeMs) && !deleted.Contains(t.StartTimeMs))
+            .ToList();
         if (incoming.Count > 0)
         {
             var starts = incoming.Select(t => t.StartTimeMs).Distinct().ToArray();
@@ -152,12 +161,20 @@ public class SyncService(
             }
         }
 
-        // After the upserts, so a trip in both lists ends up deleted.
-        var deleted = request.DeletedTripStartTimes ?? [];
-        if (deleted.Count > 0)
+        if (deleted.Length == 0)
+            return;
+
+        // The row goes, and a tombstone stays in its place. A hard delete alone let the next
+        // device still holding the ride upload it again, so the server copy flipped between
+        // deleted and present on every sync (#778).
+        await trips.DeleteByStartsAsync(userId, deleted, cancellationToken);
+        foreach (var start in deleted.Where(s => !tombstoned.Contains(s)))
         {
-            await trips.FlushChangesAsync(cancellationToken);
-            await trips.DeleteByStartsAsync(userId, [.. deleted.Distinct()], cancellationToken);
+            var (result, tombstone) = TripTombstone.Create(userId, start);
+            if (result.IsFailure)
+                continue; // filtered above; a non-positive start has no ride to bury
+
+            await tripTombstones.SaveAsync(tombstone, cancellationToken);
         }
     }
 
@@ -395,6 +412,7 @@ public class SyncService(
         await trips.FlushChangesAsync(cancellationToken);
 
         var storedTrips = await trips.GetForUserAsync(user.Id, cancellationToken);
+        var storedTombstones = await tripTombstones.GetStartsForUserAsync(user.Id, cancellationToken);
         var storedTraces = await traces.GetForUserAsync(user.Id, cancellationToken);
         var storedPlaces = await savedPlaces.GetForUserAsync(user.Id, cancellationToken);
         var storedRoutes = await savedRoutes.GetForUserAsync(user.Id, cancellationToken);
@@ -403,6 +421,7 @@ public class SyncService(
 
         return new SyncResponse(
             [.. storedTrips.Select(t => JsonSerializer.Deserialize<JsonElement>(t.Payload))],
+            storedTombstones,
             [.. storedTraces.Select(t => t.Line)],
             [.. storedPlaces.Select(p => JsonSerializer.Deserialize<JsonElement>(p.Payload))],
             [.. storedRoutes.Select(r => JsonSerializer.Deserialize<JsonElement>(r.Payload))],
