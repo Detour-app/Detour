@@ -146,6 +146,12 @@
   <data name="PlannedRide.RouteIdInvalid" xml:space="preserve">
     <value>A route identifier cannot be zero.</value>
   </data>
+  <data name="PlannedRide.RouteNotEnoughStops" xml:space="preserve">
+    <value>A ride's route needs at least {0} stops.</value>
+  </data>
+  <data name="PlannedRide.RoutePayloadTooLarge" xml:space="preserve">
+    <value>That route is larger than {0} bytes.</value>
+  </data>
   <data name="PlannedRide.AnswerInvalid" xml:space="preserve">
     <value>Answer with going, maybe or declined.</value>
   </data>

@@ -3,6 +3,7 @@ package com.jellemax.detour.presentation
 import com.jellemax.detour.data.MeetingPoint
 import com.jellemax.detour.data.PlannedRide
 import com.jellemax.detour.data.PlannedRideDraft
+import com.jellemax.detour.data.SavedRoute
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
@@ -22,15 +23,15 @@ internal const val MEETING_LABEL_MAX = 60
  * while typing would eat the space between two words. [startsAtMs] and [meetingPoint] are null
  * until picked — a new ride has no sensible default for either.
  *
- * [routeId] rides along untouched: the form does not edit it (#757 does), but an update sends
- * the whole draft, and a dropped route id would detach the route on every edit.
+ * [route] is the attached saved route, or null for none (#757). Pre-filled from the ride's own
+ * copy on an edit, so editing the title does not swap in whatever the saved route has become since.
  */
 data class PlannedRideForm(
     val title: String = "",
     val startsAtMs: Long? = null,
     val meetingPoint: MeetingPoint? = null,
     val description: String = "",
-    val routeId: Long? = null,
+    val route: SavedRoute? = null,
 )
 
 enum class PlannedRideFormProblem {
@@ -62,7 +63,7 @@ fun PlannedRideForm.toDraft(nowMs: Long): PlannedRideDraft? {
         title = title.trim(),
         startsAtMs = startsAtMs ?: return null,
         meetingPoint = meetingPoint ?: return null,
-        routeId = routeId,
+        route = route,
         description = description.trim().ifEmpty { null },
     )
 }
@@ -73,7 +74,7 @@ fun plannedRideFormFrom(ride: PlannedRide): PlannedRideForm = PlannedRideForm(
     startsAtMs = ride.startsAtMs,
     meetingPoint = ride.meetingPoint,
     description = ride.description.orEmpty(),
-    routeId = ride.routeId,
+    route = ride.route,
 )
 
 /** A meeting point at a saved place, its name as the label, cut to what the server accepts. */

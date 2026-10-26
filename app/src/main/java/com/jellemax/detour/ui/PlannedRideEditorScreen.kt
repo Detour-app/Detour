@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,8 +47,10 @@ import com.jellemax.detour.data.PlannedRide
 import com.jellemax.detour.data.PlannedRideDraft
 import com.jellemax.detour.data.PlannedRidesState
 import com.jellemax.detour.data.PlannedRidesStore
+import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
+import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.presentation.PLANNED_DESCRIPTION_MAX_CHARS
 import com.jellemax.detour.presentation.PLANNED_TITLE_MAX_CHARS
 import com.jellemax.detour.presentation.PlannedRideForm
@@ -58,13 +61,15 @@ import com.jellemax.detour.presentation.plannedStartMs
 import com.jellemax.detour.presentation.plannedStartParts
 import com.jellemax.detour.presentation.problems
 import com.jellemax.detour.presentation.toDraft
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Plan a new ride, or edit one the rider hosts (#755): title, start, meeting point, description.
- * A null [rideId] is a new ride. Invitees and the route are not edited here (#756, #757).
+ * Plan a new ride, or edit one the rider hosts (#755): title, start, meeting point, an optional
+ * saved route (#757), description. A null [rideId] is a new ride. Invitees are not edited here (#756).
  *
  * The meeting point is picked from the rider's saved places — the same list the map offers — so
  * a ride meets somewhere the host has already named. Editing starts from the loaded ride; until
@@ -165,6 +170,7 @@ private fun PlannedRideFields(form: PlannedRideForm, enabled: Boolean, onChange:
             onPick = { onChange(form.copy(startsAtMs = it)) },
         )
         MeetingPointField(form.meetingPoint, enabled, onPick = { onChange(form.copy(meetingPoint = it)) })
+        RouteField(form.route, enabled, onPick = { onChange(form.copy(route = it)) })
         OutlinedTextField(
             value = form.description,
             onValueChange = { onChange(form.copy(description = it)) },
@@ -302,6 +308,72 @@ private fun SavedPlacePicker(onPick: (SavedPlace) -> Unit, onDismiss: () -> Unit
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onPick(place) }
+                            .padding(vertical = 10.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.planned_form_cancel)) } },
+    )
+}
+
+/**
+ * The ride's route: one of the rider's saved routes, a kept spin included, or none. What is
+ * attached is a copy (BACKEND_SPEC.md §8.1), so the name shown is the copy's, not the saved
+ * route's current one.
+ */
+@Composable
+private fun RouteField(route: SavedRoute?, enabled: Boolean, onPick: (SavedRoute?) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        FieldLabel(stringResource(R.string.planned_route))
+        Text(
+            route?.name ?: stringResource(R.string.planned_form_not_set),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(enabled = enabled, onClick = { picking = true }) {
+                Text(stringResource(R.string.planned_form_pick_route))
+            }
+            if (route != null) {
+                TextButton(enabled = enabled, onClick = { onPick(null) }) {
+                    Text(stringResource(R.string.planned_form_remove_route))
+                }
+            }
+        }
+        if (picking) {
+            SavedRoutePicker(
+                onPick = { picked ->
+                    onPick(picked)
+                    picking = false
+                },
+                onDismiss = { picking = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SavedRoutePicker(onPick: (SavedRoute) -> Unit, onDismiss: () -> Unit) {
+    // ensureLoaded reads the file on first use; off the main thread, as TripDetailScreen does.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { RouteStore.ensureLoaded() } }
+    val routes by RouteStore.routes.collectAsStateWithLifecycle()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.planned_form_pick_route)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (routes.isEmpty()) {
+                    Text(stringResource(R.string.planned_form_no_routes), style = MaterialTheme.typography.bodyMedium)
+                }
+                routes.forEach { route ->
+                    Text(
+                        route.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onPick(route) }
                             .padding(vertical = 10.dp),
                     )
                 }

@@ -92,6 +92,8 @@ public class SchemaTests(PostgresFixture fixture)
         db.TrackPoints.Add(point);
         var (_, title) = TripTitle.Create(user.Id, 1_000, "Coast road", 2_000);
         db.TripTitles.Add(title);
+        var (_, tombstone) = TripTombstone.Create(user.Id, 2_000);
+        db.TripTombstones.Add(tombstone);
         await db.SaveChangesAsync();
 
         db.Users.Remove(user);
@@ -101,6 +103,7 @@ public class SchemaTests(PostgresFixture fixture)
         (await db.Traces.AnyAsync(t => t.UserId == user.Id)).Should().BeFalse();
         (await db.TrackPoints.AnyAsync(p => p.UserId == user.Id)).Should().BeFalse();
         (await db.TripTitles.AnyAsync(t => t.UserId == user.Id)).Should().BeFalse();
+        (await db.TripTombstones.AnyAsync(t => t.UserId == user.Id)).Should().BeFalse();
     }
 
     [Fact]

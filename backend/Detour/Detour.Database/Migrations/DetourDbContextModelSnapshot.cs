@@ -701,6 +701,10 @@ namespace Detour.Database.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("reminded_for_starts_at");
 
+                    b.Property<string>("RoutePayload")
+                        .HasColumnType("text")
+                        .HasColumnName("route_payload");
+
                     b.Property<DateTimeOffset>("StartsAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("starts_at");
@@ -1180,6 +1184,34 @@ namespace Detour.Database.Migrations
                     b.ToTable("trip_titles", "detour");
                 });
 
+            modelBuilder.Entity("Detour.Domain.Trips.TripTombstone", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<long>("TripStartTimeMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("trip_start_time_ms");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_trip_tombstones");
+
+                    b.HasIndex("UserId", "TripStartTimeMs")
+                        .IsUnique()
+                        .HasDatabaseName("ix_trip_tombstones_user_id_trip_start_time_ms");
+
+                    b.ToTable("trip_tombstones", "detour");
+                });
+
             modelBuilder.Entity("Detour.Domain.Users.BadgeAward", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1521,6 +1553,16 @@ namespace Detour.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_trip_titles_users_user_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Trips.TripTombstone", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_trip_tombstones_users_user_id");
                 });
 
             modelBuilder.Entity("Detour.Domain.Users.BadgeAward", b =>
