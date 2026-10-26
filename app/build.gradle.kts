@@ -225,7 +225,7 @@ android {
 dependencies {
     // Roulette/routing/trip logic, shared verbatim with the iOS app in iosApp/.
     implementation(project(":shared"))
-    implementation(platform("androidx.compose:compose-bom:2026.02.00"))
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
@@ -239,10 +239,10 @@ dependencies {
     // image cannot be fetched: opening the expander makes no request of its own,
     // to any host a release author chose. That is omission, not a setting to
     // regress — GitHub's generator emits no images, so nothing is lost.
-    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.35.0")
-    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.46.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.46.0")
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     // Custom Tabs, for the sign-in leg. A native app must not put the identity
     // provider's login form in a WebView (RFC 8252): a tab keeps the address bar
     // and the browser's own session, so the user can see who they are typing a
@@ -265,7 +265,7 @@ dependencies {
     // Android Automotive OS. Same version as :app above, so this pulls no new
     // transitive graph — it is the host half of a library the app already uses.
     "automotiveImplementation"("androidx.car.app:app-automotive:1.7.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.12.0")
     // Parked-state circle position sync (#90): the 2-min loop inside
     // TripTrackingService dies when the service stops while parked, so a
     // 15-min periodic worker carries the "still here" post + on-device
@@ -274,19 +274,19 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.
-    implementation("com.squareup.okhttp3:okhttp:5.5.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
 
     // Firebase Cloud Messaging ONLY — the push transport (docs/PUSH.md). No BOM,
     // no other Firebase product (no Firestore/Database/Analytics/Auth): this is
     // the sole com.google.firebase dependency and it pulls in none of those.
-    implementation("com.google.firebase:firebase-messaging:26.0.0")
+    implementation("com.google.firebase:firebase-messaging:26.0.1")
     // :shared's CircleEvents.placeEventFromRelayFrame takes a kotlinx
     // JsonObject, but shared/build.gradle.kts declares kotlinx-serialization
     // as `implementation`, not `api` - Gradle doesn't leak that onto a
     // consumer's compile classpath, so it has to be declared here too,
     // pinned to the same version shared uses to resolve to one identical
     // class rather than risk two.
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     // QR generation only (#762, owner decision): the convoy invite link as a code
     // a rider beside the host can scan. Core alone is pure Java with no camera
     // or scanner; ui/QrCode.kt draws its matrix in Compose, no bitmap.
@@ -299,7 +299,7 @@ dependencies {
     // Content-Range, ETag - and a fake that returns canned bytes would assert
     // the fake rather than the protocol. Same OkHttp version as the
     // implementation dependency above, so one upgrade moves both.
-    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
     // Parses the Kotlin sources of both modules so ArchitectureTest can hold
     // docs/guidelines rules that detekt has no rule for (§4, §5, §8).
     testImplementation("com.lemonappdev:konsist:0.18.1")
