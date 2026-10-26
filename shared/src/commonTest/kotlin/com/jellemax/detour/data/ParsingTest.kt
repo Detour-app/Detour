@@ -220,6 +220,25 @@ class NavEngineTest {
             NavEngine.cameraZoom(base, 35.0, distanceToTurnMeters = 50.0) > motorway)
     }
 
+    @Test
+    fun cameraZoomsInForAMotorwayExitWhileThereIsStillTimeToSeeIt() {
+        val base = 16.0
+        // 120 km/h, 150 m before the exit: ~4.5 s out, which 60 m would never catch.
+        assertEquals(base + 1.5, NavEngine.cameraZoom(base, 33.3, distanceToTurnMeters = 150.0), 1e-9)
+        // ~9 s out it is halfway in, from the highway's base - 1.5 back to base.
+        assertEquals(base, NavEngine.cameraZoom(base, 33.3, distanceToTurnMeters = 300.0), 1e-9)
+        // Further than 10 s, the highway zoom-out is back.
+        assertEquals(base - 1.5, NavEngine.cameraZoom(base, 33.3, distanceToTurnMeters = 400.0), 1e-9)
+    }
+
+    @Test
+    fun cameraZoomAtCitySpeedIsStillDecidedByMetres() {
+        val base = 16.0
+        assertEquals(base + 2.0, NavEngine.cameraZoom(base, 6.0, distanceToTurnMeters = 50.0), 1e-9)
+        assertEquals(base + 1.25, NavEngine.cameraZoom(base, 6.0, distanceToTurnMeters = 100.0), 1e-9)
+        assertEquals(base + 0.5, NavEngine.cameraZoom(base, 6.0, distanceToTurnMeters = 200.0), 1e-9)
+    }
+
     // The geometry the maps fade the driven part of a route with.
 
     @Test
