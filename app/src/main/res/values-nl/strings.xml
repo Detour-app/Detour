@@ -166,4 +166,12 @@
     <string name="planned_answer_maybe">Misschien</string>
     <string name="planned_answer_declined">Kan niet</string>
     <string name="planned_answer_pending">Nog geen antwoord</string>
+    <string name="planned_invite">Vrienden of kringen uitnodigen</string>
+    <string name="planned_invite_title">Uitnodigen voor %1$s</string>
+    <string name="planned_invite_friends">Vrienden</string>
+    <string name="planned_invite_circles">Kringen</string>
+    <string name="planned_invite_circle_note">Een kring nodigt zijn leden van nu uit; wie later bij de kring komt, wordt niet toegevoegd.</string>
+    <string name="planned_invite_nobody">Niemand meer om uit te nodigen: vrienden en kringleden die je nog niet vroeg, verschijnen hier.</string>
+    <string name="planned_invite_send">Uitnodigen</string>
+    <string name="planned_invite_cancel">Annuleren</string>
 </resources>

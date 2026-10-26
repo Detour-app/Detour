@@ -170,10 +170,6 @@ internal fun MapScreenDialogs(
         )
     }
 
-    if (s.showOfflineArea) {
-        OfflineAreaDialog(onDismiss = { s.showOfflineArea = false })
-    }
-
     s.saveSpinDraft?.let { draft ->
         SaveSpinDialog(draft = draft, onDismiss = { s.saveSpinDraft = null })
     }

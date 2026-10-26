@@ -1,8 +1,10 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.PlannedRide
 import com.jellemax.detour.data.RiderId
+import com.jellemax.detour.data.RiderRef
 import com.jellemax.detour.data.RsvpAnswer
 
 /**
@@ -25,6 +27,24 @@ data class PlannedInviteeRow(
     val answer: RsvpAnswer,
 )
 
+/** One friend or circle the host can tick in the invite picker. [id] is a rider id for a
+ *  friend and a circle id for a circle; which list it sits in says which. */
+data class PlannedInviteOption(
+    val id: String,
+    val name: String,
+)
+
+/**
+ * What the host's invite picker offers on one ride (#756). Both lists empty means there is
+ * nobody left to ask, which the picker says rather than showing two empty headings.
+ */
+data class PlannedInviteChoices(
+    val friends: List<PlannedInviteOption> = emptyList(),
+    val circles: List<PlannedInviteOption> = emptyList(),
+) {
+    val isEmpty: Boolean get() = friends.isEmpty() && circles.isEmpty()
+}
+
 /**
  * One planned ride's detail screen.
  *
@@ -45,6 +65,8 @@ data class PlannedRideDetailState(
     val meetingLatitude: Double = 0.0,
     val meetingLongitude: Double = 0.0,
     val invitees: List<PlannedInviteeRow> = emptyList(),
+    /** Owner only: the server refuses an invitee's invite with a 403 (BACKEND_SPEC.md §8.1). */
+    val canInvite: Boolean = false,
     val canAnswer: Boolean = false,
     val myAnswer: RsvpAnswer? = null,
     val answers: List<RsvpAnswer> = emptyList(),
@@ -95,6 +117,7 @@ fun plannedRideDetailStateFrom(ride: PlannedRide, me: RiderId): PlannedRideDetai
         invitees = ride.invitees
             .sortedWith(compareBy({ INVITEE_ORDER.indexOf(it.answer) }, { it.rider.username.lowercase() }))
             .map { PlannedInviteeRow(it.rider.username, it.answer) },
+        canInvite = hosting,
         canAnswer = canAnswer,
         myAnswer = if (hosting) null else ride.myAnswer,
         answers = if (canAnswer) RsvpAnswer.entries.filter { it.isAnswer } else emptyList(),
@@ -102,5 +125,43 @@ fun plannedRideDetailStateFrom(ride: PlannedRide, me: RiderId): PlannedRideDetai
         routePreview = ride.route?.let { r -> r.polyline.ifEmpty { r.stops.map { it.at } } }.orEmpty(),
     )
 }
+
+/**
+ * Pure map from the host's friends and circles to the invite picker for [ride] (#756).
+ *
+ * A friend already invited is left out — inviting them again only keeps their answer (§8.1), so
+ * offering them reads as "not asked yet". Only circles the host has accepted are offered: the
+ * server takes a circle only from an accepted member, and one refused circle refuses the whole
+ * request. A circle whose every other accepted member is already invited is left out too, since
+ * ticking it would ask nobody new; members still at "invited" are not counted, because the
+ * server expands a circle to its accepted members only.
+ *
+ * Alphabetical within each list. [me] and the owner are never offered: the owner holds no
+ * invitation to their own ride.
+ */
+fun plannedInviteChoicesFrom(
+    ride: PlannedRide,
+    friends: List<RiderRef>,
+    circles: List<Group>,
+    me: RiderId,
+): PlannedInviteChoices {
+    val asked = ride.invitees.mapTo(mutableSetOf()) { it.rider.id } + ride.owner.id + me
+    return PlannedInviteChoices(
+        friends = friends
+            .filter { it.id !in asked }
+            .distinctBy { it.id }
+            .sortedBy { it.username.lowercase() }
+            .map { PlannedInviteOption(it.id.value, it.username) },
+        circles = circles
+            .filter { circle ->
+                circle.status == ACCEPTED &&
+                    circle.members.any { it.status == ACCEPTED && it.id !in asked }
+            }
+            .sortedBy { it.name.lowercase() }
+            .map { PlannedInviteOption(it.id, it.name) },
+    )
+}
+
+private const val ACCEPTED = "accepted"
 
 private val INVITEE_ORDER = listOf(RsvpAnswer.GOING, RsvpAnswer.MAYBE, RsvpAnswer.PENDING, RsvpAnswer.DECLINED)

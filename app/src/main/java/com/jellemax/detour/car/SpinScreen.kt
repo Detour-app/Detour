@@ -35,6 +35,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.drive.SpeedLimitTracker
+import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.map.startHeading
 import com.jellemax.detour.presentation.spinFailureText
 import com.jellemax.detour.tracking.MapSurface
@@ -315,6 +316,8 @@ class SpinScreen(
                 // Preview where the spin landed before committing to it — the
                 // whole point of having a map on this screen.
                 renderer.setRoute(picked.route?.polyline, picked.destination)
+                // #737: cache the corridor now, before Start; most of its tiles serve the Start corridor too.
+                picked.route?.let { RouteTileCache.prefetch(carContext, it.polyline, carContext.isDarkMode) }
             } catch (e: Exception) {
                 errorText = spinFailureText(e)
             } finally {

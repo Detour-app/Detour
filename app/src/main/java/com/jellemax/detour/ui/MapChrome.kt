@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.LocationSearching
@@ -106,12 +105,6 @@ internal fun MapTopChrome(
                     else stringResource(R.string.map_fog_show),
                 tinted = layers.fogEnabled,
                 onClick = layers.onToggleFog,
-            )
-            // Keeps what the map shows right now for offline use (#510).
-            GlassRailButton(
-                icon = Icons.Outlined.Download,
-                contentDescription = stringResource(R.string.map_offline_area),
-                onClick = layers.onOpenOfflineArea,
             )
         }
     }

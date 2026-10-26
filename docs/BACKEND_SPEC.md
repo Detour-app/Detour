@@ -146,7 +146,7 @@ Accepted from the device (all optional):
 | Payload | Merge rule |
 |---|---|
 | Trips | Keyed on (owner, start instant). A re-upload **replaces** the stored copy, so an edit — a corrected vehicle mode — propagates rather than being ignored. |
-| Deleted trips | Start instants the device has deleted. Applied **after** the upserts, so a trip in both lists ends up deleted and the deletion propagates to every other device instead of the trip resurrecting. |
+| Deleted trips | Start instants the device has deleted. The stored trip is removed and a **tombstone** (start instant, deleted-at) is kept in its place (#778). A trip whose start is tombstoned — in this request or any earlier one — is never stored again, so a second device still holding it cannot bring it back by uploading it. |
 | Traces | Deduplicated on content. A genuinely new line is additionally unpacked into track points; a line already held is not re-unpacked, because every sync re-sends the whole history. |
 | Saved places | Keyed on the client-assigned identifier; a rename replaces the stored copy. |
 | Badges | The **earliest** earned instant wins, so a reinstall cannot move a date forward. |
@@ -171,7 +171,10 @@ Validation:
   ride.
 
 Returned: the merged union of trips (newest first), traces, badges, saved
-places and ride titles.
+places and ride titles, and every deleted trip's start instant. A device adds
+those to its own tombstones, which drops its copy of each ride and stops it
+uploading them; an older client that ignores the field still loses the ride,
+because the server no longer returns it.
 
 ## 6. Friends
 
