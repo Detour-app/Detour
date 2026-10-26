@@ -1,5 +1,6 @@
 using Detour.Domain;
 using Detour.Domain.Places;
+using Detour.Domain.Routes;
 using Detour.Domain.Traces;
 using Detour.Domain.Trips;
 using Detour.Domain.Users;
@@ -107,6 +108,50 @@ public class SavedPlaceConfiguration : IEntityTypeConfiguration<SavedPlace>
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(p => new { p.UserId, p.ClientPlaceId }).IsUnique();
+    }
+}
+
+public class SavedRouteConfiguration : IEntityTypeConfiguration<SavedRoute>
+{
+    public void Configure(EntityTypeBuilder<SavedRoute> builder)
+    {
+        builder.ToTable("saved_routes");
+
+        builder.HasKey(r => r.Id);
+        builder.Property(r => r.Id).ValueGeneratedNever();
+
+        builder.Property(r => r.Payload).HasColumnType(ColumnTypes.Jsonb);
+        builder.Property(r => r.ClientRouteId);
+        builder.Property(r => r.UpdatedAt);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(r => r.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasIndex(r => new { r.UserId, r.ClientRouteId }).IsUnique();
+    }
+}
+
+public class TripTombstoneConfiguration : IEntityTypeConfiguration<TripTombstone>
+{
+    public void Configure(EntityTypeBuilder<TripTombstone> builder)
+    {
+        builder.ToTable("trip_tombstones");
+
+        builder.HasKey(t => t.Id);
+        builder.Property(t => t.Id).ValueGeneratedNever();
+
+        builder.Property(t => t.TripStartTimeMs);
+        builder.Property(t => t.DeletedAt);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // One tombstone per ride per rider, so a deletion re-sent on every sync stays one row.
+        builder.HasIndex(t => new { t.UserId, t.TripStartTimeMs }).IsUnique();
     }
 }
 

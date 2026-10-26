@@ -70,6 +70,10 @@ public class AdminTests(PostgresFixture postgres) : IAsyncLifetime
             trips = new[] { new { startTimeMs = 1_000L } },
             traces = new[] { "[[51.05,3.72,1000,50.0,12.5]]" },
             savedPlaces = new[] { new { id = 7L, name = "Home" } },
+            savedRoutes = new[]
+            {
+                new { id = 9L, name = "Loop", stops = new[] { new { lat = 50.8, lon = 3.2 }, new { lat = 50.9, lon = 3.3 } } },
+            },
             badges = new Dictionary<string, long> { ["dist_100000"] = 1_000 },
             tripTitles = new[] { new { startTimeMs = 1_000L, title = "Coast road", editedAtMs = 2_000L } },
         });
@@ -87,6 +91,7 @@ public class AdminTests(PostgresFixture postgres) : IAsyncLifetime
         (await db.Traces.AnyAsync(t => t.UserId == riderId)).Should().BeFalse();
         (await db.TrackPoints.AnyAsync(p => p.UserId == riderId)).Should().BeFalse();
         (await db.SavedPlaces.AnyAsync(p => p.UserId == riderId)).Should().BeFalse();
+        (await db.SavedRoutes.AnyAsync(r => r.UserId == riderId)).Should().BeFalse();
         (await db.BadgeAwards.AnyAsync(b => b.UserId == riderId)).Should().BeFalse();
         (await db.TripTitles.AnyAsync(t => t.UserId == riderId)).Should().BeFalse();
         (await db.ApiKeys.AnyAsync(k => k.UserId == riderId)).Should().BeFalse();

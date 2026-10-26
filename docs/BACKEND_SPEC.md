@@ -146,7 +146,7 @@ Accepted from the device (all optional):
 | Payload | Merge rule |
 |---|---|
 | Trips | Keyed on (owner, start instant). A re-upload **replaces** the stored copy, so an edit — a corrected vehicle mode — propagates rather than being ignored. |
-| Deleted trips | Start instants the device has deleted. Applied **after** the upserts, so a trip in both lists ends up deleted and the deletion propagates to every other device instead of the trip resurrecting. |
+| Deleted trips | Start instants the device has deleted. The stored trip is removed and a **tombstone** (start instant, deleted-at) is kept in its place (#778). A trip whose start is tombstoned — in this request or any earlier one — is never stored again, so a second device still holding it cannot bring it back by uploading it. |
 | Traces | Deduplicated on content. A genuinely new line is additionally unpacked into track points; a line already held is not re-unpacked, because every sync re-sends the whole history. |
 | Saved places | Keyed on the client-assigned identifier; a rename replaces the stored copy. |
 | Badges | The **earliest** earned instant wins, so a reinstall cannot move a date forward. |
@@ -171,7 +171,10 @@ Validation:
   ride.
 
 Returned: the merged union of trips (newest first), traces, badges, saved
-places and ride titles.
+places and ride titles, and every deleted trip's start instant. A device adds
+those to its own tombstones, which drops its copy of each ride and stops it
+uploading them; an older client that ignores the field still loses the ride,
+because the server no longer returns it.
 
 ## 6. Friends
 
@@ -240,13 +243,19 @@ anyone starts a convoy.
 
 - **Create** makes the caller the owner. A ride has a title, a start instant, a
   meeting point (position and an optional label), optionally the owner's own
-  saved-route identifier — opaque here, meaningless outside the owner's device;
-  invitees get the route itself through a share ([§8](#8-shared-routes)) — and an
-  optional description. Nobody is invited yet.
+  saved-route identifier — opaque here, meaningless outside the owner's device —
+  optionally the route itself, and an optional description. Nobody is invited yet.
+- **The route travels on the ride** (#757). It is the same document a share
+  carries ([§8](#8-shared-routes)): at least two stops, the same size cap, and
+  everything but the identifier and the stops stored as sent. Every invitee reads
+  it with the ride, circle members who are not the owner's friends included — a
+  share could not reach them. It is a copy: editing the saved route on the
+  owner's device changes nothing here until the owner edits the ride.
 - **There is no time-window rule.** The start instant is what invitees are told,
   not a gate: the owner may start the ride whenever they like, and past rides are
   still listed and readable.
-- **Edit** replaces every field and keeps the invitations and their answers.
+- **Edit** replaces every field — an edit without a route detaches it — and
+  keeps the invitations and their answers.
   **Delete** removes the ride and every invitation with it. Both are owner only.
 - **Invite** (owner only) takes riders, circles, or both. Each rider must be an
   accepted friend of the owner or an accepted member of a circle the owner is an

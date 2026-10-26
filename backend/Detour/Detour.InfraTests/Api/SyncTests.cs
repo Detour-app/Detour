@@ -119,6 +119,43 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_second_device_still_holding_a_deleted_trip_does_not_bring_it_back()
+    {
+        // #778: device A deletes the ride; device B, which still holds it and has not heard,
+        // uploads it on its next sync. With a hard delete alone the server took it back and the
+        // copy flipped between deleted and present on every sync.
+        var client = NewRider();
+        await Sync(client, new { trips = new[] { Trip(3_000), Trip(4_000) } });
+        await Sync(client, new { trips = new[] { Trip(4_000) }, deletedTripStartTimes = new[] { 3_000L } });
+
+        var deviceB = await Sync(client, new { trips = new[] { Trip(3_000), Trip(4_000) } });
+
+        deviceB.Trips.Should().ContainSingle()
+            .Which.GetProperty("startTimeMs").GetInt64().Should().Be(4_000);
+        deviceB.DeletedTripStartTimes.Should().Equal(3_000L);
+
+        // And it stays gone once B has dropped its copy.
+        var later = await Sync(client, new { trips = new[] { Trip(4_000) } });
+        later.Trips.Should().ContainSingle();
+        later.DeletedTripStartTimes.Should().Equal(3_000L);
+    }
+
+    [Fact]
+    public async Task A_deletion_re_sent_on_every_sync_keeps_one_tombstone()
+    {
+        // The device uploads its whole tombstone list each time; the unique index would turn a
+        // second row into a failed sync.
+        var client = NewRider();
+        await Sync(client, new { trips = new[] { Trip(3_000) } });
+
+        await Sync(client, new { deletedTripStartTimes = new[] { 3_000L, 3_000L } });
+        var again = await Sync(client, new { deletedTripStartTimes = new[] { 3_000L } });
+
+        again.Trips.Should().BeEmpty();
+        again.DeletedTripStartTimes.Should().Equal(3_000L);
+    }
+
+    [Fact]
     public async Task A_deleted_saved_place_stays_deleted()
     {
         // #695: the device that removed the shortcut stops uploading it, and before the field
@@ -153,6 +190,87 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
         });
 
         merged.SavedPlaces.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Saved_routes_round_trip_through_the_merge()
+    {
+        // #592: a second device (or a reinstall) starts with nothing but the server's union.
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { Route(11, "Coast road") } });
+
+        var fresh = await Sync(client, new { });
+
+        fresh.SavedRoutes.Should().ContainSingle();
+        var route = fresh.SavedRoutes[0];
+        route.GetProperty("id").GetInt64().Should().Be(11);
+        route.GetProperty("name").GetString().Should().Be("Coast road");
+        route.GetProperty("stops").GetArrayLength().Should().Be(2);
+        route.GetProperty("polyline").GetArrayLength().Should().Be(4);
+    }
+
+    [Fact]
+    public async Task Re_uploading_a_renamed_route_replaces_the_stored_copy()
+    {
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { Route(12, "Old name") } });
+
+        var merged = await Sync(client, new { savedRoutes = new[] { Route(12, "New name") } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].GetProperty("name").GetString().Should().Be("New name");
+    }
+
+    [Fact]
+    public async Task A_deleted_saved_route_stays_deleted()
+    {
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { Route(13, "Keep"), Route(14, "Drop") } });
+
+        await Sync(client, new
+        {
+            savedRoutes = new[] { Route(13, "Keep") },
+            deletedSavedRouteIds = new[] { 14L },
+        });
+
+        var later = await Sync(client, new { });
+        later.SavedRoutes.Should().ContainSingle();
+        later.SavedRoutes[0].GetProperty("id").GetInt64().Should().Be(13);
+    }
+
+    [Fact]
+    public async Task A_saved_route_present_in_both_lists_ends_up_deleted()
+    {
+        var client = NewRider();
+
+        var merged = await Sync(client, new
+        {
+            savedRoutes = new[] { Route(15, "Brief") },
+            deletedSavedRouteIds = new[] { 15L },
+        });
+
+        merged.SavedRoutes.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_route_without_an_id_fails_the_sync()
+    {
+        var client = NewRider();
+
+        var response = await client.PostAsJsonAsync("/api/sync", new { savedRoutes = new[] { Route(0, "No id") } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Routes_are_never_returned_to_another_rider()
+    {
+        var owner = NewRider();
+        await Sync(owner, new { savedRoutes = new[] { Route(16, "Mine") } });
+
+        var other = await Sync(NewRider(), new { });
+
+        other.SavedRoutes.Should().BeEmpty();
     }
 
     [Fact]
@@ -429,6 +547,19 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     private static object Title(long startTimeMs, string title, long editedAtMs) =>
         new { startTimeMs, title, editedAtMs };
 
+    /// <summary>The shape the app's <c>SavedRoute.toJson</c> writes: flat polyline, two stops.</summary>
+    private static object Route(long id, string name) => new
+    {
+        id,
+        name,
+        createdMs = 1_700_000_000_000L,
+        mode = "MOTO",
+        stops = new[] { new { lat = 50.8, lon = 3.2, name = "Home" }, new { lat = 50.9, lon = 3.3, name = "Work" } },
+        polyline = new[] { 50.8, 3.2, 50.9, 3.3 },
+        distanceMeters = 15_234.5,
+        timeMs = 3_600_000L,
+    };
+
     private static string Line(long startMs) =>
         $"[[51.05,3.72,{startMs},50.0,12.5],[51.06,3.73,{startMs + 1000},55.0,18.0]]";
 
@@ -441,8 +572,10 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
 
     private sealed record SyncPayload(
         IReadOnlyList<JsonElement> Trips,
+        IReadOnlyList<long> DeletedTripStartTimes,
         IReadOnlyList<string> Traces,
         IReadOnlyList<JsonElement> SavedPlaces,
+        IReadOnlyList<JsonElement> SavedRoutes,
         IReadOnlyDictionary<string, long> Badges,
         IReadOnlyList<SyncedTitle> TripTitles,
         bool ShareFog);

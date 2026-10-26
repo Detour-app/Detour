@@ -18,9 +18,9 @@ public record SyncRequest
     public IReadOnlyList<TripPayload>? Trips { get; init; }
 
     /// <summary>
-    /// Start instants the device has deleted. Applied after the upserts, so a trip present in
-    /// both lists ends up deleted and the removal propagates to every other device instead of
-    /// the server's copy resurrecting it on the next sync.
+    /// Start instants the device has deleted. Each is kept as a tombstone (#778): a trip in both
+    /// lists, or uploaded later by a device that still holds it, is not stored again, and the
+    /// tombstone goes back to every device in <see cref="SyncResponse.DeletedTripStartTimes"/>.
     /// </summary>
     public IReadOnlyList<long>? DeletedTripStartTimes { get; init; }
 
@@ -38,6 +38,18 @@ public record SyncRequest
     /// <see cref="DeletedTripStartTimes"/>, so the merged union stops handing the place back.
     /// </summary>
     public IReadOnlyList<long>? DeletedSavedPlaceIds { get; init; }
+
+    /// <summary>
+    /// The rider's own saved routes (#592). Keyed by the client's identifier; the document —
+    /// stops, routed polyline — is stored as sent.
+    /// </summary>
+    public IReadOnlyList<SavedRoutePayload>? SavedRoutes { get; init; }
+
+    /// <summary>
+    /// Route identifiers the device has deleted. Applied after the upserts, like
+    /// <see cref="DeletedSavedPlaceIds"/>, so the merged union stops handing the route back.
+    /// </summary>
+    public IReadOnlyList<long>? DeletedSavedRouteIds { get; init; }
 
     /// <summary>Badge identifier to the instant it was earned. The earliest instant wins.</summary>
     public IReadOnlyDictionary<string, long>? Badges { get; init; }
@@ -85,6 +97,14 @@ public record SavedPlacePayload
     public Dictionary<string, JsonElement>? Extra { get; init; }
 }
 
+public record SavedRoutePayload
+{
+    [Required] public long Id { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Extra { get; init; }
+}
+
 public record TripTitlePayload(
     [Required] long StartTimeMs,
     [Required(AllowEmptyStrings = true)] string Title,
@@ -103,10 +123,16 @@ public record RiderStatsPayload(
 /// The merged union, which is what restores a device after a reinstall. Idempotent: syncing the
 /// same input twice yields the same result.
 /// </summary>
+/// <param name="DeletedTripStartTimes">
+/// Every ride this rider has deleted on any device (#778). A device drops its copy of each and
+/// stops uploading it; an older client ignores the field, and the server ignores its upload.
+/// </param>
 public record SyncResponse(
     [Required] IReadOnlyList<JsonElement> Trips,
+    [Required] IReadOnlyList<long> DeletedTripStartTimes,
     [Required] IReadOnlyList<string> Traces,
     [Required] IReadOnlyList<JsonElement> SavedPlaces,
+    [Required] IReadOnlyList<JsonElement> SavedRoutes,
     [Required] IReadOnlyDictionary<string, long> Badges,
     [Required] IReadOnlyList<TripTitlePayload> TripTitles,
     [Required] bool ShareFog);

@@ -1,11 +1,17 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.Group
+import com.jellemax.detour.data.GroupMember
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MeetingPoint
 import com.jellemax.detour.data.PlannedRide
 import com.jellemax.detour.data.PlannedRideInvitee
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RiderRef
+import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RsvpAnswer
+import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.TravelMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -21,6 +27,7 @@ class PlannedRideStateTest {
         owner: RiderRef = host,
         myAnswer: RsvpAnswer? = RsvpAnswer.PENDING,
         invitees: List<PlannedRideInvitee> = emptyList(),
+        route: SavedRoute? = null,
     ) = PlannedRide(
         id = "r1",
         owner = owner,
@@ -32,7 +39,29 @@ class PlannedRideStateTest {
         createdAtMs = 1_790_000_000_000,
         myAnswer = myAnswer,
         invitees = invitees,
+        route = route,
     )
+
+    private fun route(polyline: List<LatLon>) = SavedRoute(
+        id = 7, name = "Ourthe valley", createdMs = 0, mode = TravelMode.CAR,
+        stops = listOf(RouteStop(LatLon(50.0, 5.0)), RouteStop(LatLon(50.2, 5.2))),
+        polyline = polyline, distanceMeters = null, timeMs = null,
+    )
+
+    @Test
+    fun anAttachedRouteIsPreviewedFromItsPolylineOrElseItsStops() {
+        val routed = listOf(LatLon(50.0, 5.0), LatLon(50.1, 5.05), LatLon(50.2, 5.2))
+        val withLine = plannedRideDetailStateFrom(ride(route = route(routed)), me)
+        assertEquals("Ourthe valley", withLine.routeName)
+        assertEquals(routed, withLine.routePreview)
+
+        val unrouted = plannedRideDetailStateFrom(ride(route = route(emptyList())), me)
+        assertEquals(listOf(LatLon(50.0, 5.0), LatLon(50.2, 5.2)), unrouted.routePreview)
+
+        val none = plannedRideDetailStateFrom(ride(), me)
+        assertNull(none.routeName)
+        assertEquals(emptyList(), none.routePreview)
+    }
 
     private fun invitee(name: String, answer: RsvpAnswer) = PlannedRideInvitee(RiderRef(RiderId(name), name), answer)
 
@@ -104,5 +133,59 @@ class PlannedRideStateTest {
         assertEquals(50.85, detail.meetingLatitude)
         assertEquals(4.35, detail.meetingLongitude)
         assertEquals("Coffee first", detail.description)
+    }
+
+    private fun friend(name: String) = RiderRef(RiderId(name), name)
+
+    private fun member(name: String, status: String = "accepted") = GroupMember(RiderId(name), name, status, sharing = true)
+
+    private fun circle(
+        name: String,
+        members: List<GroupMember>,
+        status: String = "accepted",
+    ) = Group(id = "c-$name", name = name, kind = "circle", status = status, members = members)
+
+    private val hosted = ride(owner = RiderRef(me, "me"), myAnswer = null)
+
+    @Test
+    fun onlyTheOwnerMayInvite() {
+        assertTrue(plannedRideDetailStateFrom(hosted, me).canInvite)
+        assertFalse(plannedRideDetailStateFrom(ride(), me).canInvite)
+    }
+
+    @Test
+    fun friendsAlreadyInvitedAreNotOffered() {
+        val ride = hosted.copy(invitees = listOf(invitee("bram", RsvpAnswer.DECLINED)))
+        val choices = plannedInviteChoicesFrom(ride, listOf(friend("bram"), friend("Anna"), friend("cas")), emptyList(), me)
+        assertEquals(
+            listOf("Anna", "cas"),
+            choices.friends.map { it.name },
+            "a friend already asked was offered again, reading as not asked yet",
+        )
+        assertEquals("Anna", choices.friends.first().id)
+    }
+
+    @Test
+    fun aCircleWithNobodyNewToAskIsNotOffered() {
+        val ride = hosted.copy(invitees = listOf(invitee("bram", RsvpAnswer.PENDING)))
+        val circles = listOf(
+            circle("Done", listOf(member("me"), member("bram"))),
+            circle("Fresh", listOf(member("me"), member("bram"), member("cas"))),
+            circle("OnlyInvited", listOf(member("me"), member("dirk", status = "invited"))),
+        )
+        assertEquals(listOf("Fresh"), plannedInviteChoicesFrom(ride, emptyList(), circles, me).circles.map { it.name })
+    }
+
+    @Test
+    fun aCircleTheHostHasNotAcceptedIsNotOffered() {
+        val circles = listOf(circle("Pending", listOf(member("cas")), status = "invited"))
+        assertTrue(plannedInviteChoicesFrom(hosted, emptyList(), circles, me).isEmpty)
+    }
+
+    @Test
+    fun circleOptionsCarryTheCircleIdSortedByName() {
+        val circles = listOf(circle("zeta", listOf(member("cas"))), circle("Alpha", listOf(member("dirk"))))
+        val choices = plannedInviteChoicesFrom(hosted, emptyList(), circles, me)
+        assertEquals(listOf("c-Alpha", "c-zeta"), choices.circles.map { it.id })
     }
 }

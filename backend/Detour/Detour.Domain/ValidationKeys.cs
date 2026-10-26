@@ -94,6 +94,17 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.PayloadRequired");
     }
 
+    public static class SavedRoute
+    {
+        private const string Base = "SavedRoute";
+
+        public static readonly ValidationKeyDefinition IdRequired =
+            ValidationKeyDefinition.Create($"{Base}.IdRequired");
+
+        public static readonly ValidationKeyDefinition PayloadRequired =
+            ValidationKeyDefinition.Create($"{Base}.PayloadRequired");
+    }
+
     public static class Friendship
     {
         private const string Base = "Friendship";
@@ -161,6 +172,14 @@ public static class ValidationKeys
 
         public static readonly ValidationKeyDefinition RouteIdInvalid =
             ValidationKeyDefinition.Create($"{Base}.RouteIdInvalid");
+
+        public static readonly ValidationKeyDefinition RouteNotEnoughStops =
+            ValidationKeyDefinition.Create($"{Base}.RouteNotEnoughStops")
+                .WithIntParameter("minimum");
+
+        public static readonly ValidationKeyDefinition RoutePayloadTooLarge =
+            ValidationKeyDefinition.Create($"{Base}.RoutePayloadTooLarge")
+                .WithIntParameter("maxBytes");
 
         public static readonly ValidationKeyDefinition AnswerInvalid =
             ValidationKeyDefinition.Create($"{Base}.AnswerInvalid");

@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,11 +13,12 @@ import kotlinx.serialization.json.put
 
 /**
  * Bidirectional sync with the rider's own server (see backend/README.md). One
- * POST uploads local trips, fog-of-war traces, badges, ride titles and the
- * aggregate stats friends are allowed to see; the server merges them with its
- * copy and returns the union, which replaces the local stores (keeping what
- * was written locally while the request was out). Deleting and
- * reinstalling the app therefore restores everything on the first sync.
+ * POST uploads local trips, fog-of-war traces, badges, ride titles, saved
+ * places and routes, and the aggregate stats friends are allowed to see; the
+ * server merges them with its copy and returns the union, which replaces the
+ * local stores (keeping what was written locally while the request was
+ * out). Deleting and reinstalling the app therefore restores everything on
+ * the first sync.
  *
  * The server keys everything on the signed-in rider, so syncing requires a
  * session ([Auth]). Traces and trips are only ever returned to their owner.
@@ -145,6 +147,7 @@ object SyncClient {
         // the server's answer and must survive it (#693).
         val uploadedTrips = tripsForUpload()
         val uploadedLines = TraceStore.rawLines()
+        val uploadedRoutes = RouteStore.forUpload()
         val payload = buildJsonObject {
             put("trips", uploadedTrips)
             // Deletions the server has not seen yet. Without them its copy comes
@@ -154,7 +157,7 @@ object SyncClient {
             put("traces", buildJsonArrayOfStrings(uploadedLines))
             put("badges", jsonObjectOf(BadgeStore.rawJson()))
             put("tripTitles", TripTitleStore.toUpload(TripTitleStore.loadEntries()))
-            putSavedPlaces()
+            putSavedPlaces(uploadedRoutes)
             // Coverage is the only stat the server can't derive from the trips it
             // already holds — it needs the boundaries, which only we have.
             put("stats", BadgeStore.stats(Coverage.compute()).toJson())
@@ -207,6 +210,19 @@ object SyncClient {
         val traces = merged.optArray("traces") ?: JsonArrayEmpty
         val badges = merged.optObject("badges") ?: jsonObjectOf("{}")
 
+        writeBackTrips(merged, trips, uploadedTrips)
+        TraceStore.replaceLines(traces.indices.map { traces.optString(it) }, uploadedLines.toHashSet())
+        BadgeStore.replaceRaw(badges.string())
+        writeBackOptional(merged, fogEditsAtUpload, uploadedRoutes)
+        Settings.setLastSyncMs(nowMs())
+        return SyncResult(trips.size, traces.size, badges.size)
+    }
+
+    private fun writeBackTrips(merged: JsonObject, trips: JsonArray, uploadedTrips: JsonArray) {
+        // Before the trips: a ride another device deleted is dropped by the
+        // tombstone filter in replaceRaw rather than kept as "uploaded but not
+        // returned" luck, and it stays out of every later upload (#778).
+        TripStore.addTombstones(deletedTripStarts(merged))
         TripStore.replaceRaw(trips.string(), uploadedTrips.objects().mapTo(HashSet()) { it.optLong("startTimeMs") })
         // replaceRaw just invalidated the totals record — the merge is the
         // server's union against ours, so the delta is not knowable here. Refold
@@ -215,31 +231,35 @@ object SyncClient {
         // Dispatchers.IO scope in AndroidSync, a Task on iOS), and a rider
         // opening the Hub is not.
         RiderTotals.refreshIfStale()
-        TraceStore.replaceLines(traces.indices.map { traces.optString(it) }, uploadedLines.toHashSet())
-        BadgeStore.replaceRaw(badges.string())
-        writeBackOptional(merged, fogEditsAtUpload)
-        Settings.setLastSyncMs(nowMs())
-        return SyncResult(trips.size, traces.size, badges.size)
     }
 
     /** The documents an older server omits from its response. Absent leaves
      *  the local copy untouched. Titles are merged rather than replaced, so a
      *  rename made while the round trip was in flight is not overwritten; the
-     *  fog-sharing choice is skipped for the same reason. */
-    private fun writeBackOptional(merged: JsonObject, fogEditsAtUpload: Int) {
+     *  fog-sharing choice is skipped for the same reason. Routes only when they
+     *  went up ([uploadedRoutes] non-null): an unreadable local file sent none,
+     *  and the server's copy must not be written over it. */
+    private fun writeBackOptional(merged: JsonObject, fogEditsAtUpload: Int, uploadedRoutes: List<SavedRoute>?) {
         merged.optArray("savedPlaces")?.let { SavedPlaces.replaceFromServer(it.string()) }
+        if (uploadedRoutes != null) {
+            merged.optArray("savedRoutes")?.let { RouteStore.replaceFromServer(it, uploadedRoutes) }
+        }
         merged.optArray("tripTitles")?.let { TripTitleStore.mergeFromServer(TripTitleStore.fromServer(it)) }
         val serverFog = (merged["shareFog"] as? JsonPrimitive)?.booleanOrNull
         shareFogFromServer(serverFog, fogEditsAtUpload, Settings.shareFogEdits())
             ?.let(Settings::adoptServerShareFog)
     }
 
-    /** The shortcuts, and the ones removed here — the latter for the same
-     *  reason as `deletedTripStartTimes`: without it the server's copy of a
-     *  removed shortcut comes back in the merge (#695). */
-    private fun JsonObjectBuilder.putSavedPlaces() {
+    /** The shortcuts and saved routes, and the ones removed here — the latter
+     *  for the same reason as `deletedTripStartTimes`: without it the server's
+     *  copy of a removed shortcut (#695) or route (#592) comes back in the
+     *  merge. [routes] null (an unreadable routes file) leaves routes out. */
+    private fun JsonObjectBuilder.putSavedPlaces(routes: List<SavedRoute>?) {
         put("savedPlaces", jsonArrayOf(SavedPlaces.rawJson()))
         put("deletedSavedPlaceIds", buildJsonArrayOfLongs(SavedPlaces.deletedIds()))
+        if (routes == null) return
+        put("savedRoutes", buildJsonArray { for (r in routes) add(r.toJson()) })
+        put("deletedSavedRouteIds", buildJsonArrayOfLongs(RouteStore.deletedIds()))
     }
 
     /**
@@ -259,6 +279,13 @@ object SyncClient {
      */
     internal fun shareFogFromServer(server: Boolean?, editsAtUpload: Int, editsNow: Int): Boolean? =
         server.takeIf { editsAtUpload == editsNow }
+
+    /** The rides this rider deleted on any device, from the server's answer
+     *  (#778). Empty from an older server that omits the field. */
+    internal fun deletedTripStarts(merged: JsonObject): Set<Long> {
+        val starts = merged.optArray("deletedTripStartTimes") ?: return emptySet()
+        return starts.indices.mapNotNullTo(HashSet()) { i -> starts.optLong(i).takeIf { it > 0 } }
+    }
 
     private fun tripsForUpload() = buildJsonArray {
         for (trip in jsonArrayOf(TripStore.rawJson()).objects()) add(tripForUpload(trip))

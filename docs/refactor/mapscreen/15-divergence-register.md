@@ -2286,6 +2286,88 @@ check 'iOS NavScreen has no reroute' 0 \
 
 ---
 
+## 28. Convoy gap alerts: iOS judges as the phone does, and speaks and words them differently
+
+**New with `#656`** — recorded on entry 25's precedent, because `iosApp/Detour/ConvoyGapAlerts.swift`
+and `shared/src/iosMain/…/presentation/ConvoyGapHolder.kt` claim phone parity ("as on the phone",
+"the reads the phone makes too"), and a parity claim nothing enforces is what `conventions.md` §7.1
+says belongs here.
+
+**What.** In a joined convoy, a red banner names each rider who fell behind, stopped or lost signal,
+and each new alert is spoken (#631). The phone has it since #647, iOS since #656.
+
+**Copies.** The judging is not duplicated: both surfaces call `convoyGapTick`
+(`shared/…/presentation/ConvoyGapLine.kt`) once every `ConvoyGapFeed.TICK_MS`, with the same reads —
+the signed-in rider, the convoy from `ConvoysStore`, the relay's peers, this device's last fix, its
+route only while navigating — and stamp on the wall clock (phone `System.currentTimeMillis()`, iOS
+`nowMs()`, both epoch milliseconds). Who rides, who leads, what counts as behind and the spoken
+sentence (`convoyGapSentence`) are one copy. What each surface owns is the **timer, the reset rule,
+the banner wording and the voice**, and those are the copy:
+
+- Phone — `app/…/convoy/ConvoyGapAlerts.kt` (judging, on `ConvoyLiveClient`'s process scope),
+  `app/…/ui/MapConvoyGap.kt` (`MapConvoyGapVoice`, `ConvoyGapBanner`).
+- iOS — `iosApp/Detour/ConvoyGapAlerts.swift` (judging, voice and banner), started from
+  `RootView.swift`.
+
+**Four known differences.**
+
+**28a — The iOS banner is English only.** The phone's banner words each line from string resources
+(`map_convoy_gap_*`, with a Dutch translation in `values-nl`). iOS has no translations and shows
+`convoyGapSentence`, the English sentence both surfaces speak. The spoken line is English on both,
+deliberately (`convoyGapSpokenLine`'s KDoc: the voice is chosen for GraphHopper's English).
+
+**28b — iOS speaks whenever the app runs; the phone only while `MapScreen` is composed.** Both judge
+for the life of the process. But the phone's voice is `MapConvoyGapVoice`, a `LaunchedEffect` in
+`MapScreen` collecting the un-replayed `ConvoyGapAlerts.spoken`, so an alert raised while the map is
+not in composition (another destination on top, or the activity destroyed) is never spoken; the
+banner still shows it on return. iOS speaks from the `ConvoyGapAlerts.shared` singleton's own tick,
+so it speaks on every screen.
+
+**28c — iOS has a second voice; the phone has one.** The phone hands the line to `MapScreen`'s own
+`navVoice`, so a gap alert and a turn prompt share one `TextToSpeech` and one audio-focus request.
+iOS's `ConvoyGapAlerts` owns its own `NavVoice` (it outlives `NavModel`'s), so two
+`AVSpeechSynthesizer`s can talk at once, and either one finishing can deactivate the shared
+`AVAudioSession` under the other. Muting guidance stops `NavModel`'s voice but not an in-flight gap
+sentence. **UNVERIFIED** how this sounds — nothing in this repo runs the iOS app.
+
+**28d — iOS polls connected/convoy once a tick; the phone observes every change.** The phone resets
+on each emission of `combine(convoyId, connected).distinctUntilChanged()`, so any drop and reconnect,
+however short, starts the feed over. iOS reads `live.connected` and `live.activeConvoyId` at the top
+of each one-second tick, so a drop and reconnect shorter than a tick is not seen and the feed's state
+carries over. The phone's restart re-announces an ongoing stop after every reconnect; iOS's misses a
+reset the phone would make. Neither is clearly better, and the gap is under a second.
+
+**Verdict: survive — the phone's on 28a (iOS converges when it gets translations, with the rest of
+its strings); needs-a-human on 28b and 28c** (whether gap alerts should speak off the map, and
+whether a second voice is acceptable — the same voice-ownership question #655 raised for the car);
+**leave 28d** until someone observes it.
+
+**Fence.** Measured against `#656`'s branch:
+
+```sh
+# Entry 28 — convoy gap alerts. 28a: the iOS banner shows the shared English
+# sentence; the phone's banner words it from resources (three kinds).
+check 'iOS gap banner uses the English sentence' 1 \
+    "$(grep -c 'ConvoyGapLineKt.convoyGapSentence(kind: line.kind' iosApp/Detour/ConvoyGapAlerts.swift)"
+check 'phone gap banner uses string resources' 3 \
+    "$(grep -c 'R.string.map_convoy_gap_' app/src/main/java/com/jellemax/detour/ui/MapConvoyGap.kt)"
+# 28b: the phone's voice lives in MapScreen; iOS's starts with the app.
+check 'phone gap voice is composed in MapScreen' 1 \
+    "$(grep -c 'MapConvoyGapVoice(speak = { navVoice.speak(it) })' app/src/main/java/com/jellemax/detour/ui/MapScreen.kt)"
+check 'iOS gap alerts start with the app' 1 \
+    "$(grep -c 'ConvoyGapAlerts.shared.start()' iosApp/Detour/RootView.swift)"
+# 28c: iOS gap alerts own a second NavVoice.
+check 'iOS gap alerts have their own voice' 1 \
+    "$(grep -c 'private let voice = NavVoice()' iosApp/Detour/ConvoyGapAlerts.swift)"
+# 28d: iOS polls the gate once a tick; the phone observes each change.
+check 'iOS polls connected/convoy per tick' 1 \
+    "$(grep -c 'let convoyId = live.connected ? live.activeConvoyId : nil' iosApp/Detour/ConvoyGapAlerts.swift)"
+check 'phone resets on every connected/convoy change' 1 \
+    "$(grep -c 'combine(convoyId, connected) { id, live -> id.takeIf { live } }.distinctUntilChanged()' app/src/main/java/com/jellemax/detour/convoy/ConvoyGapAlerts.kt)"
+```
+
+---
+
 ## §A — Summary, ranked by how user-visible the decision is
 
 **22 divergences.** By kind:

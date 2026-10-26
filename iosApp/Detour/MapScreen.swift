@@ -73,6 +73,7 @@ struct MapScreen: View {
                         SectionAverageChip(averageKmh: average, limitKmh: sections.limitKmh)
                     }
                 }
+                ConvoyGapBanner()
                 if live.activeConvoyId != nil {
                     HStack {
                         ConvoyBreakRegroupPanel(

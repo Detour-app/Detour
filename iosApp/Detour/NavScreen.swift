@@ -43,6 +43,8 @@ struct NavScreen: View {
                 if let traffic = model.traffic {
                     TrafficBanner(traffic: traffic)
                 }
+                ConvoyGapBanner()
+                    .padding(.horizontal)
             }
 
             VStack {
@@ -294,11 +296,13 @@ final class NavModel: ObservableObject {
     func start(route: RouteResult) {
         self.route = route
         announcer.routeChanged()
+        ConvoyGapAlerts.shared.route = route.polyline
     }
 
     func stop() {
         voice.stop()
         route = nil
+        ConvoyGapAlerts.shared.route = []
         cameraCountdown = nil
         traffic = nil
     }
