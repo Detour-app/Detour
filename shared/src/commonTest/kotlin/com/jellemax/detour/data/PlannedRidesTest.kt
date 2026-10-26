@@ -27,6 +27,11 @@ class PlannedRidesTest {
               "startsAtMs": 1791100800000,
               "meetingPoint": { "latitude": 50.8503, "longitude": 4.3517, "label": "Shell A4" },
               "routeId": 1760000000123,
+              "route": {
+                "id": 1760000000123, "name": "Ourthe valley", "mode": "CAR",
+                "stops": [ { "lat": 50.36, "lon": 5.45 }, { "lat": 50.25, "lon": 5.6, "name": "Durbuy" } ],
+                "polyline": [ 50.36, 5.45, 50.3, 5.5, 50.25, 5.6 ]
+              },
               "description": "Coffee first",
               "createdAtMs": 1790000000000,
               "myAnswer": null,
@@ -42,6 +47,7 @@ class PlannedRidesTest {
               "startsAtMs": 1791200000000,
               "meetingPoint": { "latitude": 51.0, "longitude": 4.0, "label": null },
               "routeId": null,
+              "route": null,
               "description": null,
               "createdAtMs": 1790000500000,
               "myAnswer": "maybe",
@@ -69,6 +75,10 @@ class PlannedRidesTest {
         assertEquals(4.3517, first.meetingPoint.longitude, absoluteTolerance = 1e-9)
         assertEquals("Shell A4", first.meetingPoint.label)
         assertEquals(1760000000123L, first.routeId)
+        val route = first.route!!
+        assertEquals("Ourthe valley", route.name)
+        assertEquals(listOf(LatLon(50.36, 5.45), LatLon(50.25, 5.6)), route.stops.map { it.at })
+        assertEquals(3, route.polyline.size)
         assertEquals("Coffee first", first.description)
         assertEquals(1790000000000L, first.createdAtMs)
         assertNull(first.myAnswer, "the owner holds no invitation, so has no answer")
@@ -85,6 +95,7 @@ class PlannedRidesTest {
 
         assertNull(second.meetingPoint.label)
         assertNull(second.routeId, "a null routeId must not read as route 0")
+        assertNull(second.route)
         assertNull(second.description)
         assertEquals(RsvpAnswer.MAYBE, second.myAnswer)
     }
@@ -116,7 +127,12 @@ class PlannedRidesTest {
             title = "Sunday Ardennes",
             startsAtMs = 1791100800000L,
             meetingPoint = MeetingPoint(50.85, 4.35, "Shell A4"),
-            routeId = 42L,
+            route = SavedRoute(
+                id = 42L, name = "Ourthe valley", createdMs = 5L, mode = TravelMode.CAR,
+                stops = listOf(RouteStop(LatLon(50.36, 5.45)), RouteStop(LatLon(50.25, 5.6), "Durbuy")),
+                polyline = listOf(LatLon(50.36, 5.45), LatLon(50.25, 5.6)),
+                distanceMeters = 21_000.0, timeMs = 1_200_000L, sharedBy = "eva",
+            ),
             description = "Coffee first",
         ).toJson()
 
@@ -127,6 +143,11 @@ class PlannedRidesTest {
         assertEquals(4.35, meeting.optDouble("longitude"), absoluteTolerance = 1e-9)
         assertEquals("Shell A4", meeting.optString("label"))
         assertEquals(42L, body.optLong("routeId"))
+        val route = routeFromJson(body.optObject("route")!!)!!
+        assertEquals(42L, route.id)
+        assertEquals("Durbuy", route.stops[1].name)
+        assertEquals(2, route.polyline.size)
+        assertFalse(body.optObject("route")!!.has("sharedBy"), "invitees don't learn who the owner got it from")
         assertEquals("Coffee first", body.optString("description"))
     }
 
@@ -135,6 +156,7 @@ class PlannedRidesTest {
         val body = PlannedRideDraft("Loop", 1L, MeetingPoint(51.0, 4.0)).toJson()
 
         assertFalse(body.has("routeId"))
+        assertFalse(body.has("route"))
         assertFalse(body.has("description"))
         assertFalse(body.optObject("meetingPoint")!!.has("label"))
     }

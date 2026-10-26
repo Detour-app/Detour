@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 
 namespace Detour.Api.Contracts;
 
@@ -8,16 +9,18 @@ public record MeetingPointBody(
     string? Label);
 
 /// <summary>
-/// Create and edit take the same body: an edit replaces every field. <c>routeId</c> is the
-/// owner's own identifier for a saved route, opaque here; invitees get the route itself through
-/// a share (§8), not through this field.
+/// Create and edit take the same body: an edit replaces every field, so an edit without
+/// <c>route</c> detaches it. <c>routeId</c> is the owner's own identifier for a saved route,
+/// opaque here. <c>route</c> is the route itself, in the shape a share carries (§8), stored as
+/// sent and returned to every invitee (#757).
 /// </summary>
 public record PlannedRideBody(
     [Required] string Title,
     [Required] long StartsAtMs,
     [Required] MeetingPointBody MeetingPoint,
     long? RouteId,
-    string? Description);
+    string? Description,
+    RoutePayload? Route = null);
 
 /// <summary>
 /// Either list may be empty. A circle expands to its accepted members at the moment of the
@@ -57,6 +60,7 @@ public record PlannedRideResponse(
     long? RouteId,
     string? Description,
     [Required] long CreatedAtMs,
+    JsonElement? Route,
     string? MyAnswer,
     [Required] IReadOnlyList<PlannedRideInviteeResponse> Invitees);
 

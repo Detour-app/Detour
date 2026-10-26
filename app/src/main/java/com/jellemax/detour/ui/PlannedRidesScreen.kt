@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -7,17 +8,22 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,6 +32,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +47,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -104,7 +112,7 @@ internal fun PlannedScaffold(
 
 /**
  * Rides this rider hosts or is invited to, soonest first (#754). The "+" plans a new one
- * (#755); inviting is #756. Reads [PlannedRidesStore] directly — like Circles, there is no
+ * (#755); inviting is on the detail screen (#756). Reads [PlannedRidesStore] directly — like Circles, there is no
  * cached copy to go stale under a mutation.
  *
  * `rides` is null until the first load lands, so the three bodies stay apart: a spinner while
@@ -170,6 +178,10 @@ fun PlannedRidesScreen(
  * A [rideId] the loaded list no longer holds (the host deleted it, or the rider was unfriended)
  * pops back to the list, the way a vanished circle does — only once a load has landed and none
  * is running, or a legitimate open would pop during its first frame.
+ *
+ * The host gets an Invite action (#756). The invite runs in this screen's scope rather than the
+ * picker's, so closing the picker mid-request cannot cancel it and leave the store busy; the
+ * picker closes once the invite lands, and the new invitees show in the list below as pending.
  */
 @Composable
 fun PlannedRideDetailScreen(
@@ -184,6 +196,7 @@ fun PlannedRideDetailScreen(
     LaunchedEffect(Unit) { PlannedRidesStore.reloadIfStale() }
     val ride = state.rides?.find { it.id == rideId }
     val detail = remember(ride, riderId) { ride?.let { plannedRideDetailStateFrom(it, riderId) } }
+    var inviting by remember { mutableStateOf(false) }
 
     // Not a key: a new onBack lambda on recomposition must not re-run the check.
     val currentOnBack by rememberUpdatedState(onBack)
@@ -201,24 +214,26 @@ fun PlannedRideDetailScreen(
             if (detail?.hosting == true) HostActions(!state.busy, onEdit, onDelete = { confirmDelete = true })
         },
     ) {
-        Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            state.error?.let { ErrorLine(it) }
-            if (detail == null) {
-                Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                RideFacts(detail)
-                if (detail.canAnswer) {
-                    AnswerRow(
-                        detail = detail,
-                        enabled = !state.busy,
-                        onAnswer = { answer -> scope.launch { PlannedRidesStore.answer(detail.id, answer) } },
-                    )
-                }
-                Invitees(detail.invitees)
-            }
-        }
+        RideDetailBody(
+            detail = detail,
+            error = state.error,
+            enabled = !state.busy,
+            onAnswer = { id, answer -> scope.launch { PlannedRidesStore.answer(id, answer) } },
+            onInvite = { inviting = true },
+            modifier = modifier,
+        )
+    }
+
+    if (inviting && ride != null && detail?.canInvite == true) {
+        PlannedInviteDialog(
+            ride = ride,
+            busy = state.busy,
+            error = state.error,
+            onInvite = { riderIds, circleIds ->
+                scope.launch { if (PlannedRidesStore.invite(rideId, riderIds, circleIds)) inviting = false }
+            },
+            onDismiss = { inviting = false },
+        )
     }
 
     if (confirmDelete && detail != null) {
@@ -230,6 +245,38 @@ fun PlannedRideDetailScreen(
             onConfirm = { scope.launch { PlannedRidesStore.cancel(rideId) } },
             onDismiss = { confirmDelete = false },
         )
+    }
+}
+
+@Composable
+private fun RideDetailBody(
+    detail: PlannedRideDetailState?,
+    error: String?,
+    enabled: Boolean,
+    onAnswer: (rideId: String, RsvpAnswer) -> Unit,
+    onInvite: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        error?.let { ErrorLine(it) }
+        if (detail == null) {
+            Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return@Column
+        }
+        RideFacts(detail)
+        if (detail.canAnswer) {
+            AnswerRow(detail = detail, enabled = enabled, onAnswer = { answer -> onAnswer(detail.id, answer) })
+        }
+        if (detail.canInvite) {
+            OutlinedButton(enabled = enabled, onClick = onInvite) {
+                Icon(Icons.Rounded.PersonAdd, contentDescription = null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.planned_invite))
+            }
+        }
+        Invitees(detail.invitees)
     }
 }
 
@@ -273,6 +320,7 @@ private fun RideFacts(detail: PlannedRideDetailState) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         RideWhen(detail)
         RideWhere(detail)
+        RideRoute(detail)
         detail.description?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
     }
 }
@@ -303,6 +351,28 @@ private fun RideWhere(detail: PlannedRideDetailState) {
         )
     }
 }
+
+/** The attached route (#757), drawn over a map like a Logbook card. Nothing without one. */
+@Composable
+private fun RideRoute(detail: PlannedRideDetailState) {
+    val name = detail.routeName ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.planned_route_label), style = MaterialTheme.typography.labelLarge)
+        Text(name, style = MaterialTheme.typography.bodyMedium)
+        if (detail.routePreview.size >= 2) {
+            RouteMapThumbnail(
+                listOf(detail.routePreview),
+                Modifier
+                    .fillMaxWidth()
+                    .height(ROUTE_PREVIEW_HEIGHT)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            )
+        }
+    }
+}
+
+private val ROUTE_PREVIEW_HEIGHT = 180.dp
 
 @Composable
 private fun AnswerRow(detail: PlannedRideDetailState, enabled: Boolean, onAnswer: (RsvpAnswer) -> Unit) {

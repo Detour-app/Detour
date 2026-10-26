@@ -43,7 +43,9 @@ data class PlannedRideInvitee(
  * A ride planned ahead, as `GET /api/planned-rides` lists it.
  *
  * [routeId] is the owner's own saved-route id: meaningful on the owner's device only, opaque to
- * everyone else (an invitee gets the route through a share, not through this field).
+ * everyone else. [route] is the route itself (#757), a copy the server keeps on the ride so every
+ * invitee can see it — circle members who are not the owner's friends included. Null for a ride
+ * with no route, or one whose route this client cannot read ([routeFromJson]).
  * [myAnswer] is the caller's own answer, and null when the caller is the owner — the owner is
  * not invited to their own ride and is not in [invitees].
  */
@@ -58,6 +60,7 @@ data class PlannedRide(
     val createdAtMs: Long,
     val myAnswer: RsvpAnswer?,
     val invitees: List<PlannedRideInvitee>,
+    val route: SavedRoute? = null,
 ) {
     /**
      * Whether [me] may start this ride now: the owner, at any time. There is deliberately no
@@ -80,12 +83,15 @@ data class PlannedRide(
         (myAnswer == RsvpAnswer.GOING || myAnswer == RsvpAnswer.MAYBE) && startsAtMs > nowMs
 }
 
-/** What the owner sets on create and on every edit: an edit replaces every field. */
+/**
+ * What the owner sets on create and on every edit: an edit replaces every field, so a null
+ * [route] on an edit detaches it. The wire `routeId` is [route]'s id; there is no separate one.
+ */
 data class PlannedRideDraft(
     val title: String,
     val startsAtMs: Long,
     val meetingPoint: MeetingPoint,
-    val routeId: Long? = null,
+    val route: SavedRoute? = null,
     val description: String? = null,
 )
 
@@ -161,6 +167,7 @@ internal fun plannedRideFromJson(o: JsonObject): PlannedRide {
         myAnswer = RsvpAnswer.fromWire(o.optString("myAnswer")),
         // An invitee with an answer this client doesn't know is dropped rather than shown as
         // pending: a wrong "hasn't answered" is worse than a missing row.
+        route = o.optObject("route")?.let(::routeFromJson),
         invitees = o.optArray("invitees")?.objects().orEmpty().mapNotNull { i ->
             val answer = RsvpAnswer.fromWire(i.optString("answer")) ?: return@mapNotNull null
             PlannedRideInvitee(riderRefFromJson(i.optObject("rider") ?: return@mapNotNull null), answer)
@@ -176,7 +183,11 @@ internal fun PlannedRideDraft.toJson(): JsonObject = buildJsonObject {
         put("longitude", meetingPoint.longitude)
         meetingPoint.label?.let { put("label", it) }
     }
-    routeId?.let { put("routeId", it) }
+    route?.let {
+        put("routeId", it.id)
+        // Every invitee reads this copy, so who the owner got the route from stays on their device.
+        put("route", it.copy(sharedBy = "").toJson())
+    }
     description?.let { put("description", it) }
 }
 
