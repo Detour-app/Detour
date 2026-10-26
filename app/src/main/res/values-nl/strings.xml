@@ -167,6 +167,11 @@
     <string name="planned_answer_declined">Kan niet</string>
     <string name="planned_answer_pending">Nog geen antwoord</string>
     <string name="planned_invite">Vrienden of kringen uitnodigen</string>
+    <string name="planned_start">Rit starten</string>
+    <string name="planned_start_title">%1$s starten?</string>
+    <string name="planned_start_text">Dit start een live konvooi en vraagt iedereen die komt of misschien komt om mee te rijden.</string>
+    <string name="planned_start_confirm">Starten</string>
+    <string name="planned_start_not_asked">Niet gevraagd voor het konvooi (geen vriend): %1$s</string>
     <string name="planned_invite_title">Uitnodigen voor %1$s</string>
     <string name="planned_invite_friends">Vrienden</string>
     <string name="planned_invite_circles">Kringen</string>
