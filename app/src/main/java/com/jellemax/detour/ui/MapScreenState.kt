@@ -44,14 +44,12 @@ import kotlinx.coroutines.Job
  * a spin survives activity recreation. Three lifetimes, three owners; the
  * mistake to avoid is assuming "the session" is one thing.
  */
-/** What [MapTopChrome] needs to draw the fog-of-war toggle and the offline-area
- *  button (#510), both about the map's data rather than the camera, grouped so the
+/** What [MapTopChrome] needs to draw the fog-of-war toggle, grouped so the
  *  rail stays under the parameter limit — the same reason [WhereTo] exists
  *  (`docs/guidelines/state-holders.md` §14.2). */
 internal data class MapLayers(
     val fogEnabled: Boolean,
     val onToggleFog: () -> Unit,
-    val onOpenOfflineArea: () -> Unit,
 )
 
 internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusRequest?) {
@@ -131,8 +129,6 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var saveSpinDraft: SavedRoute? by mutableStateOf(null)
     var showBgLocationDisclosure: Boolean by mutableStateOf(false)
     var showPermissionExplainer: Boolean by mutableStateOf(false)
-    /** The "keep this view offline" dialog (#510), opened from the top rail. */
-    var showOfflineArea: Boolean by mutableStateOf(false)
 
     /** Every failure the screen reports, from a denied permission to a spin
      *  that found nothing. A dozen writers and, before the snackbar, one

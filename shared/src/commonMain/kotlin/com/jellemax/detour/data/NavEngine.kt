@@ -356,6 +356,12 @@ object NavEngine {
      * you see further ahead, in near a turn so the maneuver is legible. Bounded
      * to ±2 levels so the base zoom is always what you mostly get.
      *
+     * "Near" is measured in seconds as well as metres: at motorway speed 60 m
+     * is under two seconds, too short for the eased camera to get there, so an
+     * exit used to pass at the zoomed-out highway level. Near a turn the
+     * speed's zoom-out is also dropped, so the maneuver is as legible on a
+     * motorway exit as at a city junction.
+     *
      * Pass [distanceToTurnMeters] = [Double.MAX_VALUE] when there is no route.
      */
     fun cameraZoom(baseZoom: Double, speedMps: Double, distanceToTurnMeters: Double): Double {
@@ -366,11 +372,14 @@ object NavEngine {
             speedMps < 22.0 -> -0.75  // fast road
             else -> -1.5              // highway
         }
-        val turnBoost = when {
-            distanceToTurnMeters < 60.0 -> 1.5
-            distanceToTurnMeters < 150.0 -> 0.75
+        // Below ~15 m/s the metres decide, as they always did; above it the seconds do.
+        val secondsToTurn = distanceToTurnMeters / max(speedMps, 1.0)
+        val nearness = when {
+            distanceToTurnMeters < 60.0 || secondsToTurn < 5.0 -> 1.0
+            distanceToTurnMeters < 150.0 || secondsToTurn < 10.0 -> 0.5
             else -> 0.0
         }
-        return min(20.0, max(3.0, baseZoom + (speedOffset + turnBoost).coerceIn(-2.0, 2.0)))
+        val offset = min(speedOffset, 0.0) * (1.0 - nearness) + max(speedOffset, 0.0) + 1.5 * nearness
+        return min(20.0, max(3.0, baseZoom + offset.coerceIn(-2.0, 2.0)))
     }
 }

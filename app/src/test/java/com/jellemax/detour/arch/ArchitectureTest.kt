@@ -113,9 +113,8 @@ class ArchitectureTest {
             // +5: #589 save-spin callbacks and the saved-loop sheet open
             // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
             // +3: #647 convoy gap voice and banner (both in MapConvoyGap.kt)
-            // +1: #510 the top rail's offline-area button (the dialog is in OfflineAreaDialog.kt)
             // +1: #590 FollowedRoute import (the claim is on the existing recordTrip line)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1464,
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1463,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,
@@ -133,8 +132,8 @@ class ArchitectureTest {
     @Test
     fun `shared functions stay under 100 lines - section 8`() {
         val pinned = mapOf(
-            // +1: #592 the routes snapshot the write-back keeps mid-sync saves against
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#syncLocked" to 114,
+            // -7: #778 moved the trip write-back into writeBackTrips
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#syncLocked" to 107,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 150,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             // +3: #587 the three graph-dependent avoid options

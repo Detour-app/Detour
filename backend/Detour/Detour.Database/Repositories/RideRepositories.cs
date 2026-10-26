@@ -276,6 +276,18 @@ public class SavedRouteRepository(ICustomDbContextFactory<DetourDbContext> facto
     }
 }
 
+public class TripTombstoneRepository(ICustomDbContextFactory<DetourDbContext> factory)
+    : BaseRepository<TripTombstone, DetourDbContext>(factory), ITripTombstoneRepository
+{
+    public Task<List<long>> GetStartsForUserAsync(Guid userId, CancellationToken cancellationToken) =>
+        Set.AsNoTracking()
+            .TagWith(Tag(nameof(GetStartsForUserAsync)))
+            .Where(t => t.UserId == userId)
+            .OrderBy(t => t.TripStartTimeMs)
+            .Select(t => t.TripStartTimeMs)
+            .ToListAsync(cancellationToken);
+}
+
 public class TripTitleRepository(ICustomDbContextFactory<DetourDbContext> factory)
     : BaseRepository<TripTitle, DetourDbContext>(factory), ITripTitleRepository
 {
