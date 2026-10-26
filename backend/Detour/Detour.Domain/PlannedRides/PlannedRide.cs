@@ -1,3 +1,4 @@
+using System.Text;
 using JV.ResultUtilities;
 using Shared.Database;
 using Shared.Domain;
@@ -33,6 +34,14 @@ public sealed class PlannedRide : Entity
 
     /// <summary>The owner's own identifier for a saved route. Meaningless outside their device.</summary>
     public long? ClientRouteId { get; private set; }
+
+    /// <summary>
+    /// The route itself, as the owner's client encoded it (#757): opaque here like a shared
+    /// route's payload, and what every invitee reads — <see cref="ClientRouteId"/> means nothing
+    /// on their device, and a circle invitee who is not the owner's friend could not be sent a
+    /// share. Null for a ride with no route.
+    /// </summary>
+    public string? RoutePayload { get; private set; }
 
     public string? Description { get; private set; }
 
@@ -133,6 +142,7 @@ public sealed class PlannedRide : Entity
         MeetingLongitude = details.MeetingLongitude;
         MeetingLabel = NormalizeOptional(details.MeetingLabel);
         ClientRouteId = details.ClientRouteId;
+        RoutePayload = details.Route?.Payload;
         Description = NormalizeOptional(details.Description);
     }
 
@@ -154,8 +164,20 @@ public sealed class PlannedRide : Entity
             return Result.Error(
                 ValidationKeys.PlannedRide.DescriptionTooLong, DetourLimits.PlannedRideDescriptionMaxLength);
 
-        return details.ClientRouteId == 0
-            ? Result.Error(ValidationKeys.PlannedRide.RouteIdInvalid)
+        if (details.ClientRouteId == 0)
+            return Result.Error(ValidationKeys.PlannedRide.RouteIdInvalid);
+
+        return details.Route is { } route ? ValidateRoute(route) : Result.Ok();
+    }
+
+    /// <summary>The same floor and cap a shared route has: it is the same payload.</summary>
+    private static Result ValidateRoute(PlannedRideRoute route)
+    {
+        if (route.StopCount < DetourLimits.MinRouteStops)
+            return Result.Error(ValidationKeys.PlannedRide.RouteNotEnoughStops, DetourLimits.MinRouteStops);
+
+        return Encoding.UTF8.GetByteCount(route.Payload) > DetourLimits.MaxRoutePayloadBytes
+            ? Result.Error(ValidationKeys.PlannedRide.RoutePayloadTooLarge, DetourLimits.MaxRoutePayloadBytes)
             : Result.Ok();
     }
 
@@ -172,7 +194,10 @@ public sealed class PlannedRide : Entity
     }
 }
 
-/// <summary>Everything the owner sets on a ride, on create and on every edit.</summary>
+/// <summary>
+/// Everything the owner sets on a ride, on create and on every edit. A null
+/// <paramref name="Route"/> on an edit detaches the route, the same as every other field.
+/// </summary>
 public sealed record PlannedRideDetails(
     string Title,
     DateTimeOffset StartsAt,
@@ -180,7 +205,11 @@ public sealed record PlannedRideDetails(
     double MeetingLongitude,
     string? MeetingLabel,
     long? ClientRouteId,
-    string? Description);
+    string? Description,
+    PlannedRideRoute? Route = null);
+
+/// <summary>An attached route's stored document, and the stop count read from it before storing.</summary>
+public sealed record PlannedRideRoute(string Payload, int StopCount);
 
 public interface IPlannedRideRepository : IBaseRepository<PlannedRide>
 {

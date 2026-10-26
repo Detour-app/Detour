@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,10 +11,12 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -44,6 +47,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -316,6 +320,7 @@ private fun RideFacts(detail: PlannedRideDetailState) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         RideWhen(detail)
         RideWhere(detail)
+        RideRoute(detail)
         detail.description?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
     }
 }
@@ -346,6 +351,28 @@ private fun RideWhere(detail: PlannedRideDetailState) {
         )
     }
 }
+
+/** The attached route (#757), drawn over a map like a Logbook card. Nothing without one. */
+@Composable
+private fun RideRoute(detail: PlannedRideDetailState) {
+    val name = detail.routeName ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(stringResource(R.string.planned_route_label), style = MaterialTheme.typography.labelLarge)
+        Text(name, style = MaterialTheme.typography.bodyMedium)
+        if (detail.routePreview.size >= 2) {
+            RouteMapThumbnail(
+                listOf(detail.routePreview),
+                Modifier
+                    .fillMaxWidth()
+                    .height(ROUTE_PREVIEW_HEIGHT)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            )
+        }
+    }
+}
+
+private val ROUTE_PREVIEW_HEIGHT = 180.dp
 
 @Composable
 private fun AnswerRow(detail: PlannedRideDetailState, enabled: Boolean, onAnswer: (RsvpAnswer) -> Unit) {
