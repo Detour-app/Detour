@@ -87,7 +87,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "3.80.1"
+        versionName = "3.80.3"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -256,7 +256,7 @@ dependencies {
     implementation("androidx.navigation3:navigation3-ui:1.1.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
-    implementation("org.maplibre.gl:android-sdk:11.8.8")
+    implementation("org.maplibre.gl:android-sdk-opengl:13.7.1")
     implementation("com.google.android.gms:play-services-location:21.4.0")
     // Android Auto: projects a car-screen "Spin" flow onto the head unit.
     implementation("androidx.car.app:app:1.7.0")
