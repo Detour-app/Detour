@@ -173,6 +173,14 @@ public static class ValidationKeys
         public static readonly ValidationKeyDefinition RouteIdInvalid =
             ValidationKeyDefinition.Create($"{Base}.RouteIdInvalid");
 
+        public static readonly ValidationKeyDefinition RouteNotEnoughStops =
+            ValidationKeyDefinition.Create($"{Base}.RouteNotEnoughStops")
+                .WithIntParameter("minimum");
+
+        public static readonly ValidationKeyDefinition RoutePayloadTooLarge =
+            ValidationKeyDefinition.Create($"{Base}.RoutePayloadTooLarge")
+                .WithIntParameter("maxBytes");
+
         public static readonly ValidationKeyDefinition AnswerInvalid =
             ValidationKeyDefinition.Create($"{Base}.AnswerInvalid");
 

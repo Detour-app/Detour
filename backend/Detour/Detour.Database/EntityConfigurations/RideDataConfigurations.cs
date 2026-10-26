@@ -133,6 +133,28 @@ public class SavedRouteConfiguration : IEntityTypeConfiguration<SavedRoute>
     }
 }
 
+public class TripTombstoneConfiguration : IEntityTypeConfiguration<TripTombstone>
+{
+    public void Configure(EntityTypeBuilder<TripTombstone> builder)
+    {
+        builder.ToTable("trip_tombstones");
+
+        builder.HasKey(t => t.Id);
+        builder.Property(t => t.Id).ValueGeneratedNever();
+
+        builder.Property(t => t.TripStartTimeMs);
+        builder.Property(t => t.DeletedAt);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // One tombstone per ride per rider, so a deletion re-sent on every sync stays one row.
+        builder.HasIndex(t => new { t.UserId, t.TripStartTimeMs }).IsUnique();
+    }
+}
+
 public class TripTitleConfiguration : IEntityTypeConfiguration<TripTitle>
 {
     public void Configure(EntityTypeBuilder<TripTitle> builder)

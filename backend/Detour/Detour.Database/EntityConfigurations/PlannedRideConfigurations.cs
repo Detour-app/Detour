@@ -22,6 +22,8 @@ public class PlannedRideConfiguration : IEntityTypeConfiguration<PlannedRide>
         builder.Property(r => r.MeetingLongitude);
         builder.Property(r => r.MeetingLabel).HasMaxLength(DetourLimits.LabelMaxLength);
         builder.Property(r => r.ClientRouteId);
+        // Unbounded text like a shared route's payload; the size cap is the domain's.
+        builder.Property(r => r.RoutePayload);
         builder.Property(r => r.Description).HasMaxLength(DetourLimits.PlannedRideDescriptionMaxLength);
         builder.Property(r => r.CreatedAt);
         builder.Property(r => r.RemindedForStartsAt);

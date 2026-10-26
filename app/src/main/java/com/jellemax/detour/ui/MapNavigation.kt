@@ -17,6 +17,7 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.NavPolicy
+import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.map.fetchNavRoute
 import com.jellemax.detour.tracking.Fix
 import com.jellemax.detour.tracking.TripTrackingService
@@ -52,6 +53,7 @@ internal fun MapNavigationSession(
     // Derived here rather than drilled in: each was an alias for something the
     // holder or a Settings flow already owns (state-holders.md §14.1).
     val context = LocalContext.current
+    val darkTheme = isAppDarkTheme(Settings.theme.collectAsStateWithLifecycle().value)
     // Hoisted: a CompositionLocal is only readable in a @Composable, and the
     // effect below needs it. One instance for the process, so holding it across
     // the effect's life cannot go stale (compose-state-hazards §2).
@@ -66,6 +68,7 @@ internal fun MapNavigationSession(
     // Read, not keyed: the limit changes far less often than the fix, and the
     // packet only needs whatever it is when the next fix arrives.
     val ambientLimit by rememberUpdatedState(ambientSpeedLimitKmh)
+    PlannedRouteTileCache(s, darkTheme)
     // Current speed for the external display when there's no route up —
     // BleNavServer.send() below covers the navigating case on the same
     // characteristic, so this only fires the other half of the time.
@@ -130,7 +133,11 @@ internal fun MapNavigationSession(
                 val heading = NavPolicy.headingHint(fix.bearingDeg, fix.speedMps)
                 scope.launch {
                     try {
-                        s.route = fetchNavRoute(serverConfig, pos, target, mode, heading)
+                        val fresh = fetchNavRoute(serverConfig, pos, target, mode, heading)
+                        s.route = fresh
+                        // #737: the new line may leave the corridor cached at the start,
+                        // and this is the one moment there is signal to extend it.
+                        RouteTileCache.prefetch(context, fresh.polyline, darkTheme)
                         // Instruction indices belong to the old polyline; start
                         // the new line's prompts from scratch.
                         announcer.routeChanged()
@@ -143,5 +150,20 @@ internal fun MapNavigationSession(
             }
             NavPolicy.Decision.Continue -> {}
         }
+    }
+}
+
+/**
+ * #737: a route on the map is the moment to cache its corridor, while the rider
+ * is still deciding and has signal, not only once Start is pressed. Start
+ * (MapScreen) and reroute ([MapNavigationSession]) fetch their own, so this only
+ * covers the planned line: a picked spin, a loop, a saved route awaiting Go.
+ */
+@Composable
+private fun PlannedRouteTileCache(s: MapScreenState, darkTheme: Boolean) {
+    val context = LocalContext.current
+    LaunchedEffect(s.route) {
+        val line = s.route?.polyline ?: return@LaunchedEffect
+        if (!s.navigating) RouteTileCache.prefetch(context, line, darkTheme)
     }
 }

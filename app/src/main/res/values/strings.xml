@@ -147,6 +147,11 @@
     <string name="planned_form_next">Next</string>
     <string name="planned_form_cancel">Cancel</string>
     <string name="planned_form_save">Save</string>
+    <string name="planned_route">Route (optional)</string>
+    <string name="planned_route_label">Route</string>
+    <string name="planned_form_pick_route">Choose a saved route</string>
+    <string name="planned_form_remove_route">Remove route</string>
+    <string name="planned_form_no_routes">No saved routes yet. Plan a route or keep a spin under Routes first.</string>
     <string name="planned_no_server">No sync server configured. Set one in Settings first — planned rides live on your own server.</string>
     <string name="planned_sign_in_first">Sign in under Friends first — you plan rides with that same friends list.</string>
     <string name="planned_setting_up">Setting up your account — check back in a moment.</string>
@@ -165,4 +170,12 @@
     <string name="planned_answer_maybe">Maybe</string>
     <string name="planned_answer_declined">Can\'t</string>
     <string name="planned_answer_pending">Not answered</string>
+    <string name="planned_invite">Invite friends or circles</string>
+    <string name="planned_invite_title">Invite to %1$s</string>
+    <string name="planned_invite_friends">Friends</string>
+    <string name="planned_invite_circles">Circles</string>
+    <string name="planned_invite_circle_note">A circle invites its members as they are now; someone who joins it later isn\'t added.</string>
+    <string name="planned_invite_nobody">Nobody left to invite: friends and circle members you haven\'t asked yet show up here.</string>
+    <string name="planned_invite_send">Invite</string>
+    <string name="planned_invite_cancel">Cancel</string>
 </resources>

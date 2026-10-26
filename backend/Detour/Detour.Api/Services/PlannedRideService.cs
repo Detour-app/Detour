@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Detour.Api.Contracts;
 using Detour.Domain;
 using Detour.Domain.Friendships;
@@ -37,6 +38,8 @@ public class PlannedRideService(
     IGroupRepository groups,
     IUserRepository users) : IPlannedRideService
 {
+    private static readonly JsonSerializerOptions PayloadOptions = new(JsonSerializerDefaults.Web);
+
     public async Task<Result<PlannedRideResponse>> CreateAsync(
         User caller,
         PlannedRideBody body,
@@ -198,7 +201,10 @@ public class PlannedRideService(
             body.MeetingPoint.Longitude,
             body.MeetingPoint.Label,
             body.RouteId,
-            body.Description);
+            body.Description,
+            body.Route is { } route
+                ? new PlannedRideRoute(JsonSerializer.Serialize(route, PayloadOptions), route.Stops?.Count ?? 0)
+                : null);
 
     private async Task<PlannedRideResponse> MapAsync(
         PlannedRide ride,
@@ -216,6 +222,7 @@ public class PlannedRideService(
             ride.ClientRouteId,
             ride.Description,
             ride.CreatedAt.ToUnixTimeMilliseconds(),
+            ride.RoutePayload is { } payload ? JsonSerializer.Deserialize<JsonElement>(payload) : null,
             ride.FindRsvp(callerId)?.Answer.Wire(),
             [
                 .. ride.Rsvps

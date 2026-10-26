@@ -338,6 +338,8 @@ class NavScreen(
                         // The line on the map is only pushed when it changes, so a
                         // reroute is the one moment it has to be pushed again.
                         renderer.setRoute(fresh.polyline, destination)
+                        // #737: the new line may leave the cached corridor; extend it while there is signal.
+                        RouteTileCache.prefetch(carContext, fresh.polyline, carContext.isDarkMode)
                         // Instruction indices belong to the old polyline; start the
                         // prompts for the new one from scratch, "Rerouting" followed
                         // by what the new line asks for next.

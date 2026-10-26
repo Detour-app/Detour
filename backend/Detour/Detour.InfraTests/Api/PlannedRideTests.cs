@@ -173,6 +173,49 @@ public class PlannedRideTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_circle_invitee_who_is_not_a_friend_reads_the_attached_route()
+    {
+        // #757: the route travels on the ride, so it reaches a circle member the owner could
+        // not send a share to.
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var casey = await _factory.SignInAsync();
+        await Befriend(alex, blake);
+        await Befriend(blake, casey);
+        var circle = await CreateCircle(alex, "Sunday crew");
+        await JoinCircle(alex, blake, circle);
+        await JoinCircle(blake, casey, circle);
+
+        var created = await alex.PostAsJsonAsync("/api/planned-rides", Body("Ardennes loop", route: Route()));
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        var ride = Id(await created.Content.ReadFromJsonAsync<JsonElement>());
+        (await Invite(alex, ride, circleIds: [circle])).EnsureSuccessStatusCode();
+
+        var seen = await (await Get(casey, ride)).Content.ReadFromJsonAsync<JsonElement>();
+        var route = seen.GetProperty("route");
+        route.GetProperty("name").GetString().Should().Be("Ourthe valley");
+        route.GetProperty("stops").GetArrayLength().Should().Be(2);
+        route.GetProperty("polyline").GetArrayLength().Should().Be(6, "fields the server does not read come back as sent");
+        (await Rides(casey)).Single().GetProperty("route").GetProperty("id").GetInt64().Should().Be(42);
+
+        // An edit replaces every field, the route included.
+        (await alex.PutAsJsonAsync($"/api/planned-rides/{ride}", Body("Ardennes loop"))).EnsureSuccessStatusCode();
+        (await Rides(casey)).Single().GetProperty("route").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task A_route_with_one_stop_is_refused()
+    {
+        var alex = await _factory.SignInAsync();
+        var oneStop = new { id = 42L, name = "Nowhere", stops = new[] { new { lat = 50.3, lon = 5.4 } } };
+
+        var response = await alex.PostAsJsonAsync("/api/planned-rides", Body("Ardennes loop", route: oneStop));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Rides(alex)).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_circle_the_owner_is_not_in_cannot_be_invited()
     {
         var alex = await _factory.SignInAsync();
@@ -287,13 +330,25 @@ public class PlannedRideTests(PostgresFixture postgres) : IAsyncLifetime
 
     private const long StartsAtMs = 1_800_000_000_000L;
 
-    private static object Body(string title, double latitude = 50.36, long startsAtMs = StartsAtMs) => new
+    private static object Body(
+        string title, double latitude = 50.36, long startsAtMs = StartsAtMs, object? route = null) => new
     {
         title,
         startsAtMs,
         meetingPoint = new { latitude, longitude = 5.45, label = "Total, Barvaux" },
         routeId = 42L,
         description = "Bring rain gear.",
+        route,
+    };
+
+    /// <summary>The client's <c>routeToJson</c> shape: the server reads the id and stops only.</summary>
+    private static object Route() => new
+    {
+        id = 42L,
+        name = "Ourthe valley",
+        mode = "CAR",
+        stops = new[] { new { lat = 50.36, lon = 5.45 }, new { lat = 50.25, lon = 5.6 } },
+        polyline = new[] { 50.36, 5.45, 50.3, 5.5, 50.25, 5.6 },
     };
 
     private static Task<HttpResponseMessage> Create(SignedInClient client, string title) =>
