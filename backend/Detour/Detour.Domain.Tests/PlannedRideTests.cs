@@ -67,6 +67,30 @@ public class PlannedRideTests
     }
 
     [Fact]
+    public void An_attached_route_is_stored_and_an_edit_without_one_detaches_it()
+    {
+        var (_, ride) = PlannedRide.Create(
+            Guid.CreateVersion7(), Details() with { Route = new PlannedRideRoute("{\"id\":7}", 2) });
+
+        ride.RoutePayload.Should().Be("{\"id\":7}");
+        ride.Update(Details()).IsFailure.Should().BeFalse();
+        ride.RoutePayload.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_route_needs_two_stops_and_fits_the_shared_route_cap()
+    {
+        var oneStop = new PlannedRideRoute("{}", 1);
+        var tooLarge = new PlannedRideRoute(new string('x', DetourLimits.MaxRoutePayloadBytes + 1), 2);
+
+        var (stopsResult, _) = PlannedRide.Create(Guid.CreateVersion7(), Details() with { Route = oneStop });
+        var (sizeResult, _) = PlannedRide.Create(Guid.CreateVersion7(), Details() with { Route = tooLarge });
+
+        stopsResult.HasError(ValidationKeys.PlannedRide.RouteNotEnoughStops).Should().BeTrue();
+        sizeResult.HasError(ValidationKeys.PlannedRide.RoutePayloadTooLarge).Should().BeTrue();
+    }
+
+    [Fact]
     public void The_owner_is_never_their_own_invitee()
     {
         var owner = Guid.CreateVersion7();

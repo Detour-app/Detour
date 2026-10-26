@@ -323,6 +323,14 @@ object TripStore {
      *  out of the merge here. See [delete]. */
     fun deletedStartTimes(): Set<Long> = tombstones()
 
+    /** Fold rides deleted on another device into this one's tombstones (#778),
+     *  so [replaceRaw] drops this device's copy and the next sync stops
+     *  uploading it. Rewrites the file only when something is new. */
+    fun addTombstones(startTimes: Collection<Long>) {
+        val tombstones = tombstones()
+        if (tombstones.addAll(startTimes)) writeTombstones(tombstones)
+    }
+
     /**
      * Overwrite the store with a merged JSON array from the sync server, after
      * dropping deleted trips (tombstones) and re-applying local vehicle-mode

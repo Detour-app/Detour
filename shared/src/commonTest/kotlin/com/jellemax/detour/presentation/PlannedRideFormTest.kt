@@ -1,6 +1,10 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MeetingPoint
+import com.jellemax.detour.data.RouteStop
+import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.PlannedRide
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RiderRef
@@ -18,13 +22,18 @@ class PlannedRideFormTest {
 
     private val now = 1_791_000_000_000
     private val point = MeetingPoint(50.85, 4.35, label = "Grote Markt")
+    private val route = SavedRoute(
+        id = 7, name = "Ourthe", createdMs = 0, mode = TravelMode.CAR,
+        stops = listOf(RouteStop(LatLon(50.0, 5.0)), RouteStop(LatLon(50.1, 5.1))),
+        polyline = emptyList(), distanceMeters = null, timeMs = null,
+    )
 
     private fun valid() = PlannedRideForm(
         title = "  Sunday Ardennes ",
         startsAtMs = now + 3_600_000,
         meetingPoint = point,
         description = "  ",
-        routeId = 7,
+        route = route,
     )
 
     @Test
@@ -56,7 +65,7 @@ class PlannedRideFormTest {
         assertEquals("Sunday Ardennes", draft.title)
         assertEquals(now + 3_600_000, draft.startsAtMs)
         assertEquals(point, draft.meetingPoint)
-        assertEquals(7L, draft.routeId)
+        assertEquals(route, draft.route)
         assertNull(draft.description)
     }
 
@@ -78,8 +87,9 @@ class PlannedRideFormTest {
             createdAtMs = 0,
             myAnswer = null,
             invitees = emptyList(),
+            route = route,
         )
-        assertEquals(PlannedRideForm("Sunday Ardennes", now, point, "", 3), plannedRideFormFrom(ride))
+        assertEquals(PlannedRideForm("Sunday Ardennes", now, point, "", route), plannedRideFormFrom(ride))
     }
 
     @Test

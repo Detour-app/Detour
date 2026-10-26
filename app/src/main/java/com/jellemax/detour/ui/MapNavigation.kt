@@ -68,6 +68,7 @@ internal fun MapNavigationSession(
     // Read, not keyed: the limit changes far less often than the fix, and the
     // packet only needs whatever it is when the next fix arrives.
     val ambientLimit by rememberUpdatedState(ambientSpeedLimitKmh)
+    PlannedRouteTileCache(s, darkTheme)
     // Current speed for the external display when there's no route up —
     // BleNavServer.send() below covers the navigating case on the same
     // characteristic, so this only fires the other half of the time.
@@ -149,5 +150,20 @@ internal fun MapNavigationSession(
             }
             NavPolicy.Decision.Continue -> {}
         }
+    }
+}
+
+/**
+ * #737: a route on the map is the moment to cache its corridor, while the rider
+ * is still deciding and has signal, not only once Start is pressed. Start
+ * (MapScreen) and reroute ([MapNavigationSession]) fetch their own, so this only
+ * covers the planned line: a picked spin, a loop, a saved route awaiting Go.
+ */
+@Composable
+private fun PlannedRouteTileCache(s: MapScreenState, darkTheme: Boolean) {
+    val context = LocalContext.current
+    LaunchedEffect(s.route) {
+        val line = s.route?.polyline ?: return@LaunchedEffect
+        if (!s.navigating) RouteTileCache.prefetch(context, line, darkTheme)
     }
 }

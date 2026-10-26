@@ -119,6 +119,43 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_second_device_still_holding_a_deleted_trip_does_not_bring_it_back()
+    {
+        // #778: device A deletes the ride; device B, which still holds it and has not heard,
+        // uploads it on its next sync. With a hard delete alone the server took it back and the
+        // copy flipped between deleted and present on every sync.
+        var client = NewRider();
+        await Sync(client, new { trips = new[] { Trip(3_000), Trip(4_000) } });
+        await Sync(client, new { trips = new[] { Trip(4_000) }, deletedTripStartTimes = new[] { 3_000L } });
+
+        var deviceB = await Sync(client, new { trips = new[] { Trip(3_000), Trip(4_000) } });
+
+        deviceB.Trips.Should().ContainSingle()
+            .Which.GetProperty("startTimeMs").GetInt64().Should().Be(4_000);
+        deviceB.DeletedTripStartTimes.Should().Equal(3_000L);
+
+        // And it stays gone once B has dropped its copy.
+        var later = await Sync(client, new { trips = new[] { Trip(4_000) } });
+        later.Trips.Should().ContainSingle();
+        later.DeletedTripStartTimes.Should().Equal(3_000L);
+    }
+
+    [Fact]
+    public async Task A_deletion_re_sent_on_every_sync_keeps_one_tombstone()
+    {
+        // The device uploads its whole tombstone list each time; the unique index would turn a
+        // second row into a failed sync.
+        var client = NewRider();
+        await Sync(client, new { trips = new[] { Trip(3_000) } });
+
+        await Sync(client, new { deletedTripStartTimes = new[] { 3_000L, 3_000L } });
+        var again = await Sync(client, new { deletedTripStartTimes = new[] { 3_000L } });
+
+        again.Trips.Should().BeEmpty();
+        again.DeletedTripStartTimes.Should().Equal(3_000L);
+    }
+
+    [Fact]
     public async Task A_deleted_saved_place_stays_deleted()
     {
         // #695: the device that removed the shortcut stops uploading it, and before the field
@@ -535,6 +572,7 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
 
     private sealed record SyncPayload(
         IReadOnlyList<JsonElement> Trips,
+        IReadOnlyList<long> DeletedTripStartTimes,
         IReadOnlyList<string> Traces,
         IReadOnlyList<JsonElement> SavedPlaces,
         IReadOnlyList<JsonElement> SavedRoutes,
