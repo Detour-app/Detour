@@ -46,6 +46,15 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.EarnedAtInvalid");
     }
 
+    public static class FeatureFlag
+    {
+        private const string Base = "FeatureFlag";
+
+        public static readonly ValidationKeyDefinition KeyInvalid =
+            ValidationKeyDefinition.Create($"{Base}.KeyInvalid")
+                .WithStringParameter("key");
+    }
+
     public static class Trip
     {
         private const string Base = "Trip";

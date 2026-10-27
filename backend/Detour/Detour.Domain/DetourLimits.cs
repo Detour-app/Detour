@@ -29,6 +29,18 @@ public static class DetourLimits
     /// <summary>A lowercase family, an underscore, and the tier threshold — e.g. <c>dist_100000</c>.</summary>
     public const string BadgeIdPattern = "^[a-z]+_[0-9]+$";
 
+    // --- feature flags ------------------------------------------------------------------
+
+    /// <summary>
+    /// Lowercase words joined by hyphens, e.g. <c>flags-selftest</c>. The key is the wire contract
+    /// the app's compiled registry matches on, and it is public (#810), so it names a feature and
+    /// nothing more. Ends in <c>\z</c>, not <c>$</c>: .NET's <c>$</c> also matches before a
+    /// trailing newline.
+    /// </summary>
+    public const string FeatureFlagKeyPattern = @"^[a-z0-9-]{1,64}\z";
+
+    public const int FeatureFlagKeyMaxLength = 64;
+
     // --- groups -------------------------------------------------------------------------
     public const int GroupNameMinLength = 1;
     public const int GroupNameMaxLength = 40;

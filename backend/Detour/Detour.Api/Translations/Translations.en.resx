@@ -68,6 +68,9 @@
   <data name="Badge.EarnedAtInvalid" xml:space="preserve">
     <value>A badge needs the instant it was earned.</value>
   </data>
+  <data name="FeatureFlag.KeyInvalid" xml:space="preserve">
+    <value>{0} is not a feature flag key: lowercase letters, digits and hyphens, at most 64.</value>
+  </data>
   <data name="Trip.StartTimeRequired" xml:space="preserve">
     <value>A trip needs a start time.</value>
   </data>
