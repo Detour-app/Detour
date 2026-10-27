@@ -14,8 +14,12 @@ import kotlinx.cinterop.value
 import platform.CoreFoundation.CFDictionaryAddValue
 import platform.CoreFoundation.CFDictionaryCreateMutable
 import platform.CoreFoundation.CFMutableDictionaryRef
+import platform.CoreFoundation.CFRelease
+import platform.CoreFoundation.CFStringRef
 import platform.CoreFoundation.CFTypeRefVar
 import platform.CoreFoundation.kCFBooleanTrue
+import platform.CoreFoundation.kCFTypeDictionaryKeyCallBacks
+import platform.CoreFoundation.kCFTypeDictionaryValueCallBacks
 import platform.Foundation.CFBridgingRelease
 import platform.Foundation.CFBridgingRetain
 import platform.Foundation.NSData
@@ -78,24 +82,33 @@ internal class KeychainPrefs(private val service: String = "com.jellemax.detour.
     override fun put(key: String, value: Long) = write(key, value.toString())
 
     override fun remove(key: String) {
-        SecItemDelete(query(key))
+        withQuery(key) { SecItemDelete(it) }
     }
 
     /** Only this service's items — the Keychain is shared with every app on the
      *  device, so a query with no `kSecAttrService` would delete everyone's. */
     override fun clear() {
-        val q = CFDictionaryCreateMutable(null, 0, null, null)
-        CFDictionaryAddValue(q, kSecClass, kSecClassGenericPassword)
-        CFDictionaryAddValue(q, kSecAttrService, CFBridgingRetain(service))
-        SecItemDelete(q)
+        withQuery(key = null) { SecItemDelete(it) }
     }
 
-    private fun query(key: String): CFMutableDictionaryRef? {
-        val q = CFDictionaryCreateMutable(null, 0, null, null)
-        CFDictionaryAddValue(q, kSecClass, kSecClassGenericPassword)
-        CFDictionaryAddValue(q, kSecAttrService, CFBridgingRetain(service))
-        CFDictionaryAddValue(q, kSecAttrAccount, CFBridgingRetain(key))
-        return q
+    /**
+     * Builds this service's query (plus [key]'s account when given), hands it to [block]
+     * and releases it afterwards (#349). The dictionary uses the `kCFType…` callbacks, so
+     * it retains what goes into it and releases that when it is released itself: nothing
+     * here depends on releasing values in the right order around the `SecItem*` call.
+     */
+    private inline fun <T> withQuery(key: String?, block: (CFMutableDictionaryRef?) -> T): T {
+        val q = CFDictionaryCreateMutable(
+            null, 0, kCFTypeDictionaryKeyCallBacks.ptr, kCFTypeDictionaryValueCallBacks.ptr,
+        )
+        try {
+            CFDictionaryAddValue(q, kSecClass, kSecClassGenericPassword)
+            q.addBridged(kSecAttrService, service)
+            if (key != null) q.addBridged(kSecAttrAccount, key)
+            return block(q)
+        } finally {
+            CFRelease(q)
+        }
     }
 
     /** Delete-then-add rather than `SecItemUpdate`: a query dictionary cannot carry
@@ -104,23 +117,34 @@ internal class KeychainPrefs(private val service: String = "com.jellemax.detour.
      *  extra round trip. */
     private fun write(key: String, value: String) {
         val data = value.encodeToByteArray().toNSData()
-        SecItemDelete(query(key))
-        val insert = query(key)
-        CFDictionaryAddValue(insert, kSecValueData, CFBridgingRetain(data))
-        CFDictionaryAddValue(insert, kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
-        SecItemAdd(insert, null)
+        withQuery(key) { SecItemDelete(it) }
+        withQuery(key) { insert ->
+            insert.addBridged(kSecValueData, data)
+            CFDictionaryAddValue(insert, kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+            SecItemAdd(insert, null)
+        }
     }
 
-    private fun readString(key: String): String? = memScoped {
-        val q = query(key)
+    private fun readString(key: String): String? = withQuery(key) { q ->
         CFDictionaryAddValue(q, kSecReturnData, kCFBooleanTrue)
         CFDictionaryAddValue(q, kSecMatchLimit, kSecMatchLimitOne)
-        val result = alloc<CFTypeRefVar>()
-        val status = SecItemCopyMatching(q, result.ptr)
-        if (status != errSecSuccess) return@memScoped null
-        val data = CFBridgingRelease(result.value) as? NSData ?: return@memScoped null
-        data.toByteArray().decodeToString()
+        memScoped {
+            val result = alloc<CFTypeRefVar>()
+            val status = SecItemCopyMatching(q, result.ptr)
+            if (status != errSecSuccess) return@memScoped null
+            val data = CFBridgingRelease(result.value) as? NSData ?: return@memScoped null
+            data.toByteArray().decodeToString()
+        }
     }
+}
+
+/** Adds a Kotlin/ObjC [value] under [key]. The +1 from `CFBridgingRetain` is ours and is
+ *  given back straight away: the `kCFType…` callbacks made the dictionary take its own. */
+@OptIn(ExperimentalForeignApi::class)
+private fun CFMutableDictionaryRef?.addBridged(key: CFStringRef?, value: Any) {
+    val bridged = CFBridgingRetain(value)
+    CFDictionaryAddValue(this, key, bridged)
+    CFRelease(bridged)
 }
 
 @OptIn(ExperimentalForeignApi::class)
