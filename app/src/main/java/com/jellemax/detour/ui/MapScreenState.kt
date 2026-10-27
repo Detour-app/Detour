@@ -91,9 +91,11 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var lastRerouteMs: Long by mutableLongStateOf(0L)
 
     /** Where the rider is along a line fetched through [vias], for
-     *  [followPlanned]. Not state: nothing draws it, and only the next fix
-     *  reads it. */
-    private var viaRide: ViaStops.Ride? = null
+     *  [followPlanned]; seeded from [SpinResult.ride], so a rotation picks the
+     *  ride up where it was. Not state: nothing draws it, and only the next
+     *  fix reads it. */
+    var viaRide: ViaStops.Ride? = seed.ride
+        private set
 
     /**
      * The rider at [at] moved on along [line], forward only, while [line] is

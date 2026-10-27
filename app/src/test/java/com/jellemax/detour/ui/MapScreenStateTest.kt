@@ -2,6 +2,7 @@ package com.jellemax.detour.ui
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteCandidate
+import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.map.CameraAuthority
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -73,6 +74,69 @@ class MapScreenStateTest {
         assertTrue(s.vias.isEmpty())
         assertNotNull(s.followPlanned(line, LatLon(52.0, 5.155)))
         assertNull("a fresh line with no stops left is placed globally", s.followPlanned(line.toList(), work))
+    }
+
+    private fun routeOn(line: List<LatLon>) =
+        RouteResult(polyline = line, waypoints = emptyList(), distanceMeters = 0.0, timeMs = 0L)
+
+    /** The screen rebuilt from what it published, as a rotation or a return to
+     *  the map rebuilds it — through [SpinResultHolder], so its invariants hold. */
+    private fun rebuilt(s: MapScreenState): MapScreenState {
+        SpinResultHolder.publish(
+            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.viaRide)
+        )
+        SpinResultHolder.keepRide(s.viaRide)
+        return MapScreenState(SpinResultHolder.state.value, null).also { SpinResultHolder.publish(SpinResult()) }
+    }
+
+    /** #736: home → store → home on one road. Rebuilt on the way back, the
+     *  ride must carry on from where the rider was, not from metre zero —
+     *  where the global snap would put a rider near home at the start again. */
+    @Test
+    fun aRebuiltScreenCarriesOnTheRideOnTheWayBack() {
+        val out = (0..20).map { LatLon(52.0, 5.0 + it * 0.005) }
+        val line = out + out.reversed().drop(1)
+        val s = MapScreenState(SpinResult(destination = out.first(), vias = listOf(out.last())), null)
+        s.route = routeOn(line)
+
+        (0..34).forEach { s.followPlanned(line, line[it]) }
+        assertTrue(s.vias.isEmpty())
+        val before = s.followPlanned(line, line[34])!!.meters
+
+        val r = rebuilt(s)
+        assertEquals(before, r.viaRide!!.along.meters, 1.0)
+        val after = r.followPlanned(line, line[36])
+        assertNotNull("a rebuilt screen past the last stop stays on the forward ride", after)
+        assertTrue("the ride went on from the way back, not from home", after!!.meters > before)
+    }
+
+    /** #736: rebuilt with a stop still ahead, the stops already passed stay
+     *  passed and the next one is not re-projected onto the way out. */
+    @Test
+    fun aRebuiltScreenKeepsTheStopsItProjected() {
+        val out = (0..20).map { LatLon(52.0, 5.0 + it * 0.005) }
+        val line = out + out.reversed().drop(1)
+        val corner = out[10]
+        val s = MapScreenState(SpinResult(destination = out.first(), vias = listOf(out.last(), corner)), null)
+        s.route = routeOn(line)
+
+        (0..22).forEach { s.followPlanned(line, line[it]) }
+        assertEquals(listOf(corner), s.vias)
+
+        val r = rebuilt(s)
+        r.followPlanned(line, line[23])
+        assertEquals("the corner on the way back is still ahead", listOf(corner), r.vias)
+    }
+
+    @Test
+    fun aRideNotOnThePublishedRouteIsNotKept() {
+        val line = (0..60).map { LatLon(52.0, 5.0 + it * 0.005) }
+        val s = MapScreenState(SpinResult(destination = work, vias = listOf(store)), null)
+        s.route = routeOn(line)
+        s.followPlanned(line, line[1])
+        s.route = routeOn(line.map { LatLon(52.001, it.lon) })
+
+        assertNull(rebuilt(s).viaRide)
     }
 
     @Test

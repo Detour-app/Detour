@@ -31,11 +31,14 @@ import kotlinx.coroutines.withContext
  * Where the rider at [pos] is along [route]. A line through planned stops can
  * ride a road twice, so on one the rider is placed forward only, and a stop
  * passed drops off every later reroute (#736); how far off the line they are
- * stays the global answer.
+ * stays the global answer. The ride goes to [SpinResultHolder] every fix, so
+ * a rotation carries on from it rather than from metre zero.
  */
 private fun progressOn(s: MapScreenState, route: RouteResult, pos: LatLon): NavEngine.Progress? {
     val global = NavEngine.progress(route, pos) ?: return null
-    val along = s.followPlanned(route.polyline, pos) ?: return global
+    val along = s.followPlanned(route.polyline, pos)
+    SpinResultHolder.keepRide(s.viaRide)
+    if (along == null) return global
     return NavEngine.progressAlong(route, along, global.offRouteMeters) ?: global
 }
 
