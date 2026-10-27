@@ -68,6 +68,8 @@ data class PlannedRideDetailState(
     /** Owner only: the server refuses an invitee's invite with a 403 (BACKEND_SPEC.md §8.1). */
     val canInvite: Boolean = false,
     val canAnswer: Boolean = false,
+    /** Owner only, at any time (#758): [PlannedRide.canStart]. */
+    val canStart: Boolean = false,
     val myAnswer: RsvpAnswer? = null,
     val answers: List<RsvpAnswer> = emptyList(),
     val routeName: String? = null,
@@ -119,6 +121,7 @@ fun plannedRideDetailStateFrom(ride: PlannedRide, me: RiderId): PlannedRideDetai
             .map { PlannedInviteeRow(it.rider.username, it.answer) },
         canInvite = hosting,
         canAnswer = canAnswer,
+        canStart = hosting,
         myAnswer = if (hosting) null else ride.myAnswer,
         answers = if (canAnswer) RsvpAnswer.entries.filter { it.isAnswer } else emptyList(),
         routeName = ride.route?.name,

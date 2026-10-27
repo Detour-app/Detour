@@ -39,7 +39,7 @@ services:
   # or truncated download stops the stack instead of producing a half-built graph.
   # ---------------------------------------------------------------------------
   osm-extract:
-    image: curlimages/curl:8.22.0
+    image: curlimages/curl:8.23.0
     restart: "no"
     # curlimages/curl runs as uid 100, and a named volume Docker has just created
     # is root-owned 0755 — so the default user cannot write /osm and the first boot
