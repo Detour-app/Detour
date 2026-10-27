@@ -136,6 +136,36 @@ private fun navigateStopsExternally(context: Context, stops: List<RouteStop>, mo
 }
 
 /**
+ * Rides a saved route the way Routes' action pill does; a planned ride's Start (#758) rides its
+ * route the same way. [onRide] opens the map once the route is on it; [onStatus] gets anything
+ * the rider should read instead.
+ */
+internal fun rideSavedRoute(
+    context: Context,
+    route: SavedRoute,
+    loopRide: SavedLoopRide,
+    onStatus: (String?) -> Unit,
+    onRide: () -> Unit,
+) {
+    // A saved spin loop rides in-app through its stops (#589).
+    if (SavedSpins.isLoop(route)) {
+        loopRide.start(route)
+        return
+    }
+    // Two stops (the common A-to-B case) keep the whole route through the
+    // in-app path; more than that and the middle stops only survive a
+    // hand-off to an external maps app — see navigateStopsExternally. The
+    // predicate is shared with the card's action label so the pill cannot
+    // say "Ride" for a tap that leaves the app.
+    if (routeOpensExternally(route)) {
+        onStatus(navigateStopsExternally(context, route.stops, route.mode))
+    } else {
+        seedRouteNavigation(route)
+        onRide()
+    }
+}
+
+/**
  * Saved multi-stop routes: create, navigate, rename, delete, share as a file,
  * export, and pull in whatever friends have shared. Follows
  * [SavedPlacesScreen]'s shape (top bar, empty state, dialogs) for the same
@@ -217,24 +247,7 @@ fun RoutesScreen(
 
     val loopRide = rememberSavedLoopRide(onStatus = { status = it }, onRide = onNavigate)
 
-    fun navigate(route: SavedRoute) {
-        // A saved spin loop rides in-app through its stops (#589).
-        if (SavedSpins.isLoop(route)) {
-            loopRide.start(route)
-            return
-        }
-        // Two stops (the common A-to-B case) keep the whole route through the
-        // in-app path; more than that and the middle stops only survive a
-        // hand-off to an external maps app — see navigateStopsExternally. The
-        // predicate is shared with the card's action label so the pill cannot
-        // say "Ride" for a tap that leaves the app.
-        if (routeOpensExternally(route)) {
-            status = navigateStopsExternally(context, route.stops, route.mode)
-        } else {
-            seedRouteNavigation(route)
-            onNavigate()
-        }
-    }
+    fun navigate(route: SavedRoute) = rideSavedRoute(context, route, loopRide, onStatus = { status = it }, onNavigate)
 
     fun shareFile(route: SavedRoute) {
         status = try {

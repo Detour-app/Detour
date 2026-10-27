@@ -171,6 +171,11 @@
     <string name="planned_answer_declined">Can\'t</string>
     <string name="planned_answer_pending">Not answered</string>
     <string name="planned_invite">Invite friends or circles</string>
+    <string name="planned_start">Start ride</string>
+    <string name="planned_start_title">Start %1$s?</string>
+    <string name="planned_start_text">This starts a live convoy and asks everyone who said going or maybe to join it.</string>
+    <string name="planned_start_confirm">Start</string>
+    <string name="planned_start_not_asked">Not asked to the convoy (not your friend): %1$s</string>
     <string name="planned_invite_title">Invite to %1$s</string>
     <string name="planned_invite_friends">Friends</string>
     <string name="planned_invite_circles">Circles</string>

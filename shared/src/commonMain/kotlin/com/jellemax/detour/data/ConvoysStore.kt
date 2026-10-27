@@ -21,6 +21,13 @@ data class ConvoysState(
     val loadedAtMs: Long? = null,
 )
 
+/** A convoy [ConvoysStore.createAndInvite] made: its [id], and the usernames whose invite the
+ *  server refused. */
+data class ConvoyStarted(
+    val id: String,
+    val refused: List<String>,
+)
+
 /**
  * Convoy membership: creating, listing, inviting, responding, leaving.
  *
@@ -127,6 +134,30 @@ object ConvoysStore {
     @Throws(Exception::class)
     suspend fun create(name: String): Boolean =
         act { Groups.create(KIND, name) } != null
+
+    /**
+     * Creates a convoy named [name] and invites [usernames] into it, for starting a planned ride
+     * (#758). Null if the convoy itself could not be created, with the failure left in [state]'s
+     * `error`. A refused invite does not undo the convoy: the server refuses anyone who is not
+     * the caller's friend, and a ride whose circle brought in a stranger still has to start, so
+     * the refused names come back in [ConvoyStarted.refused] for the screen to say who was not
+     * asked. One reload at the end, not one per invite.
+     */
+    @Throws(Exception::class)
+    suspend fun createAndInvite(name: String, usernames: List<String>): ConvoyStarted? = act {
+        val id = Groups.create(KIND, name)
+        val refused = usernames.filter { username ->
+            try {
+                Groups.invite(id, username)
+                false
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                true
+            }
+        }
+        ConvoyStarted(id, refused)
+    }
 
     /** Returns the resulting status, e.g. "invited" — or null if the invite
      *  failed, with the failure left in [state]'s `error`. Only accepted
