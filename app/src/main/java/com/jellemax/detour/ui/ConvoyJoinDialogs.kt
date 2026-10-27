@@ -163,3 +163,27 @@ private fun refusalText(refusal: ConvoyJoinRefusal): Int = when (refusal) {
     ConvoyJoinRefusal.FULL -> R.string.friends_convoy_join_full
     ConvoyJoinRefusal.TOO_MANY_ATTEMPTS -> R.string.friends_convoy_join_too_many
 }
+
+/**
+ * Joining by link signed out (#763): the link can be pasted before signing in, and once one is
+ * held this says why to sign in. The confirm dialog opens on its own after sign-in, because
+ * `ConvoysSection` shows it for the link still held: `Auth.clear` drops the link only when a
+ * session ends, not on the realm reset the first sign-in can run.
+ */
+@Composable
+internal fun SignedOutConvoyJoin() {
+    val join by ConvoyJoinStore.state.collectAsStateWithLifecycle()
+    var pasteOpen by remember { mutableStateOf(false) }
+    if (join.token != null) {
+        Text(
+            stringResource(R.string.friends_convoy_join_signin_first),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    } else {
+        TextButton(onClick = { pasteOpen = true }) {
+            Text(stringResource(R.string.friends_convoy_join_by_link))
+        }
+    }
+    if (pasteOpen) JoinConvoyByLinkDialog(onDismiss = { pasteOpen = false })
+}
