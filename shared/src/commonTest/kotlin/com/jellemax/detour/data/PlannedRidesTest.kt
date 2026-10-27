@@ -197,6 +197,21 @@ class PlannedRidesTest {
         assertFalse(ownerless.canStart(RiderId("")), "a /me that has not answered is nobody")
     }
 
+    @Test
+    fun startingAsksGoingAndMaybeIntoTheConvoyButNotPendingOrDeclined() {
+        fun rider(name: String) = RiderRef(RiderId("id-$name"), name)
+        val ride = ride().copy(
+            invitees = listOf(
+                PlannedRideInvitee(rider("anna"), RsvpAnswer.GOING),
+                PlannedRideInvitee(rider("bram"), RsvpAnswer.PENDING),
+                PlannedRideInvitee(rider("cas"), RsvpAnswer.MAYBE),
+                PlannedRideInvitee(rider("dirk"), RsvpAnswer.DECLINED),
+            ),
+        )
+
+        assertEquals(listOf("anna", "cas"), ride.convoyInvitees.map { it.username })
+    }
+
     // --- reminder rule ------------------------------------------------------------
 
     @Test
