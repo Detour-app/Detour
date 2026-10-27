@@ -8,6 +8,8 @@ import kotlin.test.assertSame
 class ConvoyJoinStoreTest {
 
     private val preview = ConvoyInvitePreview("Ardennes", "jelle", 3, 1791100800000, alreadyMember = false)
+    private val abc = ConvoyInviteLink("https://a.example/api", "abc")
+    private val xyz = ConvoyInviteLink("https://a.example/api", "xyz")
 
     @Test
     fun aRefusalTheSpecNamesShowsAsThatRefusal() {
@@ -24,17 +26,17 @@ class ConvoyJoinStoreTest {
 
     @Test
     fun anAnswerForTheHeldLinkCommits() {
-        val checking = ConvoyJoinState("abc", ConvoyJoinStep.Checking)
-        val ready = ConvoyJoinState("abc", ConvoyJoinStep.Ready(preview))
+        val checking = ConvoyJoinState(abc, ConvoyJoinStep.Checking)
+        val ready = ConvoyJoinState(abc, ConvoyJoinStep.Ready(preview))
 
-        assertEquals(ready, checking.committed(sameSession = true, token = "abc", next = ready))
+        assertEquals(ready, checking.committed(sameSession = true, link = abc, next = ready))
     }
 
     @Test
     fun anAnswerAfterTheRiderOpenedAnotherLinkIsDropped() {
-        val other = ConvoyJoinState("xyz")
+        val other = ConvoyJoinState(xyz)
 
-        assertSame(other, other.committed(sameSession = true, token = "abc", next = ConvoyJoinState("abc")))
+        assertSame(other, other.committed(sameSession = true, link = abc, next = ConvoyJoinState(abc)))
     }
 
     @Test
@@ -43,44 +45,74 @@ class ConvoyJoinStoreTest {
 
         assertSame(
             dismissed,
-            dismissed.committed(sameSession = true, token = "abc", next = ConvoyJoinState("abc")),
+            dismissed.committed(sameSession = true, link = abc, next = ConvoyJoinState(abc)),
         )
     }
 
     @Test
     fun anAnswerFromAnEarlierSessionIsDropped() {
-        val checking = ConvoyJoinState("abc", ConvoyJoinStep.Checking)
+        val checking = ConvoyJoinState(abc, ConvoyJoinStep.Checking)
 
         assertSame(
             checking,
             checking.committed(
                 sameSession = false,
-                token = "abc",
-                next = ConvoyJoinState("abc", ConvoyJoinStep.Ready(preview)),
+                link = abc,
+                next = ConvoyJoinState(abc, ConvoyJoinStep.Ready(preview)),
             ),
         )
     }
 
     @Test
     fun aPreviewCutOffMidFlightStepsBackSoTheNextCheckAsks() {
-        val checking = ConvoyJoinState("abc", ConvoyJoinStep.Checking)
+        val checking = ConvoyJoinState(abc, ConvoyJoinStep.Checking)
 
-        assertEquals(ConvoyJoinState("abc"), checking.cancelled("abc"))
+        assertEquals(ConvoyJoinState(abc), checking.cancelled(abc))
     }
 
     @Test
     fun aJoinCutOffMidFlightStepsBackToReady() {
-        val joining = ConvoyJoinState("abc", ConvoyJoinStep.Joining(preview))
+        val joining = ConvoyJoinState(abc, ConvoyJoinStep.Joining(preview))
 
-        assertEquals(ConvoyJoinState("abc", ConvoyJoinStep.Ready(preview)), joining.cancelled("abc"))
+        assertEquals(ConvoyJoinState(abc, ConvoyJoinStep.Ready(preview)), joining.cancelled(abc))
     }
 
     @Test
     fun aCancelLeavesAnAnswerOrAnotherLinkAlone() {
-        val ready = ConvoyJoinState("abc", ConvoyJoinStep.Ready(preview))
-        val otherChecking = ConvoyJoinState("xyz", ConvoyJoinStep.Checking)
+        val ready = ConvoyJoinState(abc, ConvoyJoinStep.Ready(preview))
+        val otherChecking = ConvoyJoinState(xyz, ConvoyJoinStep.Checking)
 
-        assertSame(ready, ready.cancelled("abc"))
-        assertSame(otherChecking, otherChecking.cancelled("abc"))
+        assertSame(ready, ready.cancelled(abc))
+        assertSame(otherChecking, otherChecking.cancelled(abc))
+    }
+
+    @Test
+    fun theSameTokenOnAnotherServerIsAnotherLink() {
+        val checking = ConvoyJoinState(abc, ConvoyJoinStep.Checking)
+        val sameTokenOnB = ConvoyInviteLink("https://b.example/api", "abc")
+
+        assertSame(checking, checking.committed(sameSession = true, link = sameTokenOnB, next = ConvoyJoinState()))
+        assertSame(checking, checking.cancelled(sameTokenOnB))
+    }
+
+    @Test
+    fun aLinkHeldThroughASwitchOfServerStopsAtOtherServer() {
+        // Pasted signed out for server A, then the rider points Detour at B and signs in (#763).
+        val held = ConvoyJoinState(abc)
+
+        assertEquals(
+            ConvoyJoinState(abc, ConvoyJoinStep.OtherServer("https://a.example/api")),
+            held.checkedAgainst("https://b.example/api"),
+        )
+        assertEquals(ConvoyJoinStep.OtherServer("https://a.example/api"), held.checkedAgainst(null).step)
+    }
+
+    @Test
+    fun aLinkOnTheCurrentServerOrNoLinkIsLeftAlone() {
+        val ready = ConvoyJoinState(abc, ConvoyJoinStep.Ready(preview))
+        val nothing = ConvoyJoinState()
+
+        assertSame(ready, ready.checkedAgainst("https://a.example/api/"))
+        assertSame(nothing, nothing.checkedAgainst("https://b.example/api"))
     }
 }

@@ -65,7 +65,7 @@ internal fun JoinConvoyByLinkDialog(onDismiss: () -> Unit) {
                     link == null -> error = invalid
                     !link.isOn(SyncClient.url()) -> error = otherServer.format(link.serverUrl)
                     else -> {
-                        ConvoyJoinStore.open(link.token)
+                        ConvoyJoinStore.open(link)
                         onDismiss()
                     }
                 }
@@ -88,9 +88,9 @@ internal fun JoinConvoyByLinkDialog(onDismiss: () -> Unit) {
 @Composable
 internal fun ConvoyJoinConfirmDialog() {
     val state by ConvoyJoinStore.state.collectAsStateWithLifecycle()
-    val token = state.token ?: return
+    val link = state.link ?: return
     val scope = rememberCoroutineScope()
-    LaunchedEffect(token) { ConvoyJoinStore.check() }
+    LaunchedEffect(link) { ConvoyJoinStore.check() }
 
     val step = state.step
     val preview = when (step) {
@@ -140,6 +140,10 @@ private fun ConvoyJoinBody(step: ConvoyJoinStep?, preview: ConvoyInvitePreview?)
             null, ConvoyJoinStep.Checking -> Text(stringResource(R.string.friends_convoy_join_checking))
             is ConvoyJoinStep.Refused -> Text(stringResource(refusalText(step.refusal)))
             is ConvoyJoinStep.Failed -> Text(step.message, color = MaterialTheme.colorScheme.error)
+            is ConvoyJoinStep.OtherServer -> Text(
+                stringResource(R.string.friends_convoy_join_link_other_server, step.serverUrl),
+                color = MaterialTheme.colorScheme.error,
+            )
             is ConvoyJoinStep.Ready, is ConvoyJoinStep.Joining -> Unit
         }
         if (preview != null) {
@@ -174,7 +178,7 @@ private fun refusalText(refusal: ConvoyJoinRefusal): Int = when (refusal) {
 internal fun SignedOutConvoyJoin() {
     val join by ConvoyJoinStore.state.collectAsStateWithLifecycle()
     var pasteOpen by remember { mutableStateOf(false) }
-    if (join.token != null) {
+    if (join.link != null) {
         Text(
             stringResource(R.string.friends_convoy_join_signin_first),
             style = MaterialTheme.typography.bodyMedium,
