@@ -70,6 +70,16 @@ data class PlannedRide(
      */
     fun canStart(me: RiderId): Boolean = me.value.isNotBlank() && owner.id == me
 
+    /**
+     * Who starting this ride asks into its convoy (#758): the invitees who answered going or
+     * maybe. Pending and declined riders are left out — a ping to join a convoy they never said
+     * yes to is noise. Asked by the ordinary convoy invite, so friendship still applies.
+     */
+    val convoyInvitees: List<RiderRef>
+        get() = invitees
+            .filter { it.answer == RsvpAnswer.GOING || it.answer == RsvpAnswer.MAYBE }
+            .map { it.rider }
+
     /** Whether [me] holds an invitation to answer. The owner never does. */
     fun canAnswer(me: RiderId): Boolean = !canStart(me) && myAnswer != null
 

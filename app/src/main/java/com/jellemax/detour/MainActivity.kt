@@ -25,6 +25,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -258,6 +259,7 @@ private fun AppRoot() {
     // cold start happens to land there. MapScreen keeps a host of its own for
     // spin errors, which genuinely are the map's.
     val appSnackbar = remember { SnackbarHostState() }
+    val appScope = rememberCoroutineScope()
 
     // Wrapped, not bare: ensureLoaded() is not suspend and reads JSON off
     // disk, so the off-main-thread guarantee rests entirely on the caller —
@@ -593,6 +595,9 @@ private fun AppRoot() {
                         rideId = key.rideId,
                         onBack = { backStack.pop() },
                         onEdit = { backStack.push(Destination.PlannedRideEditor(key.rideId)) },
+                        // A push, like Routes' Ride: back returns to the ride.
+                        onRide = { backStack.push(Destination.Map) },
+                        onNotice = { notice -> appScope.launch { appSnackbar.showSnackbar(notice) } },
                     )
                 }
                 entry<Destination.PlannedRideEditor> { key ->
