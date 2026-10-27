@@ -67,7 +67,6 @@ import com.jellemax.detour.auth.AuthBrowser
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
-import com.jellemax.detour.data.ConvoyJoinStore
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.Friends
@@ -255,30 +254,6 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
     // The config failures above point at Servers & sync, so the way there
     // stays on screen while signed out, not only when nothing is configured.
     ServerSettingsButton(onOpenServerSettings)
-}
-
-/**
- * Joining by link signed out (#763): the link can be pasted before signing in, and once one is
- * held this says why to sign in. The confirm dialog opens on its own after sign-in, because
- * [ConvoysSection] shows it for the link still held: `Auth.clear` drops the link only when a
- * session ends, not on the realm reset the first sign-in can run.
- */
-@Composable
-private fun SignedOutConvoyJoin() {
-    val join by ConvoyJoinStore.state.collectAsStateWithLifecycle()
-    var pasteOpen by remember { mutableStateOf(false) }
-    if (join.token != null) {
-        Text(
-            stringResource(R.string.friends_convoy_join_signin_first),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-    } else {
-        TextButton(onClick = { pasteOpen = true }) {
-            Text(stringResource(R.string.friends_convoy_join_by_link))
-        }
-    }
-    if (pasteOpen) JoinConvoyByLinkDialog(onDismiss = { pasteOpen = false })
 }
 
 /** #505: the signed-out texts all say "set it under Settings → Servers & sync";
