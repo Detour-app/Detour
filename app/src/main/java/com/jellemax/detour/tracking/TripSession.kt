@@ -3,6 +3,8 @@ package com.jellemax.detour.tracking
 import android.content.Context
 import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.DrivingStats
+import com.jellemax.detour.data.EventKind
+import com.jellemax.detour.data.EventLog
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RidingEvent
 import com.jellemax.detour.data.RidingEventKind
@@ -140,6 +142,7 @@ internal class TripSession(
      * grace, the notification) is reset alongside this call in `beginTrip`.
      */
     fun begin(startTimeMs: Long, startedBy: TripStart) {
+        EventLog.record(EventKind.TRIP_STATE, "begin ${startedBy.name}")
         this.startedBy = startedBy
         lastLeanDeg = 0.0; maxLeanDeg = 0.0
         // 0: the resting reading is 0 g — see the field declaration.
@@ -262,6 +265,8 @@ internal class TripSession(
         destLon: Double?,
         spinRouteId: Long?,
     ): kotlinx.coroutines.Job? {
+        val minutes = stats.durationMs / 60_000
+        EventLog.record(EventKind.TRIP_STATE, "end auto=$wasAuto min=$minutes m=${stats.distanceMeters.roundToLong()}")
         // An auto trip with no mapped vehicle that never left walking pace
         // wasn't a drive; don't save it under whatever mode the tab happened
         // to have selected. Judged the same way MIN_TRIP_METERS judges

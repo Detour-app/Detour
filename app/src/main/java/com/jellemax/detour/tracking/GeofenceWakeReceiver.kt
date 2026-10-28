@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import com.jellemax.detour.data.EventKind
+import com.jellemax.detour.data.EventLog
 import com.jellemax.detour.data.Perf
 import android.util.Log
 import com.google.android.gms.location.Geofence
@@ -21,10 +23,12 @@ class GeofenceWakeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val event = GeofencingEvent.fromIntent(intent) ?: return
         if (event.hasError()) {
+            EventLog.record(EventKind.GEOFENCE, "event error ${event.errorCode}")
             Log.w("GeofenceWake", "geofence event error ${event.errorCode}")
             return
         }
         if (event.geofenceTransition != Geofence.GEOFENCE_TRANSITION_EXIT) return
+        EventLog.record(EventKind.GEOFENCE, "exit")
         logDelivery(event)
         ParkGeofence.disarm(context)
         try {
@@ -32,6 +36,7 @@ class GeofenceWakeReceiver : BroadcastReceiver() {
         } catch (e: Exception) {
             // Background-start still refused (permission revoked while parked);
             // tracking resumes next time the app is opened.
+            EventLog.record(EventKind.SERVICE_START, "refused from geofence wake: ${e.javaClass.simpleName}")
             Log.w("GeofenceWake", "could not start tracker", e)
         }
     }
