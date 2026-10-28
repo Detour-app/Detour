@@ -47,7 +47,9 @@ private const val BOUNDS_PAD = 0.2
  *  the snapshotter doesn't zoom into a single building. */
 private const val MIN_SPAN_DEG = 0.0005
 
-private data class SnapshotKey(val lines: List<List<LatLon>>, val widthPx: Int, val heightPx: Int, val dark: Boolean)
+/** [style] names the base style and its quiet recolouring (#833), so a snapshot
+ *  of another style or theme never answers for this one. */
+private data class SnapshotKey(val lines: List<List<LatLon>>, val widthPx: Int, val heightPx: Int, val style: String)
 
 /** A map image, with each line already projected into its pixels. */
 private class RouteSnapshot(val image: ImageBitmap, val lines: List<List<Offset>>)
@@ -70,7 +72,7 @@ fun RouteMapThumbnail(lines: List<List<LatLon>>, modifier: Modifier = Modifier) 
     BoxWithConstraints(modifier) {
         val widthPx = if (constraints.hasBoundedWidth) constraints.maxWidth else 0
         val heightPx = if (constraints.hasBoundedHeight) constraints.maxHeight else 0
-        val key = SnapshotKey(lines, widthPx, heightPx, dark)
+        val key = SnapshotKey(lines, widthPx, heightPx, "${openFreeMapStyleUrl(dark)}#quiet")
         var snapshot by remember(key) { mutableStateOf(snapshots.get(key)) }
         DisposableEffect(key) {
             val points = lines.flatten()
@@ -97,6 +99,10 @@ fun RouteMapThumbnail(lines: List<List<LatLon>>, modifier: Modifier = Modifier) 
                 .withPixelRatio(density)
                 .withLogo(false)
             val snapshotter = MapSnapshotter(context, options)
+            snapshotter.setObserver(object : MapSnapshotter.Observer {
+                override fun onDidFinishLoadingStyle() = quietenLogbookMap(dark, snapshotter::getLayer)
+                override fun onStyleImageMissing(imageName: String) = Unit
+            })
             snapshotter.start(
                 { s ->
                     val projected = lines.map { line ->

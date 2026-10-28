@@ -4,6 +4,7 @@ using Detour.Domain.ApiKeys;
 using Detour.Domain.Boundaries;
 using Detour.Domain.Cameras;
 using Detour.Domain.Circles;
+using Detour.Domain.FeatureFlags;
 using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
 using Detour.Domain.Notifications;
@@ -74,6 +75,7 @@ public static class DatabaseInstaller
         services.AddScoped<IRoadWayRepository, RoadWayRepository>();
         services.AddScoped<IMunicipalityBoundaryRepository, MunicipalityBoundaryRepository>();
         services.AddScoped<IPoiRepository, PoiRepository>();
+        services.AddScoped<IFeatureFlagRepository, FeatureFlagRepository>();
         services.AddScoped<IProblemReportRepository, ProblemReportRepository>();
         services.AddScoped<IServerSecretRepository, ServerSecretRepository>();
 

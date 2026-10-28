@@ -319,6 +319,68 @@ namespace Detour.Database.Migrations
                     b.ToTable("place_events", "detour");
                 });
 
+            modelBuilder.Entity("Detour.Domain.FeatureFlags.FeatureFlag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_feature_flags");
+
+                    b.HasAlternateKey("Key")
+                        .HasName("ak_feature_flags_key");
+
+                    b.ToTable("feature_flags", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.FeatureFlags.FeatureFlagOverride", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("FlagKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("flag_key");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_feature_flag_overrides");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_feature_flag_overrides_user_id");
+
+                    b.HasIndex("FlagKey", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_feature_flag_overrides_flag_key_user_id");
+
+                    b.ToTable("feature_flag_overrides", "detour");
+                });
+
             modelBuilder.Entity("Detour.Domain.Friendships.Friendship", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1445,6 +1507,24 @@ namespace Detour.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_place_events_users_user_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.FeatureFlags.FeatureFlagOverride", b =>
+                {
+                    b.HasOne("Detour.Domain.FeatureFlags.FeatureFlag", null)
+                        .WithMany()
+                        .HasForeignKey("FlagKey")
+                        .HasPrincipalKey("Key")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_feature_flag_overrides_feature_flags_flag_key");
+
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_feature_flag_overrides_users_user_id");
                 });
 
             modelBuilder.Entity("Detour.Domain.Friendships.Friendship", b =>

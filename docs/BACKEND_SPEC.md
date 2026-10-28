@@ -556,7 +556,7 @@ removing it:
 | Action | Rules |
 |---|---|
 | Overview | Per account: handle, address, administrator flag, fog-sharing flag, created and last-seen instants, **counts** of trips, traces, badges and dashboard keys, and total distance. No trip, trace, place or route content is readable, and no capability exists that would make it readable. |
-| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places, keys and problem reports. Removing the rider from the realm is a separate act. |
+| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places, keys, feature-flag overrides and problem reports. Removing the rider from the realm is a separate act. |
 | Revoke dashboard keys | All API keys for one account — the lost-device remedy for the one credential the realm does not issue. Does not touch the rider's session, which is the realm's to end. |
 | List problem reports | `GET /api/admin/problem-reports?filed=false&limit=50&after=<id>`, oldest first (§15.11). The full report — device, note, stack trace, event log — with no user id or username; `reporter` stands in for the account. |
 | Mark a report filed | `POST /api/admin/problem-reports/{id}/filed` with `{"issue": "<https URL>"}`, once the loop host has opened its redacted public issue. |
@@ -902,6 +902,38 @@ This endpoint is read-only: data is loaded by an operator running
 `dotnet Detour.Api.dll import-pois <path.json>` on the box that hosts the database — see
 [`backend/INSTALL.md`](../backend/INSTALL.md#configuration). Same no-deletion-on-re-import rule
 as `/api/speedlimits`, `/api/roads` and `/api/municipality`, for the same reason.
+
+### 15.10 Feature flags
+
+`GET /api/flags` returns the remotely switchable rollouts (#810) for the caller: every flag the
+server holds a row for, with its default, and for a signed-in caller that account's override in
+place of the default where it holds one. Ordered by key.
+
+```json
+{
+  "flags": [
+    { "key": "flags-selftest", "enabled": true, "source": "account" }
+  ]
+}
+```
+
+`source` is `default` or `account`. A key matches `^[a-z0-9-]{1,64}\z` (no trailing newline). A key the server holds no
+row for is not listed, and the app keeps its compiled default for it; so does a server without
+this endpoint (404), which is what keeps flags free for a self-hoster on an older build.
+
+The list is **public**: without an `Authorization` header the answer is the defaults, so every key
+is readable by anyone. A key names a feature and says nothing the public repository doesn't.
+Which accounts hold an override is never part of the answer.
+
+An `Authorization` header that fails validation is a **401**, not the defaults. Answering it as
+anonymous would let an expired token cache the defaults over the account's overrides; the 401
+sends the app through its refresh-and-retry instead. A dashboard key (`X-Api-Key`) is not a
+bearer and gets the defaults.
+
+Covered by the global per-IP limiter only, not the anonymous policy (§15.2): that budget is sized
+for guessing at sign-in, there is nothing to guess here, and the app asks on every start and
+sign-in, so riders sharing one address would get a 429 and stale flags for nothing. Defaults and
+overrides live in the database, not in configuration, so switching one needs no deploy.
 
 ### 15.11 Problem reports
 
