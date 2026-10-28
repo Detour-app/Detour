@@ -3,6 +3,7 @@ package com.jellemax.detour
 import android.app.Application
 import android.os.Build
 import com.jellemax.detour.data.BuildDefaults
+import com.jellemax.detour.data.DevicePlatform
 import com.jellemax.detour.data.initSharedCore
 import com.jellemax.detour.diag.EventSink
 import com.jellemax.detour.perf.PerfSink
@@ -40,7 +41,7 @@ class DetourApplication : Application() {
                 versionName = BuildConfig.VERSION_NAME,
             )
             BuildDefaults.configureDevice(
-                platform = "android",
+                platform = DevicePlatform.ANDROID,
                 osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
                 deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
             )

@@ -18,7 +18,8 @@ enum class ProblemReportKind(val wire: String) { CRASH("crash"), MANUAL("manual"
  */
 data class ProblemReport(
     val kind: ProblemReportKind,
-    val platform: String,
+    /** Null when the platform never said what it is; such a report is not sent. */
+    val platform: DevicePlatform?,
     val appVersion: String,
     val osVersion: String,
     val deviceModel: String,
@@ -28,9 +29,9 @@ data class ProblemReport(
     val events: List<String>,
 ) {
     /** The #818 wire format. A null note or stack is left out, not sent as null. */
-    fun toJson(): JsonObject = buildJsonObject {
+    fun toJson(platform: DevicePlatform): JsonObject = buildJsonObject {
         put("kind", kind.wire)
-        put("platform", platform)
+        put("platform", platform.wire)
         put("appVersion", appVersion)
         put("osVersion", osVersion)
         put("deviceModel", deviceModel)
@@ -46,7 +47,8 @@ sealed interface SendResult {
     /** The server stored it; [id] is what a rider quotes if they follow up. */
     data class Sent(val id: String) : SendResult
 
-    /** No server is set up, or it predates #818 (a self-hoster on an older build). */
+    /** No server is set up, it predates #818 (a self-hoster on an older build),
+     *  or this platform never said what it is ([BuildDefaults.configureDevice]). */
     data object Unsupported : SendResult
 
     /** It did not arrive: offline, a 5xx, a refused session. Worth trying again. */
@@ -71,8 +73,9 @@ object ProblemReports {
 
     private const val PATH = "/problem-reports"
 
-    /** What a device field reads when the platform didn't push one in: the
-     *  server refuses a blank one, and a report beats no report. */
+    /** What the OS or model reads when the platform didn't push one in: the
+     *  server refuses a blank one, and a report beats no report. The platform
+     *  has no such fallback, since the server takes only `android` or `ios`. */
     private const val UNKNOWN = "unknown"
 
     /**
@@ -89,7 +92,7 @@ object ProblemReports {
         nowMs: Long = nowMs(),
     ): ProblemReport = ProblemReport(
         kind = kind,
-        platform = deviceField(BuildDefaults.platform),
+        platform = BuildDefaults.platform,
         appVersion = deviceField(crash?.appVersion ?: BuildDefaults.versionName),
         osVersion = deviceField(BuildDefaults.osVersion),
         deviceModel = deviceField(BuildDefaults.deviceModel),
@@ -110,9 +113,10 @@ object ProblemReports {
     }
 
     /** [send] over [post], the seam a test fakes the server through. */
-    internal suspend fun send(report: ProblemReport, post: suspend (JsonObject) -> String): SendResult =
-        try {
-            val id = jsonObjectOf(post(report.toJson())).optString("id")
+    internal suspend fun send(report: ProblemReport, post: suspend (JsonObject) -> String): SendResult {
+        val platform = report.platform ?: return SendResult.Unsupported
+        return try {
+            val id = jsonObjectOf(post(report.toJson(platform))).optString("id")
             if (id.isEmpty()) SendResult.Failed else SendResult.Sent(id)
         } catch (e: HttpStatusException) {
             if (e.code == 404) SendResult.Unsupported else SendResult.Failed
@@ -125,6 +129,7 @@ object ProblemReports {
             // bare value rather than an object.
             SendResult.Failed
         }
+    }
 
     private fun deviceField(value: String): String =
         value.trim().take(DEVICE_FIELD_MAX_CHARS).ifEmpty { UNKNOWN }

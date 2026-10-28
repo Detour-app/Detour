@@ -18,7 +18,7 @@ class ProblemReportsTest {
     fun device() {
         BuildDefaults.configure(versionName = "3.91.0")
         BuildDefaults.configureDevice(
-            platform = "android",
+            platform = DevicePlatform.ANDROID,
             osVersion = "Android 15 (API 35)",
             deviceModel = "samsung SM-S928B",
         )
@@ -45,7 +45,7 @@ class ProblemReportsTest {
                 """"deviceModel":"samsung SM-S928B","occurredAt":1791100800000,"note":"it froze",""" +
                 """"stackTrace":"java.lang.IllegalStateException\n\tat com.jellemax.detour.Foo.bar(Foo.kt:12)",""" +
                 """"events":["a","b"]}""",
-            report.toJson().toString(),
+            report.toJson(DevicePlatform.ANDROID).toString(),
         )
     }
 
@@ -56,7 +56,7 @@ class ProblemReportsTest {
         assertEquals(
             """{"kind":"manual","platform":"android","appVersion":"3.91.0","osVersion":"Android 15 (API 35)",""" +
                 """"deviceModel":"samsung SM-S928B","occurredAt":42,"events":[]}""",
-            report.toJson().toString(),
+            report.toJson(DevicePlatform.ANDROID).toString(),
         )
     }
 
@@ -92,14 +92,20 @@ class ProblemReportsTest {
     }
 
     @Test
-    fun anUnconfiguredPlatformStillSendsSomethingTheServerTakes() {
+    fun anUnconfiguredDeviceReadsUnknownButANamelessPlatformIsNotSent() = runBlocking {
         reset()
 
         val report = ProblemReports.preview(ProblemReportKind.MANUAL, null, null, emptyList(), nowMs = 1)
+        var posted = false
 
         assertEquals("unknown", report.osVersion)
         assertEquals("unknown", report.deviceModel)
         assertEquals("0", report.appVersion)
+        assertNull(report.platform)
+        // The server takes only android or ios, so a guess would be refused
+        // with a 400 on every try; not posting at all says so honestly.
+        assertEquals(SendResult.Unsupported, ProblemReports.send(report) { posted = true; """{"id":"x"}""" })
+        assertEquals(false, posted)
     }
 
     @Test
@@ -151,6 +157,6 @@ class ProblemReportsTest {
             """{"id":"x"}"""
         }
 
-        assertEquals(report.toJson().toString(), posted)
+        assertEquals(report.toJson(DevicePlatform.ANDROID).toString(), posted)
     }
 }

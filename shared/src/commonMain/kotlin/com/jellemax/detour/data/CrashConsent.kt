@@ -8,9 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
  * #811: nothing is sent on its own until [sendCrashReports] is on.
  *
  * These would be `Settings` keys, but Settings.kt sits at the §8 1,000-line
- * limit, so they get their own bag, the way `DisplayPin` does. A bag of its
- * own is also the right scope: consent belongs to the phone, not to an
- * account, and no prefs bag is in the backup allowlists.
+ * limit, so they get a bag of their own. That is also the right scope:
+ * consent belongs to the phone, not to an account, and no prefs bag is in
+ * the backup allowlists.
  *
  * Read lazily rather than in `Settings.init()`, so the first read after the
  * platform context exists is what loads it.
