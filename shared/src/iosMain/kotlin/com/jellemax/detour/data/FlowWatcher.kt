@@ -210,6 +210,18 @@ class ConvoyInvitesStateWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+/** Backs [ConvoyJoinStore.state] (#763). No iOS screen binds it yet: the join confirm screen
+ *  is Android-only for now, divergence register entry 30. */
+class ConvoyJoinStateWatcher internal constructor(
+    private val flow: StateFlow<ConvoyJoinState>,
+) : Watcher() {
+    var value: ConvoyJoinState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 class CirclesStateWatcher internal constructor(
     private val flow: StateFlow<CirclesState>,
 ) : Watcher() {
@@ -433,6 +445,7 @@ object FeatureFlows {
     fun friends() = FriendsStateWatcher(FriendsStore.state)
     fun convoys() = ConvoysStateWatcher(ConvoysStore.state)
     fun convoyInvites() = ConvoyInvitesStateWatcher(ConvoyInvitesStore.state)
+    fun convoyJoin() = ConvoyJoinStateWatcher(ConvoyJoinStore.state)
     fun circles() = CirclesStateWatcher(CirclesStore.state)
     fun plannedRides() = PlannedRidesStateWatcher(PlannedRidesStore.state)
 }
