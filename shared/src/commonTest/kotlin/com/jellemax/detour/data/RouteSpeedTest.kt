@@ -59,9 +59,12 @@ class RouteSpeedTest {
 
     @Test
     fun aHopWithNoTimeReadsAsItsWindow() {
-        // The keepLast seam can repeat a timestamp: that hop has no speed of its own.
+        // The keepLast seam can repeat a timestamp: that hop has no speed of its
+        // own, so it takes the riding either side of it within the window — here
+        // the moving hops after the stop, not the stop itself.
         val steps = RouteSpeed.buckets(route(180_000, 0, 1_000, 2_000, 2_000))!!
-        assertEquals(steps[0], steps[1])
+        assertEquals(0, steps[0])
+        assertEquals(steps[2], steps[1])
     }
 
     @Test
