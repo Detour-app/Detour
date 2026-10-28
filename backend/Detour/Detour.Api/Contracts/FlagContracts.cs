@@ -32,11 +32,12 @@ public record FlagsResponse([Required] IReadOnlyList<FlagResponse> Flags)
     {
         var byKey = overrides.ToDictionary(o => o.FlagKey, o => o.Enabled, StringComparer.Ordinal);
 
-        return new FlagsResponse(flags
-            .OrderBy(f => f.Key, StringComparer.Ordinal)
-            .Select(f => byKey.TryGetValue(f.Key, out var enabled)
-                ? new FlagResponse(f.Key, enabled, AccountSource)
-                : new FlagResponse(f.Key, f.Enabled, DefaultSource))
-            .ToList());
+        return new FlagsResponse([
+            .. flags
+                .OrderBy(f => f.Key, StringComparer.Ordinal)
+                .Select(f => byKey.TryGetValue(f.Key, out var enabled)
+                    ? new FlagResponse(f.Key, enabled, AccountSource)
+                    : new FlagResponse(f.Key, f.Enabled, DefaultSource))
+        ]);
     }
 }

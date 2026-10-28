@@ -907,7 +907,7 @@ place of the default where it holds one. Ordered by key.
 }
 ```
 
-`source` is `default` or `account`. A key matches `^[a-z0-9-]{1,64}$`. A key the server holds no
+`source` is `default` or `account`. A key matches `^[a-z0-9-]{1,64}\z` (no trailing newline). A key the server holds no
 row for is not listed, and the app keeps its compiled default for it; so does a server without
 this endpoint (404), which is what keeps flags free for a self-hoster on an older build.
 
@@ -920,8 +920,10 @@ anonymous would let an expired token cache the defaults over the account's overr
 sends the app through its refresh-and-retry instead. A dashboard key (`X-Api-Key`) is not a
 bearer and gets the defaults.
 
-Covered by the global per-IP limiter only, for the same reason as §15.5. Defaults and overrides
-live in the database, not in configuration, so switching one needs no deploy.
+Covered by the global per-IP limiter only, not the anonymous policy (§15.2): that budget is sized
+for guessing at sign-in, there is nothing to guess here, and the app asks on every start and
+sign-in, so riders sharing one address would get a 429 and stale flags for nothing. Defaults and
+overrides live in the database, not in configuration, so switching one needs no deploy.
 
 ### 15.11 Problem reports
 

@@ -14,9 +14,10 @@ namespace Detour.Api.Controllers;
 /// readable by anyone; a key names a feature and says nothing the public repository doesn't.
 /// Which accounts hold an override is never part of the answer.
 ///
-/// Covered by the global per-IP limiter only, for the reason <see cref="CapabilitiesController"/>
-/// gives (#119): behind a reverse proxy the anonymous policy's bucket is shared by every rider,
-/// and the app asks for this on every start.
+/// Covered by the global per-IP limiter only, not <c>RateLimitPolicies.Anonymous</c>. That policy
+/// is sized for guessing at sign-in (10 a minute per address); here there is nothing to guess,
+/// the answer is a few small reads, and the app asks on every start and sign-in, so riders
+/// behind one address (a household, a carrier NAT) would get a 429 and stale flags for nothing.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
