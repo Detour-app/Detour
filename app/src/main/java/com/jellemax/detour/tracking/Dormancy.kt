@@ -1,5 +1,8 @@
 package com.jellemax.detour.tracking
 
+import com.jellemax.detour.data.EventKind
+import com.jellemax.detour.data.EventLog
+
 /** What [TripTrackingService] should do with itself once nothing needs it
  *  foreground — see [dormancyDecision] and issue #90. */
 enum class DormancyDecision {
@@ -131,4 +134,22 @@ fun dormancyBlocker(
     !hasActivityRecognition -> DormancyBlocker.ACTIVITY_RECOGNITION
     !hasBackgroundLocation -> DormancyBlocker.BACKGROUND_LOCATION
     else -> DormancyBlocker.NONE
+}
+
+/**
+ * Writes [TripTrackingService]'s dormancy outcomes to [EventLog] (#822), only
+ * when one differs from the last: the evaluation runs on every location batch,
+ * and a STAY_ALIVE line per fix would push the rest of a ride out of the log.
+ * A park the service could not honour logs what it wanted too, which is the
+ * line #490 and #491 are read against. Main thread only, like its caller.
+ */
+class DormancyEvents {
+    private var last: String? = null
+
+    fun record(decision: DormancyDecision, resolved: DormancyDecision) {
+        val outcome = if (resolved == decision) resolved.name else "${resolved.name} (wanted ${decision.name})"
+        if (outcome == last) return
+        last = outcome
+        EventLog.record(EventKind.DORMANCY, outcome)
+    }
 }

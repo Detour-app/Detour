@@ -27,6 +27,8 @@ import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.Coverage
 import com.jellemax.detour.data.DrivingStats
+import com.jellemax.detour.data.EventKind
+import com.jellemax.detour.data.EventLog
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MunicipalityStore
 import com.jellemax.detour.data.RiderTotals
@@ -549,6 +551,7 @@ class TripTrackingService : Service() {
     /** True between [requestDormancyEvaluation] and the evaluation it posted.
      *  See that function for why the evaluation is posted rather than run. */
     private var dormancyEvaluationPending = false
+    private val dormancyEvents = DormancyEvents()
 
     /** Carries the coalesced dormancy evaluation. The bounded activity-
      *  transition registration retry (#144) has its own handler now, inside
@@ -774,6 +777,9 @@ class TripTrackingService : Service() {
         // [lastStartId] and [stopping] for the two halves of issue #141.
         lastStartId = startId
         stopping = false
+        // A null intent is a START_STICKY restart by the system: #490's storm.
+        val cause = intent?.action?.substringAfterLast('.') ?: "sticky restart"
+        EventLog.record(EventKind.SERVICE_START, "$cause id=$startId")
         Settings.init()
         createChannel()
         // From Android 12 the platform refuses a foreground service started
@@ -793,6 +799,7 @@ class TripTrackingService : Service() {
             )
         }.isSuccess
         if (!foreground) {
+            EventLog.record(EventKind.SERVICE_STOP, "foreground start refused")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -802,6 +809,7 @@ class TripTrackingService : Service() {
                 // Location permission pulled out from under an already-running
                 // service - clear the notification now rather than leave it
                 // dangling for the ~5 s until the process dies.
+                EventLog.record(EventKind.SERVICE_STOP, "location permission revoked")
                 ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -865,7 +873,7 @@ class TripTrackingService : Service() {
                     }
                 }
             }
-            ACTION_END_TRIP -> endTrip()
+            ACTION_END_TRIP -> endTrip("stop requested")
             ACTION_NAV_ENDED -> handleNavEnded(intent.getBooleanExtra(EXTRA_END_NOW, false))
             ACTION_TRANSITION -> handleTransition(intent)
             ACTION_REFRESH -> vehicleLinks.reconcileObd2Connections()
@@ -894,6 +902,7 @@ class TripTrackingService : Service() {
         initialDistanceMeters: Double = 0.0,
     ): Boolean {
         if (!hasPreciseLocation(this)) {
+            EventLog.record(EventKind.TRIP_STATE, "begin refused ${startedBy.name}: no precise location")
             resetStartDetector()
             return false
         }
@@ -928,8 +937,9 @@ class TripTrackingService : Service() {
      * [serviceScope]. Every other call site discards the return value; that
      * remains source-compatible since none of them assigned or returned it.
      */
-    private fun endTrip(): kotlinx.coroutines.Job? {
+    private fun endTrip(reason: String): kotlinx.coroutines.Job? {
         val stats = _stats.value ?: return null
+        EventLog.record(EventKind.TRIP_STATE, "stop: $reason")
         val wasAuto = autoStarted
         stopMotionSensors()
         session.cancelFetchJobs()
@@ -969,7 +979,7 @@ class TripTrackingService : Service() {
                 navStarted = false
                 autoStarted = true
             }
-            NavEndAction.END_NOW -> endTrip()  // clears navStarted itself
+            NavEndAction.END_NOW -> endTrip("navigation ended")  // clears navStarted itself
         }
     }
 
@@ -1016,6 +1026,7 @@ class TripTrackingService : Service() {
             ?.also { Log.i(ParkGeofence.TAG, "staying alive: $it") }
             ?.let { DormancyDecision.STAY_ALIVE }
             ?: decision
+        dormancyEvents.record(decision, resolved)
 
         applyGeofence(resolved)
 
@@ -1131,8 +1142,10 @@ class TripTrackingService : Service() {
     private fun stopDormant(): Boolean {
         if (!stopSelfResult(lastStartId)) {
             Log.i(ParkGeofence.TAG, "dormancy stop superseded by a newer start")
+            EventLog.record(EventKind.DORMANCY, "stop superseded by a newer start")
             return false
         }
+        EventLog.record(EventKind.SERVICE_STOP, "dormant")
         stopping = true
         if (::locationSource.isInitialized) locationSource.stop()
         flushTrace()
@@ -1271,7 +1284,7 @@ class TripTrackingService : Service() {
         if (awayFromOrigin && fromStart < 120 &&
             now - stats.startTimeMs > 5 * 60_000
         ) {
-            endTrip()
+            endTrip("auto-stop: back at origin")
             return true
         }
         return false
@@ -1282,7 +1295,7 @@ class TripTrackingService : Service() {
      *  itself is [TripEndDetector]'s; ending the trip is this service's. */
     private fun checkVehicleExit(speed: Double, now: Long): Boolean {
         if (!endDetector.shouldEnd(speed, autoStarted, now)) return false
-        endTrip()
+        endTrip("auto-stop: left the vehicle")
         return true
     }
 
@@ -1695,6 +1708,7 @@ class TripTrackingService : Service() {
 
     override fun onDestroy() {
         destroyed = true
+        EventLog.record(EventKind.SERVICE_STOP, "onDestroy")
         // A coalesced evaluation may still be queued behind this teardown.
         // maybeGoDormant() would bail on `destroyed` anyway; dropping it keeps
         // the handler from holding this instance past its own destruction.
@@ -1713,7 +1727,7 @@ class TripTrackingService : Service() {
         // while its save is still running; join that one instead. `isActive`
         // keeps the old "only sync when a trip just ended" behaviour: a save
         // that already finished needs neither a join nor another sync.
-        val saveJob = endTrip() ?: session.lastSaveJob?.takeIf { it.isActive }
+        val saveJob = endTrip("service destroyed") ?: session.lastSaveJob?.takeIf { it.isActive }
         if (saveJob != null) {
             kotlinx.coroutines.runBlocking { saveJob.join() }
             // endTrip's own syncQuietly() rides on the unawaited twistiness
