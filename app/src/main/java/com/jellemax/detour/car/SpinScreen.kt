@@ -217,11 +217,11 @@ class SpinScreen(
         // unit the pane is still the whole screen — the strip has to go on it
         // then, whereas the wrapper owns it when there is a map behind it.
         if (carContext.carAppApiLevel < CarAppApiLevels.LEVEL_7) {
-            return content.setActionStrip(actionStrip(convoy)).build()
+            return content.setActionStrip(actionStrip(convoy, withRegroup = false)).build()
         }
         return MapWithContentTemplate.Builder()
             .setContentTemplate(content.build())
-            .setActionStrip(actionStrip(convoy))
+            .setActionStrip(actionStrip(convoy, withRegroup = true))
             .build()
     }
 
@@ -231,7 +231,9 @@ class SpinScreen(
     // It now lives inside the search screen instead, as the first thing you
     // see there — one obvious door into "pick a destination", typed or spun.
     // In a convoy, Break please and, with a meeting point set, Regroup (#657).
-    private fun actionStrip(convoy: ConvoyBreakRegroupState?): ActionStrip = ActionStrip.Builder()
+    // A pane's own strip (below car API 7) takes two actions at most, so there
+    // [withRegroup] is false and the meeting point is only the banner row.
+    private fun actionStrip(convoy: ConvoyBreakRegroupState?, withRegroup: Boolean): ActionStrip = ActionStrip.Builder()
         .addAction(
             Action.Builder()
                 .setIcon(
@@ -246,8 +248,10 @@ class SpinScreen(
         )
         .apply {
             CarBreakRegroup.breakAction(carContext)?.let { addAction(it) }
-            CarBreakRegroup.routeAction(carContext, convoy?.regroup) { at, name -> navigateTo(at, name) }
-                ?.let { addAction(it) }
+            if (withRegroup) {
+                CarBreakRegroup.routeAction(carContext, convoy?.regroup) { at, name -> navigateTo(at, name) }
+                    ?.let { addAction(it) }
+            }
         }
         .build()
 

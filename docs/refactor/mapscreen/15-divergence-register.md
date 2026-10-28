@@ -2497,8 +2497,9 @@ and `regroupPinToAnnounce`, with `commonTest`.
   Route from the card at any time.
 - Car. Break please is an icon on both screens' action strips. Each new request or pin from
   another rider is a `CarToast` on whichever screen is up. `SpinScreen` adds at most two pane
-  rows (regroup banner without the on-the-way list, then the pills) and a Regroup strip action
-  that routes to the pin. No markers on the car map, no host drop or Clear, and no Route from
+  rows (regroup banner without the on-the-way list, then the pills) and, from car API 7 (the
+  map-backed template), a Regroup strip action that routes to the pin; below that the pane's
+  strip holds two actions, so the pin is the banner row only. No markers on the car map, no host drop or Clear, and no Route from
   `NavScreen` (it has no destination change).
 
 **Verdict: survive — the owner's cut.** Markers, host actions on the car, or rerouting a running

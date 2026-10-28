@@ -126,9 +126,10 @@ internal object CarBreakRegroup {
         }
     }
 
-    /** Break please, as an icon: a car action strip allows one titled action
-     *  and each screen already has one. Null outside a convoy; disabled while
-     *  the relay is down, as the phone's button is. */
+    /** Break please, as an icon: a car action strip allows one titled action,
+     *  and that is Exit on [NavScreen] and Regroup on [SpinScreen]. Null
+     *  outside a convoy; disabled while the relay is down, as the phone's
+     *  button is. */
     fun breakAction(carContext: CarContext): Action? {
         ConvoyLiveClient.activeConvoyId.value ?: return null
         return Action.Builder()
@@ -139,7 +140,9 @@ internal object CarBreakRegroup {
     }
 
     /** "Regroup" to drive to the pin, while there is one and this rider is not
-     *  already there. For [SpinScreen] only; [onRoute] starts the route. */
+     *  already there. For [SpinScreen]'s map strip only (car API 7+): the
+     *  pane-only strip below that holds two actions, search and Break please.
+     *  [onRoute] starts the route. */
     fun routeAction(carContext: CarContext, banner: RegroupBanner?, onRoute: (LatLon, String) -> Unit): Action? {
         if (banner == null || banner.hereAlready) return null
         val name = banner.label ?: carContext.getString(R.string.map_regroup_point)
