@@ -41,6 +41,19 @@ object BuildDefaults {
     var versionName: String = "0"
         private set
 
+    /**
+     * What a problem report (#811) says the device is: `android` or `ios`,
+     * the OS release, and the phone's maker and model. Pushed in rather than
+     * read through a new `expect`, the same way [versionName] is, by [configureDevice]. Blank means
+     * the platform didn't say, and a report then reads `unknown`.
+     */
+    var platform: String = ""
+        private set
+    var osVersion: String = ""
+        private set
+    var deviceModel: String = ""
+        private set
+
     fun configure(
         routingUrl: String = "",
         apiUrl: String = "",
@@ -55,5 +68,12 @@ object BuildDefaults {
         this.geocoderUrl = geocoderUrl
         this.liveUrl = liveUrl
         this.versionName = versionName
+    }
+
+    /** The device half, apart from [configure] so neither passes seven parameters (§8.4). */
+    fun configureDevice(platform: String = "", osVersion: String = "", deviceModel: String = "") {
+        this.platform = platform
+        this.osVersion = osVersion
+        this.deviceModel = deviceModel
     }
 }
