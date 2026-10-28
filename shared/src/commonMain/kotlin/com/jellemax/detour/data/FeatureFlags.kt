@@ -64,7 +64,10 @@ object FeatureFlags {
     internal const val FILE_NAME = "flags.json"
 
     // internal, not private, so the session-switch test can set an account's value and watch
-    // [Auth.resetAccountScopedStores] drop it — the same reason `SavedPlaces._places` is.
+    // [Auth.resetAccountScopedStores] drop it — the same reason `SavedPlaces._places` is. The
+    // backing-property name is what detekt objects to; SavedPlaces and RouteStore sit in the
+    // baseline for it, a new file says so here instead.
+    @Suppress("ObjectPropertyNaming")
     internal val _readings = MutableStateFlow(overlay(Flag.all, emptyMap()))
 
     /** Every flag in [Flag.all], in that order, with its current value and source. Holds the
@@ -121,18 +124,31 @@ object FeatureFlags {
         apply(refreshDecision(outcome, sameSession = epoch == Auth.sessionEpoch.value))
     }
 
-    private fun apply(decision: FlagsRefresh) {
+    /**
+     * Commits [decision] to [readings] and, through [persist], to the cache. A cache that can't
+     * be written (a full disk, a store before migration) still updates [readings]: the answer
+     * is good for this session, and the next refresh writes it again. `internal` with the
+     * [persist] seam so a test can fail the write.
+     */
+    internal fun apply(decision: FlagsRefresh, persist: (FlagsRefresh) -> Unit = ::persist) {
+        val server = when (decision) {
+            is FlagsRefresh.Replace -> decision.server
+            FlagsRefresh.Clear -> emptyMap()
+            FlagsRefresh.Keep -> return
+        }
+        try {
+            persist(decision)
+        } catch (e: Exception) {
+            // refresh() promises never to throw but for cancellation, and Swift calls it.
+        }
+        loaded = true
+        _readings.value = overlay(Flag.all, server)
+    }
+
+    private fun persist(decision: FlagsRefresh) {
         when (decision) {
-            is FlagsRefresh.Replace -> {
-                accountFile(FILE_NAME).writeText(decision.body)
-                loaded = true
-                _readings.value = overlay(Flag.all, decision.server)
-            }
-            FlagsRefresh.Clear -> {
-                accountFile(FILE_NAME).deleteIfExists()
-                loaded = true
-                _readings.value = overlay(Flag.all, emptyMap())
-            }
+            is FlagsRefresh.Replace -> accountFile(FILE_NAME).writeText(decision.body)
+            FlagsRefresh.Clear -> accountFile(FILE_NAME).deleteIfExists()
             FlagsRefresh.Keep -> Unit
         }
     }

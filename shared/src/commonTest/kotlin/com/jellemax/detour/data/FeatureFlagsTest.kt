@@ -167,4 +167,23 @@ class FeatureFlagsTest {
             FeatureFlags.refreshDecision(Result.failure(HttpStatusException(404, "")), sameSession = false),
         )
     }
+
+    // --- apply --------------------------------------------------------------
+
+    @Test
+    fun aCacheThatCannotBeWrittenStillUpdatesTheReadings() {
+        val selftestOn = """{"flags":[{"key":"flags-selftest","enabled":true,"source":"account"}]}"""
+        val switchedOn = FeatureFlags.overlay(Flag.all, FeatureFlags.parse(selftestOn)!!)
+        try {
+            FeatureFlags.apply(FlagsRefresh.Replace(FeatureFlags.parse(selftestOn)!!, selftestOn)) {
+                throw IOException("disk full")
+            }
+            assertEquals(switchedOn, FeatureFlags.readings.value)
+
+            FeatureFlags.apply(FlagsRefresh.Clear) { throw IOException("read-only") }
+            assertEquals(FeatureFlags.overlay(Flag.all, emptyMap()), FeatureFlags.readings.value)
+        } finally {
+            FeatureFlags.reset()
+        }
+    }
 }
