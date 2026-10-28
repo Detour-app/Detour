@@ -326,7 +326,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
                 replayMarkerBitmap(context.resources.displayMetrics.density),
             )
             // Highlights sit under the replay layers, so the moving marker is
-            // never hidden behind a pin it drives past.
+            // never hidden behind a tag it drives past.
             style.addSource(GeoJsonSource(SRC_BEST_STRETCH))
             style.addSource(GeoJsonSource(SRC_HIGHLIGHTS))
             style.addLayer(LineLayer("mr-best-stretch-line", SRC_BEST_STRETCH).withProperties(
