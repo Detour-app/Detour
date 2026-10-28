@@ -38,4 +38,11 @@ class DormancyEventsTest {
         events.record(DormancyDecision.STAY_ALIVE, DormancyDecision.STAY_ALIVE)
         assertEquals(listOf("DORMANCY STAY_ALIVE (wanted STOP_WITH_GEOFENCE)", "DORMANCY STAY_ALIVE"), lines)
     }
+
+    @Test
+    fun aMonitorStartDoesNotReadAsAStickyRestart() {
+        assertEquals("sticky restart", serviceStartCause(sticky = true, action = null))
+        assertEquals("monitor", serviceStartCause(sticky = false, action = null))
+        assertEquals("GEOFENCE_WAKE", serviceStartCause(sticky = false, action = "com.jellemax.detour.GEOFENCE_WAKE"))
+    }
 }

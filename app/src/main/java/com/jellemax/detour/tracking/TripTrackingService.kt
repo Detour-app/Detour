@@ -777,8 +777,7 @@ class TripTrackingService : Service() {
         // [lastStartId] and [stopping] for the two halves of issue #141.
         lastStartId = startId
         stopping = false
-        // A null intent is a START_STICKY restart by the system: #490's storm.
-        val cause = intent?.action?.substringAfterLast('.') ?: "sticky restart"
+        val cause = serviceStartCause(sticky = intent == null, action = intent?.action)
         EventLog.record(EventKind.SERVICE_START, "$cause id=$startId")
         Settings.init()
         createChannel()

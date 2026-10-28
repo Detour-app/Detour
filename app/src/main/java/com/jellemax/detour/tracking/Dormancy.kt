@@ -137,6 +137,18 @@ fun dormancyBlocker(
 }
 
 /**
+ * The cause [TripTrackingService.onStartCommand] logs for a start (#822). A
+ * null intent is a START_STICKY restart by the system, #490's storm; an intent
+ * without an action is [TripTrackingService.startMonitoring] (map screen, car
+ * screen, boot), which must not read as one; otherwise the action's last part.
+ */
+fun serviceStartCause(sticky: Boolean, action: String?): String = when {
+    sticky -> "sticky restart"
+    action == null -> "monitor"
+    else -> action.substringAfterLast('.')
+}
+
+/**
  * Writes [TripTrackingService]'s dormancy outcomes to [EventLog] (#822), only
  * when one differs from the last: the evaluation runs on every location batch,
  * and a STAY_ALIVE line per fix would push the rest of a ride out of the log.
