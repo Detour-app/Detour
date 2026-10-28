@@ -23,6 +23,7 @@ import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.jellemax.detour.data.DisplayPin
 import com.jellemax.detour.data.NavEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -187,6 +188,7 @@ object BleNavServer {
                         val subscribed = subscriptions.getOrPut(device) { mutableSetOf() }
                         if (value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)) {
                             subscribed.add(charUuid)
+                            if (charUuid == NAV_CHARACTERISTIC_UUID) DisplayPin.onNavSubscribe(device.address)
                             if (charUuid == ART_CHARACTERISTIC_UUID) {
                                 lastArtJpeg?.let { queueArt(device, it) }
                                 pumpArtQueue()
@@ -241,7 +243,10 @@ object BleNavServer {
                 offset: Int,
                 value: ByteArray,
             ) {
-                if (characteristic.uuid == TELEMETRY_CHARACTERISTIC_UUID) {
+                // Only the remembered display's writes reach the trip (#692).
+                if (characteristic.uuid == TELEMETRY_CHARACTERISTIC_UUID &&
+                    DisplayPin.acceptsTelemetry(device.address)
+                ) {
                     parseTelemetry(value)?.let { _boardTelemetry.value = it }
                 }
                 if (responseNeeded) {
@@ -308,7 +313,10 @@ object BleNavServer {
         )
     }
 
+    /** Called when the rider switches the display off, so it also forgets
+     *  which board was the display ([DisplayPin]). */
     fun stop(context: Context) {
+        DisplayPin.forget()
         if (hasPermissions(context)) {
             advertiser?.stopAdvertising(object : AdvertiseCallback() {})
             gattServer?.close()

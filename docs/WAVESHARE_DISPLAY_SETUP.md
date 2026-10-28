@@ -153,3 +153,10 @@ outside a plausible range (`speedKmh` outside 0–350, `leanDeg` outside
 ±70°), drops the whole packet — a garbage packet means a firmware/transport
 bug, and a clamped value would still be recorded downstream as a real
 reading.
+
+The phone only believes telemetry from the display it remembers: the first
+central to subscribe to **Nav** after the display is switched on in Settings
+(#692). Writes from any other address are dropped, so the board must
+subscribe to Nav, and keep a stable BLE address (its public one, not a
+rotating private one). Switching the display off and on forgets it, which is
+how a different board takes over.
