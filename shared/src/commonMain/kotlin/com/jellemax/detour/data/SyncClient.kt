@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
@@ -57,7 +58,7 @@ object SyncClient {
         Settings.init()
         // Inside the lock, so a launch sync queued behind another sees the
         // stamp that one just wrote.
-        if (nowMs() - Settings.lastSyncMs() < AUTO_SYNC_MIN_INTERVAL_MS) null else syncLocked()
+        if (nowMs() - Settings.lastSyncMs() < AUTO_SYNC_MIN_INTERVAL_MS) null else syncRecorded()
     }
 
     /**
@@ -108,7 +109,24 @@ object SyncClient {
      * here.
      */
     @Throws(Exception::class)
-    suspend fun sync(): SyncResult = syncLock.withLock { syncLocked() }
+    suspend fun sync(): SyncResult = syncLock.withLock { syncRecorded() }
+
+    /** One sync, with its failure recorded in [EventLog] before it reaches the
+     *  caller. Cancellation is not a failure and is not recorded. */
+    private suspend fun syncRecorded(): SyncResult = try {
+        syncLocked()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        EventLog.record(EventKind.SYNC_ERROR, syncErrorDetail(e))
+        throw e
+    }
+
+    /** The status code or the exception's class, never its message: a message
+     *  can carry the server address or a query string, and the log may end up
+     *  in a problem report (#811). */
+    internal fun syncErrorDetail(e: Exception): String =
+        if (e is HttpStatusException) "sync HTTP ${e.code}" else "sync ${e::class.simpleName}"
 
     private suspend fun syncLocked(): SyncResult {
         Settings.init()

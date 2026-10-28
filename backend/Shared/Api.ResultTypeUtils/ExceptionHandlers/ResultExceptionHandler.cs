@@ -25,6 +25,9 @@ public sealed class ResultExceptionHandler(
         {
             ResultException => StatusCodes.Status400BadRequest,
             ApplicationException => StatusCodes.Status400BadRequest,
+            // Kestrel's own refusals while the body is read, e.g. 413 past a request size limit.
+            // Without this arm a body over the cap reads as a server fault.
+            BadHttpRequestException badRequest => badRequest.StatusCode,
             _ => StatusCodes.Status500InternalServerError
         };
 
@@ -79,6 +82,7 @@ public sealed class ResultExceptionHandler(
         [404] = "https://tools.ietf.org/html/rfc9110#section-15.5.5",
         [405] = "https://tools.ietf.org/html/rfc9110#section-15.5.6",
         [409] = "https://tools.ietf.org/html/rfc9110#section-15.5.10",
+        [413] = "https://tools.ietf.org/html/rfc9110#section-15.5.14",
         [422] = "https://tools.ietf.org/html/rfc9110#section-15.5.21",
         [500] = "https://tools.ietf.org/html/rfc9110#section-15.6.1",
     };
