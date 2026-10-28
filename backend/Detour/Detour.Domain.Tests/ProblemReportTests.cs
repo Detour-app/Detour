@@ -101,4 +101,62 @@ public class ProblemReportTests
         Assert.False(ProblemReport.Create(null, Valid() with { Events = [quarter, quarter, quarter, quarter] }).IsFailure);
         Assert.True(ProblemReport.Create(null, Valid() with { Events = [quarter, quarter, quarter, quarter, "a"] }).IsFailure);
     }
+
+    [Fact]
+    public void Marking_a_report_filed_records_the_issue_once()
+    {
+        var report = ProblemReport.Create(null, Valid()).Value;
+
+        Assert.False(report.MarkFiled("https://github.com/Detour-app/Detour/issues/900").IsFailure);
+        var filedAt = report.FiledAt;
+        Assert.False(report.MarkFiled("https://github.com/Detour-app/Detour/issues/901").IsFailure);
+
+        Assert.NotNull(filedAt);
+        Assert.Equal(filedAt, report.FiledAt);
+        Assert.Equal("https://github.com/Detour-app/Detour/issues/900", report.FiledIssue);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("  ")]
+    [InlineData("900")]
+    [InlineData("http://github.com/Detour-app/Detour/issues/900")]
+    public void A_filed_issue_is_an_https_url(string? issue)
+    {
+        var report = ProblemReport.Create(null, Valid()).Value;
+
+        Assert.True(report.MarkFiled(issue).IsFailure);
+        Assert.Null(report.FiledAt);
+    }
+
+    [Fact]
+    public void A_filed_issue_is_at_most_512_characters()
+    {
+        var url = "https://github.com/";
+        var report = ProblemReport.Create(null, Valid()).Value;
+
+        Assert.True(report.MarkFiled(url + new string('a', 512 - url.Length + 1)).IsFailure);
+        Assert.False(report.MarkFiled(url + new string('a', 512 - url.Length)).IsFailure);
+    }
+
+    [Fact]
+    public void The_reporter_is_stable_per_account_and_differs_across_accounts()
+    {
+        var key = new byte[32];
+        var account = Guid.NewGuid();
+
+        var reporter = ProblemReport.Reporter(account, key);
+
+        Assert.Equal(reporter, ProblemReport.Reporter(account, key));
+        Assert.NotEqual(reporter, ProblemReport.Reporter(Guid.NewGuid(), key));
+        Assert.NotEqual(reporter, ProblemReport.Reporter(account, [1, 2, 3]));
+        Assert.Matches("^[0-9a-f]{64}$", reporter!);
+        Assert.DoesNotContain(account.ToString("N"), reporter);
+    }
+
+    [Fact]
+    public void An_anonymous_report_has_no_reporter()
+    {
+        Assert.Null(ProblemReport.Reporter(null, new byte[32]));
+    }
 }

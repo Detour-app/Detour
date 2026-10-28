@@ -9,6 +9,7 @@ using Detour.Domain.PlannedRides;
 using Detour.Domain.Places;
 using Detour.Domain.Pois;
 using Detour.Domain.ProblemReports;
+using Detour.Domain.ServerSecrets;
 using Detour.Domain.Roads;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
@@ -47,6 +48,7 @@ public class DetourDbContext(DbContextOptions<DetourDbContext> options) : DbCont
     public DbSet<MunicipalityBoundary> MunicipalityBoundaries => Set<MunicipalityBoundary>();
     public DbSet<Poi> Pois => Set<Poi>();
     public DbSet<ProblemReport> ProblemReports => Set<ProblemReport>();
+    public DbSet<ServerSecret> ServerSecrets => Set<ServerSecret>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using JV.ResultUtilities;
@@ -13,8 +14,8 @@ namespace Detour.Domain.ProblemReports;
 /// a redacted copy the loop host makes. A signed-in rider's report names their account, so it
 /// goes when the account does; an anonymous one names nobody.
 ///
-/// Kept for a bounded time and a bounded count, both enforced when a report arrives
-/// (<see cref="IProblemReportRepository.TrimAsync"/>), never by a sweep.
+/// Kept for a bounded time and a bounded count, both enforced when a report arrives and when an
+/// administrator lists them (<see cref="IProblemReportRepository.TrimAsync"/>), never by a sweep.
 /// </summary>
 public sealed class ProblemReport : Entity
 {
@@ -57,8 +58,8 @@ public sealed class ProblemReport : Entity
     /// <summary>When the loop host filed its redacted issue (#820), or null while it hasn't.</summary>
     public DateTimeOffset? FiledAt { get; private set; }
 
-    /// <summary>The public issue number it was filed as.</summary>
-    public int? FiledIssue { get; private set; }
+    /// <summary>The public issue it was filed as, as the loop host's URL for it.</summary>
+    public string? FiledIssue { get; private set; }
 
     private ProblemReport(Guid? userId, ProblemReportDetails details)
     {
@@ -82,6 +83,41 @@ public sealed class ProblemReport : Entity
             return validation;
 
         return new ProblemReport(userId, details);
+    }
+
+    /// <summary>
+    /// Records the public issue the loop host filed this report as (#820). Filing it again is a
+    /// no-op that keeps the first issue: a retried call must not move the report to a duplicate.
+    /// </summary>
+    public Result MarkFiled(string? issueUrl)
+    {
+        var issue = issueUrl?.Trim();
+        if (string.IsNullOrEmpty(issue)
+            || issue.Length > DetourLimits.ProblemReportFiledIssueMaxLength
+            || !Uri.TryCreate(issue, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps)
+            return Result.Error(ValidationKeys.ProblemReport.FiledIssueInvalid);
+
+        if (FiledAt is not null)
+            return Result.Ok();
+
+        FiledAt = DateTimeOffset.UtcNow;
+        FiledIssue = issue;
+        return Result.Ok();
+    }
+
+    /// <summary>
+    /// Who sent it, as an administrator may see it: an HMAC-SHA256 of the account id under a
+    /// server-held key, hex-encoded, or null for an anonymous report. The same account always
+    /// gives the same value and two accounts never share one, so the loop host can count distinct
+    /// reporters; without the key, it cannot be turned back into the account.
+    /// </summary>
+    public static string? Reporter(Guid? userId, byte[] key)
+    {
+        if (userId is not { } id)
+            return null;
+
+        return Convert.ToHexStringLower(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(id.ToString("D"))));
     }
 
     private static Result Validate(ProblemReportDetails details)
@@ -150,8 +186,16 @@ public sealed record ProblemReportDetails(
 public interface IProblemReportRepository : IBaseRepository<ProblemReport>
 {
     /// <summary>
+    /// Up to <paramref name="limit"/> reports, oldest first by (received, id), starting after
+    /// <paramref name="after"/> when given. <paramref name="filed"/> null means filed or not.
+    /// </summary>
+    Task<List<ProblemReport>> GetPageNonTrackingAsync(
+        bool? filed, ProblemReport? after, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Deletes every report received before <paramref name="receivedBefore"/>, then every report
-    /// past the newest <paramref name="keep"/>. Runs on each insert, after it.
+    /// past the newest <paramref name="keep"/>. Runs on each insert, after it, and before each
+    /// administrator list (#820).
     /// </summary>
     Task TrimAsync(DateTimeOffset receivedBefore, int keep, CancellationToken cancellationToken);
 }
