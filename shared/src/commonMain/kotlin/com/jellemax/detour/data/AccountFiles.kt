@@ -44,6 +44,7 @@ internal object AccountFiles {
         "saved_places.json",
         "routes.json",
         "municipalities.json",
+        "flags.json",
     )
 
     /**
@@ -91,7 +92,7 @@ internal object AccountFiles {
                     // [adopt] has claimed the bucket: it then lands in a
                     // freshly recreated `_local` that [adopt] will refuse, so
                     // it is visible signed out and invisible signed in. One
-                    // stranded file, recoverable, against eight lost ones.
+                    // stranded file, recoverable, against nine lost ones.
                 }
             }
         } finally {
@@ -208,7 +209,7 @@ internal object AccountFiles {
      * come back from the server union.
      *
      * [migrate] no longer aborts on a failed rename, so a name that could not
-     * move does not stop [adopt] claiming the seven that did — see its own
+     * move does not stop [adopt] claiming the eight that did — see its own
      * catch for the trade. What can still throw out of here is [adopt]'s own
      * rename, and that one must not be swallowed: the bucket is then still
      * `_local`, and [Settings.init] leaves the scope there rather than
