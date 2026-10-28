@@ -13,9 +13,9 @@ public static class DetourPolicies
     public const string Rider = "rider";
 
     /// <summary>
-    /// An administrator. Grants account management and nothing else: there is no endpoint that
-    /// returns anyone's trips, traces, routes or places, and that is what keeps the privacy
-    /// promise rather than the absence of a permission here.
+    /// An administrator. Grants account management and the feature-flag switch, nothing else:
+    /// there is no endpoint that returns anyone's trips, traces, routes or places, and that is
+    /// what keeps the privacy promise rather than the absence of a permission here.
     /// </summary>
     public const string Administrator = "administrator";
 
