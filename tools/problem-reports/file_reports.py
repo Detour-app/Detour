@@ -226,13 +226,19 @@ def title_for(report, plan, names):
 
 
 class Filer:
-    """Files one run's reports. `api` and `gh` are the only side-effecting seams."""
+    """Files one run's reports. `api` and `gh` are the only side-effecting seams.
+
+    Only issues and comments the filer's own account wrote are read for markers. The repo is
+    public: anyone can open an issue or comment whose first lines look like a marker, and
+    trusting those would let a stranger escalate an issue to p0-now, take over a signature, or
+    have a report marked filed against their issue."""
 
     def __init__(self, api, gh, names, dry_run=False, out=sys.stdout):
         self.api, self.gh, self.names, self.dry_run, self.out = api, gh, names, dry_run, out
+        self.me = gh.me()
         self.by_sig = {}
         self.filed_ids = set()
-        for issue in gh.open_issues():
+        for issue in self._own_issues():
             marks = header_marks(issue.get("body"))
             for kind, value in marks:
                 if kind == "sig":
@@ -245,7 +251,7 @@ class Filer:
         rid = report["id"]
         if rid in self.filed_ids:
             # Opened by an earlier run that died before marking it filed.
-            url = next(i["url"] for i in self.gh.open_issues() if ("id", rid) in header_marks(i.get("body")))
+            url = next(i["url"] for i in self._own_issues() if ("id", rid) in header_marks(i.get("body")))
             return self._mark(rid, url, "already filed")
         issue = self.by_sig.get(plan["sig"]) if plan["sig"] else None
         if issue:
@@ -269,7 +275,7 @@ class Filer:
             print(f"--- would +1 {issue['url']}\n{plus_one(report, plan, self.names)}", file=self.out)
             return
         number = issue["number"]
-        comments = self.gh.comments(number)
+        comments = [c["body"] for c in self.gh.comments(number) if c.get("author") == self.me]
         texts = [issue.get("body")] + comments
         if ("id", rid) not in [m for t in comments for m in header_marks(t)]:
             text = plus_one(report, plan, self.names)
@@ -281,6 +287,9 @@ class Filer:
         if len(reporters) >= ESCALATE_AT and "p1-next" in labels:
             self.gh.swap_label(number, "p1-next", "p0-now")
         self._mark(rid, issue["url"], "+1")
+
+    def _own_issues(self):
+        return [i for i in self.gh.open_issues() if i.get("author") == self.me]
 
     def _mark(self, rid, url, what):
         if self.dry_run:
@@ -356,18 +365,29 @@ class Gh:
     def __init__(self, repo=None):
         self.repo = ["-R", repo] if repo else []
         self._issues = None
+        self._me = None
 
     def _gh(self, *args):
         return subprocess.run(["gh", *args, *self.repo], check=True, capture_output=True, text=True).stdout
 
+    def me(self):
+        """The login gh is signed in as: the only author whose markers count."""
+        if self._me is None:
+            self._me = subprocess.run(["gh", "api", "user", "--jq", ".login"], check=True,
+                                      capture_output=True, text=True).stdout.strip()
+        return self._me
+
     def open_issues(self):
         if self._issues is None:
-            self._issues = json.loads(self._gh("issue", "list", "--state", "open", "--limit", "1000",
-                                               "--json", "number,url,body"))
+            issues = json.loads(self._gh("issue", "list", "--state", "open", "--limit", "1000",
+                                         "--json", "number,url,body,author"))
+            self._issues = [dict(i, author=(i.get("author") or {}).get("login")) for i in issues]
         return self._issues
 
     def comments(self, number):
-        return [c["body"] for c in json.loads(self._gh("issue", "view", str(number), "--json", "comments"))["comments"]]
+        """Each comment as {"body", "author"}, author being the login."""
+        raw = json.loads(self._gh("issue", "view", str(number), "--json", "comments"))["comments"]
+        return [{"body": c["body"], "author": (c.get("author") or {}).get("login")} for c in raw]
 
     def labels(self, number):
         return [l["name"] for l in json.loads(self._gh("issue", "view", str(number), "--json", "labels"))["labels"]]

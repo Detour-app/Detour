@@ -102,6 +102,12 @@ note, and the report id. **The event log is never published.**
 Markers count only at the very top of a body or comment. Report text further
 down can't be mistaken for one.
 
+Markers count only in issues and comments written by the account `gh` is signed
+in as (`gh api user`). The repo is public: a stranger's comment carrying
+reporter markers can't push an issue to `p0-now`, and a stranger's issue
+carrying a signature or report id can't take over a crash or get a report
+marked filed against it.
+
 ## Wiring it into the loop host
 
 The loop host's units are local, not in the repo. Add these two:

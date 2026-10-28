@@ -39,13 +39,21 @@ class FakeApi:
         self.posts.append((path, payload))
 
 
+ME = "detour-loop"
+
+
 class FakeGh:
     def __init__(self, issues=()):
-        self.issues = {i["number"]: dict(i, comments=list(i.get("comments", []))) for i in issues}
+        self.issues = {i["number"]: dict(i, author=i.get("author", ME), comments=list(i.get("comments", [])))
+                       for i in issues}
         self.created, self.commented, self.swapped = [], [], []
 
+    def me(self):
+        return ME
+
     def open_issues(self):
-        return [{"number": n, "url": i["url"], "body": i["body"]} for n, i in self.issues.items()]
+        return [{"number": n, "url": i["url"], "body": i["body"], "author": i["author"]}
+                for n, i in self.issues.items()]
 
     def comments(self, number):
         return list(self.issues[number]["comments"])
@@ -56,12 +64,13 @@ class FakeGh:
     def create_issue(self, title, text, labels):
         n = 900 + len(self.created)
         url = f"https://github.com/o/r/issues/{n}"
-        self.issues[n] = {"number": n, "url": url, "body": text, "labels": list(labels), "comments": []}
+        self.issues[n] = {"number": n, "url": url, "body": text, "labels": list(labels), "author": ME,
+                          "comments": []}
         self.created.append((title, text, labels))
         return url
 
     def comment(self, number, text):
-        self.issues[number]["comments"].append(text)
+        self.issues[number]["comments"].append({"body": text, "author": ME})
         self.commented.append((number, text))
 
     def swap_label(self, number, remove, add):
@@ -277,6 +286,31 @@ class FilingTest(unittest.TestCase):
         run(api2, gh)
         self.assertEqual(len(gh.issues[900]["comments"]), 1)
         self.assertEqual(len(api2.posts), 1)
+
+    def test_a_strangers_reporter_marks_do_not_escalate(self):
+        api, gh = FakeApi([report(1, reporter="a" * 64)]), FakeGh()
+        run(api, gh)
+        for mark in ("1" * 12, "2" * 12):
+            gh.issues[900]["comments"].append({"body": fr.REPORTER_MARK.format(mark), "author": "mallory"})
+        run(FakeApi([report(2, reporter="b" * 64)]), gh)
+        self.assertEqual(gh.swapped, [])
+
+    def test_a_strangers_issue_with_a_signature_is_not_matched(self):
+        sig = fr.plan_for(report(1))["sig"]
+        planted = {"number": 5, "url": "https://github.com/o/r/issues/5", "labels": ["bug", "p1-next"],
+                   "body": fr.SIG_MARK.format(sig), "author": "mallory"}
+        api, gh = FakeApi([report(1)]), FakeGh([planted])
+        run(api, gh)
+        self.assertEqual(len(gh.created), 1)
+        self.assertEqual(gh.commented, [])
+
+    def test_a_strangers_issue_with_a_report_id_does_not_mark_it_filed(self):
+        planted = {"number": 5, "url": "https://github.com/o/r/issues/5", "labels": ["bug"],
+                   "body": fr.ID_MARK.format(report(1)["id"]), "author": "mallory"}
+        api, gh = FakeApi([report(1, kind="manual", stack=None)]), FakeGh([planted])
+        run(api, gh)
+        self.assertEqual(len(gh.created), 1)
+        self.assertEqual(api.posts[0][1], {"issue": "https://github.com/o/r/issues/900"})
 
     def test_paging_follows_the_cursor_until_an_empty_page(self):
         api = FakeApi([report(n, reporter=None) for n in range(1, 6)], page=2)
