@@ -110,6 +110,25 @@ public static class DetourLimits
     public const int DisplayNameMaxLength = 200;
     public const int LabelMaxLength = 60;
 
+    // --- problem reports ----------------------------------------------------------------
+    /// <summary>A rider's own words about what went wrong, typed on a phone.</summary>
+    public const int ProblemReportNoteMaxLength = 2000;
+
+    /// <summary>Generous for a JVM or Swift trace with its causes, and far under the body cap.</summary>
+    public const int ProblemReportStackTraceMaxBytes = 64 * 1024;
+
+    /// <summary>The device event log's lines, summed. The log itself is capped on the device (#819).</summary>
+    public const int ProblemReportEventsMaxBytes = 256 * 1024;
+
+    /// <summary>App version, OS version and device model, each.</summary>
+    public const int ProblemReportDeviceFieldMaxLength = 128;
+
+    /// <summary>
+    /// The whole request, on the wire. Answered with 413 before the body is read; the field caps
+    /// above answer 400.
+    /// </summary>
+    public const int ProblemReportMaxBodyBytes = 512 * 1024;
+
     // --- transport ----------------------------------------------------------------------
     /// <summary>
     /// One sync upload carries a device's whole trip and trace history — megabytes after a year

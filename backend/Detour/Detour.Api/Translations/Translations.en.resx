@@ -71,6 +71,30 @@
   <data name="FeatureFlag.KeyInvalid" xml:space="preserve">
     <value>{0} is not a feature flag key: lowercase letters, digits and hyphens, at most 64.</value>
   </data>
+  <data name="ProblemReport.KindInvalid" xml:space="preserve">
+    <value>A report's kind is crash or manual.</value>
+  </data>
+  <data name="ProblemReport.PlatformInvalid" xml:space="preserve">
+    <value>A report's platform is android or ios.</value>
+  </data>
+  <data name="ProblemReport.DeviceRequired" xml:space="preserve">
+    <value>A report needs the app version, OS version and device model.</value>
+  </data>
+  <data name="ProblemReport.DeviceTooLong" xml:space="preserve">
+    <value>The app version, OS version and device model are at most {0} characters each.</value>
+  </data>
+  <data name="ProblemReport.OccurredAtInvalid" xml:space="preserve">
+    <value>A report needs the instant it happened.</value>
+  </data>
+  <data name="ProblemReport.NoteTooLong" xml:space="preserve">
+    <value>A note is at most {0} characters.</value>
+  </data>
+  <data name="ProblemReport.StackTraceTooLarge" xml:space="preserve">
+    <value>A stack trace is at most {0} bytes.</value>
+  </data>
+  <data name="ProblemReport.EventsTooLarge" xml:space="preserve">
+    <value>The event log is at most {0} bytes in total.</value>
+  </data>
   <data name="Trip.StartTimeRequired" xml:space="preserve">
     <value>A trip needs a start time.</value>
   </data>
