@@ -2368,7 +2368,83 @@ check 'phone resets on every connected/convoy change' 1 \
 
 ---
 
-## 29. Convoy gap alerts on the car: a transient English toast, no voice
+## 29. HERE traffic on the car screen: the phone's loop and words, four places it is not the phone's
+
+**New with `#653`** — recorded on entry 28's precedent, because `car/NavScreen.kt` (`runTraffic`,
+`trafficText`, `pushTrip`) and `car/CarMapRenderer.kt` (`setTraffic`) claim phone parity ("the phone
+map's traffic loop", "the phone's banner … as words", "as the phone's ETA does"), and a parity claim
+nothing enforces is what `conventions.md` §7.1 says belongs here.
+
+**What.** While navigating with a HERE key set (#637), the route ahead is coloured by congestion,
+incidents are marked, the ETA carries the delay and a "+7 min traffic" / "Road closed ahead" line is
+shown. The phone has it since #645, the head unit since #653.
+
+**Copies.** The judging is not duplicated: both surfaces call `TrafficRound.run` (which tiles, when,
+backoff, the #637 monthly budget via `Settings::spendTrafficRequests`), `routeAhead` and
+`trafficOnRoute` from `shared/`, and the map layers are the same `MapOverlays.setTraffic`. The ETA
+on both is `withTrafficDelay`. What each surface owns is the **loop's gate, its error handling and
+the way the result is worded**, and those are the copy:
+
+- Phone — `app/…/ui/MapTraffic.kt` (`MapTraffic`, `TrafficBanner`).
+- Car — `app/…/car/NavScreen.kt` (`runTraffic`, `showTraffic`, `trafficText`, `travelEstimate`),
+  `app/…/car/CarMapRenderer.kt` (`setTraffic`).
+
+**Four known differences.**
+
+**29a — The car's loop is not gated on `navigating`.** The phone keys its `LaunchedEffect` on
+`s.navigating`, so nothing is asked outside a navigation. The car's loop runs for as long as
+`NavScreen` is STARTED and a key is set — including while `navigating` is false because the host
+refused `navigationStarted()` (another app owns navigation, `car_nav_other_app_navigating`). The
+screen stays up with the route drawn, so the colours still show on it, but the rounds spend the
+rider's budget (#637) while another app guides.
+
+**29b — The car survives a failed round; the phone's loop dies on one.** The car wraps
+`TrafficRound.run` in `runCatching` (rethrowing cancellation), logs, and keeps the held corridor
+for the next tick. The phone has no catch, so an exception escaping a round ends the
+`LaunchedEffect` until the key or `navigating` changes. **UNVERIFIED** whether `TrafficRound.run`
+can throw today — its client already maps HTTP errors to backoff — so this may never show.
+
+**29c — The instrument cluster gets the delayed time, not the words or the colour.** `pushTrip`
+hands `NavigationManager.updateTrip` the traffic-delayed remaining time, but `travelEstimate`'s
+`trafficText` (the "+7 min traffic" trip text and the yellow time) is passed only from the
+template. The phone has no cluster, so this is car-internal, but the claim "as the phone's ETA" holds
+for the time only.
+
+**29d — No closure or incident icon beside the words.** The phone's `TrafficBanner` puts the map
+marker's own drawable (`ic_map_closure` / `ic_map_incident`) next to the line; the car's trip text is
+words in a `CarText` with a yellow remaining time, since `TravelEstimate` carries no icon.
+
+**Verdict: survive — the phone's on 29a** (gate the car loop on `navigating` when someone touches it
+next); **leave 29b** (the car's is the safer copy; converge the phone when a throwing round is seen);
+**leave 29c and 29d** — host template limits, not choices.
+
+**Fence.** Measured against `#653`'s branch:
+
+```sh
+# Entry 29 — HERE traffic on the car. 29a: the phone's loop is keyed on
+# navigating; the car's runs on the key alone.
+check 'phone traffic loop is keyed on navigating' 1 \
+    "$(grep -c 'LaunchedEffect(key, s.navigating)' app/src/main/java/com/jellemax/detour/ui/MapTraffic.kt)"
+check 'car traffic loop runs on the key alone' 1 \
+    "$(grep -c 'Settings.hereTrafficKey.collectLatest { key -> runTraffic(key) }' $CAR/NavScreen.kt)"
+# 29b: the car catches a failed round; the phone does not.
+check 'car logs a failed traffic round' 1 \
+    "$(grep -c 'Log.w(TAG, "traffic round failed", it)' $CAR/NavScreen.kt)"
+check 'phone traffic loop has no catch' 0 \
+    "$(grep -c 'runCatching' app/src/main/java/com/jellemax/detour/ui/MapTraffic.kt)"
+# 29c: only the template's estimate carries the traffic words.
+check 'traffic words reach the template only' 1 \
+    "$(grep -c 'trafficText = trafficText(),' $CAR/NavScreen.kt)"
+# 29d: the phone's banner has the marker icon; the car has none.
+check 'phone traffic banner has the closure icon' 1 \
+    "$(grep -c 'R.drawable.ic_map_closure' app/src/main/java/com/jellemax/detour/ui/MapTraffic.kt)"
+check 'car traffic line has no icon' 0 \
+    "$(grep -c 'ic_map_closure' $CAR/NavScreen.kt)"
+```
+
+---
+
+## 30. Convoy gap alerts on the car: a transient English toast, no voice
 
 **New with `#655`** — recorded because `app/…/car/DetourCarSession.kt` says its toast shows the
 sentence the phone speaks, and the owner's decision on #655 (2026-10-14) chose a different shape
@@ -2394,7 +2470,7 @@ stays on screen; a persistent car banner, or Dutch on the car, is a new decision
 **Fence.**
 
 ```sh
-# Entry 29 — car gap alerts. A changed count means the car started speaking or stopped toasting.
+# Entry 30 — car gap alerts. A changed count means the car started speaking or stopped toasting.
 check 'car toasts the spoken gap sentence' 1 \
     "$(grep -c 'ConvoyGapAlerts.spoken.collect' app/src/main/java/com/jellemax/detour/car/DetourCarSession.kt)"
 check 'phone speaks the gap sentence' 1 \

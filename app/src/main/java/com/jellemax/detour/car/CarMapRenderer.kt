@@ -41,6 +41,7 @@ import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.net.ConvoyLiveClient
+import com.jellemax.detour.presentation.TrafficOnRoute
 import com.jellemax.detour.ui.MapOverlays
 import com.jellemax.detour.ui.NamedFriendPosition
 import com.jellemax.detour.ui.PositionMarker
@@ -236,6 +237,7 @@ class CarMapRenderer(
     private var cameras = SpeedCameras.Result(emptyList(), emptyList())
     private var friends: Collection<NamedFriendPosition> = emptyList()
     private var circleMembers: Collection<NamedMemberFix> = emptyList()
+    private var traffic: TrafficOnRoute? = null
 
     // Raw convoy peer state, extrapolated into `friends` once a tick by
     // startCameraLoop — see PeerAnchor's own doc.
@@ -350,6 +352,13 @@ class CarMapRenderer(
         withOverlays { it.setCameras(cameras.cameras, cameras.sections) }
     }
 
+    /** HERE's congestion colours and incident markers on the route ahead
+     *  (#653), the phone map's layers; null clears them. */
+    fun setTraffic(traffic: TrafficOnRoute?) {
+        this.traffic = traffic
+        withOverlays { it.setTraffic(traffic) }
+    }
+
     fun setFriends(friends: Collection<NamedFriendPosition>) {
         this.friends = friends
         withOverlays { it.setFriends(friends) }
@@ -437,6 +446,7 @@ class CarMapRenderer(
                 position?.let { fresh.setPosition(it, positionBearing) }
                 if (cameras.cameras.isNotEmpty()) fresh.setCameras(cameras.cameras, cameras.sections)
                 if (friends.isNotEmpty()) fresh.setFriends(friends)
+                traffic?.let { fresh.setTraffic(it) }
                 // Signed-out guarded here too, not just in the poll loop
                 // above: the loop only notices a sign-out on its own
                 // CIRCLE_FIX_POLL_MS cadence, and a surface recreated (car
