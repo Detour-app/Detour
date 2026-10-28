@@ -298,6 +298,7 @@ private fun LazyListScope.monthItems(
                     modifier = Modifier.animateItem(),
                     ride = entry,
                     thumbnail = loaded.thumbnails[entry.trip.startTimeMs],
+                    steps = loaded.speeds[entry.trip.startTimeMs],
                     onOpen = { onOpenTrip(entry.trip) },
                     onEdit = { onEdit(entry.trip, it) },
                 )
@@ -536,6 +537,7 @@ private enum class RideDialog { RENAME, VEHICLE, DELETE, CARD }
 private fun RideCard(
     ride: LogbookItem.Ride,
     thumbnail: List<LatLon>?,
+    steps: List<Int>?,
     onOpen: () -> Unit,
     onEdit: (RideEdit) -> Unit,
     modifier: Modifier = Modifier,
@@ -545,8 +547,8 @@ private fun RideCard(
     // The overflow IconButton has its own clickable, so a tap on it is
     // consumed there and never reaches the card's.
     val cardModifier = if (thumbnail != null) modifier.clickable(onClick = onOpen) else modifier
-    if (ride.standout) FullRideCard(ride, thumbnail, menu, cardModifier)
-    else CompactRideRow(ride, thumbnail, menu, cardModifier)
+    if (ride.standout) FullRideCard(ride, thumbnail, steps, menu, cardModifier)
+    else CompactRideRow(ride, thumbnail, steps, menu, cardModifier)
     dialog?.let { RideDialogs(ride, it, onDismiss = { dialog = null }, onEdit = onEdit) }
 }
 
@@ -554,6 +556,7 @@ private fun RideCard(
 private fun FullRideCard(
     ride: LogbookItem.Ride,
     thumbnail: List<LatLon>?,
+    steps: List<Int>?,
     menu: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -564,6 +567,8 @@ private fun FullRideCard(
                     RouteMapThumbnail(
                         listOf(thumbnail),
                         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                        steps = listOf(steps),
+                        ends = true,
                     )
                     ride.chip?.let { Sticker(it, Modifier.align(Alignment.BottomStart).padding(10.dp)) }
                 }
@@ -580,6 +585,7 @@ private fun FullRideCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     RideStatStrip(ride.trip, Modifier.padding(vertical = 4.dp))
+                    if (thumbnail != null && steps != null) SpeedLegend(Modifier.padding(top = 2.dp))
                     // No map to stick it on: the sticker sits with the text instead.
                     if (thumbnail == null) ride.chip?.let { Sticker(it, Modifier.padding(top = 2.dp)) }
                     if (ride.stampsWorthShowing) PlaceLine(ride.places)
@@ -607,6 +613,7 @@ private fun RideStatStrip(trip: Trip, modifier: Modifier = Modifier) {
 private fun CompactRideRow(
     ride: LogbookItem.Ride,
     thumbnail: List<LatLon>?,
+    steps: List<Int>?,
     menu: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -626,6 +633,7 @@ private fun CompactRideRow(
                         .size(COMPACT_THUMB_SIZE)
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    steps = listOf(steps),
                 )
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
