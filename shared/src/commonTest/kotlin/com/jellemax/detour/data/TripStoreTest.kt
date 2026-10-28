@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonArray
 
 /** Characterises [TripStore]'s encode/decode round trip for [DrivingStats] —
  *  pure JSON building, no file access, so these run in commonTest per
- *  detour-shared-core §8 (file I/O needs androidUnitTest instead). */
+ *  detour-shared-core §8 (file I/O needs androidHostTest instead). */
 class TripStoreTest {
 
     private fun trip(drivingStats: DrivingStats = DrivingStats()) = Trip(

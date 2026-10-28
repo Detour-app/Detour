@@ -12,6 +12,7 @@
 # Room instantiates each generated *_Impl database by reflection, and under
 # AGP 9's strict full mode a -keep on a class no longer keeps its default
 # constructor. That is how WorkManager's WorkDatabase_Impl lost <init> and the
-# release app crashed at startup (#753). Today's WorkManager consumer rules keep
-# it on their own; this rule is here so a library update can't bring that back.
+# release app crashed at startup (#753). Room's own consumer rules carry this
+# exact line today, so R8 doesn't need it from us: it is a guard, the one rule
+# here added without a failure, so a Room update can't bring the crash back.
 -keep class * extends androidx.room.RoomDatabase { void <init>(); }
