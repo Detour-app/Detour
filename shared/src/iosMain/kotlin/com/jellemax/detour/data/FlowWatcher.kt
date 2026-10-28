@@ -211,7 +211,7 @@ class ConvoyInvitesStateWatcher internal constructor(
 }
 
 /** Backs [ConvoyJoinStore.state] (#763). No iOS screen binds it yet: the join confirm screen
- *  is Android-only for now, divergence register entry 29. */
+ *  is Android-only for now, divergence register entry 30. */
 class ConvoyJoinStateWatcher internal constructor(
     private val flow: StateFlow<ConvoyJoinState>,
 ) : Watcher() {

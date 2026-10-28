@@ -319,6 +319,68 @@ namespace Detour.Database.Migrations
                     b.ToTable("place_events", "detour");
                 });
 
+            modelBuilder.Entity("Detour.Domain.FeatureFlags.FeatureFlag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_feature_flags");
+
+                    b.HasAlternateKey("Key")
+                        .HasName("ak_feature_flags_key");
+
+                    b.ToTable("feature_flags", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.FeatureFlags.FeatureFlagOverride", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<string>("FlagKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("flag_key");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_feature_flag_overrides");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_feature_flag_overrides_user_id");
+
+                    b.HasIndex("FlagKey", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_feature_flag_overrides_flag_key_user_id");
+
+                    b.ToTable("feature_flag_overrides", "detour");
+                });
+
             modelBuilder.Entity("Detour.Domain.Friendships.Friendship", b =>
                 {
                     b.Property<Guid>("Id")
@@ -831,6 +893,88 @@ namespace Detour.Database.Migrations
                         .HasDatabaseName("ix_pois_bbox_min_lat_bbox_max_lat_bbox_min_lon_bbox_max_lon");
 
                     b.ToTable("pois", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.ProblemReports.ProblemReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppVersion")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("app_version");
+
+                    b.Property<string>("DeviceModel")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("device_model");
+
+                    b.Property<string>("Events")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("events");
+
+                    b.Property<DateTimeOffset?>("FiledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("filed_at");
+
+                    b.Property<int?>("FiledIssue")
+                        .HasColumnType("integer")
+                        .HasColumnName("filed_issue");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("note");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("OsVersion")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("os_version");
+
+                    b.Property<string>("Platform")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("platform");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("StackTrace")
+                        .HasColumnType("text")
+                        .HasColumnName("stack_trace");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_problem_reports");
+
+                    b.HasIndex("ReceivedAt")
+                        .HasDatabaseName("ix_problem_reports_received_at");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_problem_reports_user_id");
+
+                    b.ToTable("problem_reports", "detour");
                 });
 
             modelBuilder.Entity("Detour.Domain.Roads.RoadWay", b =>
@@ -1346,6 +1490,24 @@ namespace Detour.Database.Migrations
                         .HasConstraintName("fk_place_events_users_user_id");
                 });
 
+            modelBuilder.Entity("Detour.Domain.FeatureFlags.FeatureFlagOverride", b =>
+                {
+                    b.HasOne("Detour.Domain.FeatureFlags.FeatureFlag", null)
+                        .WithMany()
+                        .HasForeignKey("FlagKey")
+                        .HasPrincipalKey("Key")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_feature_flag_overrides_feature_flags_flag_key");
+
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_feature_flag_overrides_users_user_id");
+                });
+
             modelBuilder.Entity("Detour.Domain.Friendships.Friendship", b =>
                 {
                     b.HasOne("Detour.Domain.Users.User", null)
@@ -1486,6 +1648,15 @@ namespace Detour.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_planned_ride_rsvps_users_user_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.ProblemReports.ProblemReport", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_problem_reports_users_user_id");
                 });
 
             modelBuilder.Entity("Detour.Domain.Routes.SavedRoute", b =>

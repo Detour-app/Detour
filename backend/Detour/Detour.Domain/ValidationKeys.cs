@@ -46,6 +46,48 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.EarnedAtInvalid");
     }
 
+    public static class FeatureFlag
+    {
+        private const string Base = "FeatureFlag";
+
+        public static readonly ValidationKeyDefinition KeyInvalid =
+            ValidationKeyDefinition.Create($"{Base}.KeyInvalid")
+                .WithStringParameter("key");
+    }
+
+    public static class ProblemReport
+    {
+        private const string Base = "ProblemReport";
+
+        public static readonly ValidationKeyDefinition KindInvalid =
+            ValidationKeyDefinition.Create($"{Base}.KindInvalid");
+
+        public static readonly ValidationKeyDefinition PlatformInvalid =
+            ValidationKeyDefinition.Create($"{Base}.PlatformInvalid");
+
+        public static readonly ValidationKeyDefinition DeviceRequired =
+            ValidationKeyDefinition.Create($"{Base}.DeviceRequired");
+
+        public static readonly ValidationKeyDefinition DeviceTooLong =
+            ValidationKeyDefinition.Create($"{Base}.DeviceTooLong")
+                .WithIntParameter("maxLength");
+
+        public static readonly ValidationKeyDefinition OccurredAtInvalid =
+            ValidationKeyDefinition.Create($"{Base}.OccurredAtInvalid");
+
+        public static readonly ValidationKeyDefinition NoteTooLong =
+            ValidationKeyDefinition.Create($"{Base}.NoteTooLong")
+                .WithIntParameter("maxLength");
+
+        public static readonly ValidationKeyDefinition StackTraceTooLarge =
+            ValidationKeyDefinition.Create($"{Base}.StackTraceTooLarge")
+                .WithIntParameter("maxBytes");
+
+        public static readonly ValidationKeyDefinition EventsTooLarge =
+            ValidationKeyDefinition.Create($"{Base}.EventsTooLarge")
+                .WithIntParameter("maxBytes");
+    }
+
     public static class Trip
     {
         private const string Base = "Trip";

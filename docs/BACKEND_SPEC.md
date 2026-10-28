@@ -548,7 +548,7 @@ removing it:
 | Action | Rules |
 |---|---|
 | Overview | Per account: handle, address, administrator flag, fog-sharing flag, created and last-seen instants, **counts** of trips, traces, badges and dashboard keys, and total distance. No trip, trace, place or route content is readable, and no capability exists that would make it readable. |
-| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places and keys. Removing the rider from the realm is a separate act. |
+| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places, keys, feature-flag overrides and problem reports. Removing the rider from the realm is a separate act. |
 | Revoke dashboard keys | All API keys for one account — the lost-device remedy for the one credential the realm does not issue. Does not touch the rider's session, which is the realm's to end. |
 
 Role changes take effect on the next token the realm issues, which is the
@@ -893,6 +893,86 @@ This endpoint is read-only: data is loaded by an operator running
 [`backend/INSTALL.md`](../backend/INSTALL.md#configuration). Same no-deletion-on-re-import rule
 as `/api/speedlimits`, `/api/roads` and `/api/municipality`, for the same reason.
 
+### 15.10 Feature flags
+
+`GET /api/flags` returns the remotely switchable rollouts (#810) for the caller: every flag the
+server holds a row for, with its default, and for a signed-in caller that account's override in
+place of the default where it holds one. Ordered by key.
+
+```json
+{
+  "flags": [
+    { "key": "flags-selftest", "enabled": true, "source": "account" }
+  ]
+}
+```
+
+`source` is `default` or `account`. A key matches `^[a-z0-9-]{1,64}\z` (no trailing newline). A key the server holds no
+row for is not listed, and the app keeps its compiled default for it; so does a server without
+this endpoint (404), which is what keeps flags free for a self-hoster on an older build.
+
+The list is **public**: without an `Authorization` header the answer is the defaults, so every key
+is readable by anyone. A key names a feature and says nothing the public repository doesn't.
+Which accounts hold an override is never part of the answer.
+
+An `Authorization` header that fails validation is a **401**, not the defaults. Answering it as
+anonymous would let an expired token cache the defaults over the account's overrides; the 401
+sends the app through its refresh-and-retry instead. A dashboard key (`X-Api-Key`) is not a
+bearer and gets the defaults.
+
+Covered by the global per-IP limiter only, not the anonymous policy (§15.2): that budget is sized
+for guessing at sign-in, there is nothing to guess here, and the app asks on every start and
+sign-in, so riders sharing one address would get a 429 and stale flags for nothing. Defaults and
+overrides live in the database, not in configuration, so switching one needs no deploy.
+
+### 15.11 Problem reports
+
+`POST /api/problem-reports` takes a crash the app caught or a rider's "Something's wrong" note
+(#811), with the app's recent event log:
+
+```json
+{
+  "kind": "crash",
+  "platform": "android",
+  "appVersion": "3.90.0",
+  "osVersion": "Android 15",
+  "deviceModel": "Pixel 8",
+  "occurredAt": 1761000000000,
+  "note": "Froze at the roundabout",
+  "stackTrace": "java.lang.IllegalStateException ...",
+  "events": ["service start: boot", "trip: idle -> recording"]
+}
+```
+
+`kind` is `crash` or `manual`, `platform` is `android` or `ios`, `occurredAt` is epoch
+milliseconds on the device; `note`, `stackTrace` and `events` are optional. The answer is
+**201** `{"id": "<uuid>"}`.
+
+**What a report holds:** the fields above as sent, when it arrived, and the account that sent it
+when the caller was signed in. The event log is the device's own (#819) and never holds
+coordinates. A report also has room for when it was filed as an issue and which one; nothing
+sets those yet (#820).
+
+**Who sends it:** anyone, signed in or not, because the rider who most needs to report a problem
+may be the one who cannot sign in. A valid bearer links the report to the account. An
+`Authorization` header that fails validation is a **401**, not an anonymous report, so the app
+refreshes and retries rather than filing a signed-in rider's report under nobody. Every caller
+is held to the anonymous rate-limit policy (§15.2).
+
+**Who reads it:** administrators only, through endpoints of their own (#820). Nothing here
+answers with a stored report, and nothing is sent anywhere from this server: the loop host's
+public issue is a redacted copy it makes itself.
+
+**How long it stays:** `ProblemReports:RetentionDays` (default 30) after it arrived, and at most
+the newest `ProblemReports:MaxRows` (default 5 000) in all. Both are enforced as each report
+arrives, like every other retention cap (§14), so an old report is gone by the next one rather
+than at a fixed time. A rider's reports go with their account (§13); an anonymous one leaves by
+retention alone.
+
+**Caps:** a field past its cap is a **400** (note ≤ 2 000 characters, stack trace ≤ 64 KB,
+event log ≤ 256 KB in total, app version, OS version and device model ≤ 128 characters each). A
+body past 512 KB is a **413**.
+
 ## 16. Limits and defaults
 
 | Setting | Default |
@@ -917,6 +997,10 @@ as `/api/speedlimits`, `/api/roads` and `/api/municipality`, for the same reason
 | Circle place radius | > 0 m and ≤ 50 000 m |
 | Circle places per (circle, owner) | 50 |
 | Presence events per circle | 500 newest |
+| Problem report body | 512 KB |
+| Problem report note | ≤ 2 000 characters |
+| Problem report stack trace / event log | 64 KB / 256 KB |
+| Problem reports kept | 30 days, 5 000 newest (configurable) |
 | Voice chunk | ≈20 000 base64 characters |
 | Destination candidates per offer | 1–3 |
 | Destination name | ≤ 80 characters |
