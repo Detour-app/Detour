@@ -3,6 +3,7 @@ package com.jellemax.detour
 import android.app.Application
 import com.jellemax.detour.data.BuildDefaults
 import com.jellemax.detour.data.initSharedCore
+import com.jellemax.detour.diag.EventSink
 import com.jellemax.detour.perf.PerfSink
 
 /**
@@ -25,6 +26,9 @@ class DetourApplication : Application() {
         // one place ahead of all four entry points, and it loads the settings
         // bag a touch earlier than the activity would have. #84.
         ColdStartTiming.timed("PerfSink.installIfEnabled") { PerfSink.installIfEnabled(this) }
+        // Always on, unlike PerfSink: the event log is what a problem report
+        // carries (#811), so it has to be running before anything goes wrong.
+        ColdStartTiming.timed("EventSink.install") { EventSink.install(this) }
         ColdStartTiming.timed("BuildDefaults.configure") {
             BuildDefaults.configure(
                 routingUrl = BuildConfig.ROUTING_URL,
