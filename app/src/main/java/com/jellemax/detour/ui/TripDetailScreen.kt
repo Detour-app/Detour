@@ -303,6 +303,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
             // A superseded load still calls back with a Style the newer
             // setStyle has already invalidated — same guard as RetainedMap.
             if (generation != styleGeneration[0]) return@setStyle
+            quietenLogbookMap(darkTheme, style::getLayer)
             mapOverlays = MapOverlays(style, context, darkTheme)
             // Own sources/layers for replay, set up once per style load same as
             // MapOverlays does for its own — added after, so they draw on top of
