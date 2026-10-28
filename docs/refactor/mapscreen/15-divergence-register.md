@@ -2477,6 +2477,42 @@ check 'phone speaks the gap sentence' 1 \
     "$(grep -c 'ConvoyGapAlerts.spoken.collect' app/src/main/java/com/jellemax/detour/ui/MapConvoyGap.kt)"
 ```
 
+
+---
+
+## 31. Break and regroup on the car: toasts, two pane rows, no host actions
+
+**New with `#657`** — recorded because `app/…/car/CarBreakRegroup.kt` says it reads the same
+rules as the phone's `MapBreakRegroup.kt`, and the owner's cut on #657 (2026-10-14, reusing
+#655's) gives the car a different shape.
+
+**What.** A convoy rider asks for a break, or the host drops a meeting point.
+
+**Copies.** The rules are not duplicated: both surfaces call shared
+`convoyBreakRegroupStateFrom`; the car's announce-once diff is shared `breakRequestsToAnnounce`
+and `regroupPinToAnnounce`, with `commonTest`.
+
+- Phone. `MapBreakRegroup` keeps the pills, the regroup card (distance, who is there, who is on
+  the way) and map markers on screen; Break please for everyone, Regroup and Clear for the host,
+  Route from the card at any time.
+- Car. Break please is an icon on both screens' action strips. Each new request or pin from
+  another rider is a `CarToast` on whichever screen is up. `SpinScreen` adds at most two pane
+  rows (regroup banner without the on-the-way list, then the pills) and a Regroup strip action
+  that routes to the pin. No markers on the car map, no host drop or Clear, and no Route from
+  `NavScreen` (it has no destination change).
+
+**Verdict: survive — the owner's cut.** Markers, host actions on the car, or rerouting a running
+`NavScreen` to the pin are new decisions, not drift.
+
+**Fence.**
+
+```sh
+# Entry 31 — car break/regroup. A changed count means a surface stopped reading the shared state.
+check 'car reads the shared break/regroup state' 1 \
+    "$(grep -c 'convoyBreakRegroupStateFrom(' app/src/main/java/com/jellemax/detour/car/CarBreakRegroup.kt)"
+check 'phone reads the shared break/regroup state' 1 \
+    "$(grep -c 'convoyBreakRegroupStateFrom(' app/src/main/java/com/jellemax/detour/ui/MapBreakRegroup.kt)"
+```
 ---
 
 ## §A — Summary, ranked by how user-visible the decision is
