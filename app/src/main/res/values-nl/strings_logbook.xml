@@ -15,6 +15,7 @@
     <string name="history_try_again">Opnieuw proberen</string>
     <string name="history_year_so_far">%1$d tot nu toe</string>
     <string name="history_week_streak">weken op rij</string>
+    <string name="history_avg_kmh">gem. km/u</string>
     <string name="history_collapse_month">Maand inklappen</string>
     <string name="history_expand_month">Maand uitklappen</string>
     <string name="history_this_week">Deze week</string>

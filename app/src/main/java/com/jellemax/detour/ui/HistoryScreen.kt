@@ -64,6 +64,9 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.data.Settings
+import com.jellemax.detour.presentation.formatFixed
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -562,7 +565,7 @@ private fun FullRideCard(
                         listOf(thumbnail),
                         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest),
                     )
-                    ride.chip?.let { Sticker(it, Modifier.align(Alignment.TopEnd).padding(10.dp)) }
+                    ride.chip?.let { Sticker(it, Modifier.align(Alignment.BottomStart).padding(10.dp)) }
                 }
             }
             Row(
@@ -571,14 +574,31 @@ private fun FullRideCard(
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(ride.title, style = MaterialTheme.typography.titleMedium)
-                    RideMeta(ride.trip)
+                    Text(
+                        rideDateFormat.format(ride.trip.startTimeMs),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    RideStatStrip(ride.trip, Modifier.padding(vertical = 4.dp))
                     // No map to stick it on: the sticker sits with the text instead.
                     if (thumbnail == null) ride.chip?.let { Sticker(it, Modifier.padding(top = 2.dp)) }
-                    if (ride.stampsWorthShowing) PlaceStamps(ride.places, Modifier.padding(top = 4.dp))
+                    if (ride.stampsWorthShowing) PlaceLine(ride.places)
                 }
                 menu()
             }
         }
+    }
+}
+
+/** A standout ride's numbers under its title: km, minutes, and the average
+ *  speed the trip detail shows ([Trip.avgSpeedMps], distance over the whole
+ *  duration), so the card and the detail never disagree about one ride. */
+@Composable
+private fun RideStatStrip(trip: Trip, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        StatCell(formatFixed(trip.distanceMeters / 1000, 1, Settings.decimalSeparatorChar()), "km")
+        StatCell("${trip.durationMs / 60_000}", "min")
+        StatCell("${(trip.avgSpeedMps * 3.6).roundToInt()}", stringResource(R.string.history_avg_kmh))
     }
 }
 

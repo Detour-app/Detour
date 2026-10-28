@@ -715,7 +715,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
 }
 
 /** The ride's title — the same one the Logbook shows — then one line of
- *  when, how far and on what roads, then the towns it passed as stamps.
+ *  when, how far and on what roads, then the towns it passed.
  *  The generated title names places, so it waits for them rather than
  *  flashing a placeless one first. */
 @Composable
@@ -734,7 +734,7 @@ private fun TripStoryHeader(trip: Trip, editedTitle: String?, extras: TripDetail
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        extras?.places?.takeIf { it.isNotEmpty() }?.let { PlaceStamps(it, max = Int.MAX_VALUE) }
+        extras?.places?.takeIf { it.isNotEmpty() }?.let { PlaceLine(it, max = Int.MAX_VALUE, maxLines = Int.MAX_VALUE) }
     }
 }
 
