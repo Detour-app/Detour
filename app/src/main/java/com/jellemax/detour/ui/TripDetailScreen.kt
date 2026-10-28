@@ -87,7 +87,6 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
@@ -331,15 +330,17 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
             style.addSource(GeoJsonSource(SRC_BEST_STRETCH))
             style.addSource(GeoJsonSource(SRC_HIGHLIGHTS))
             style.addLayer(LineLayer("mr-best-stretch-line", SRC_BEST_STRETCH).withProperties(
-                PropertyFactory.lineColor(COLOR_BEST_STRETCH), PropertyFactory.lineWidth(8f),
+                PropertyFactory.lineColor(COLOR_BEST_STRETCH), PropertyFactory.lineWidth(5f),
                 PropertyFactory.lineOpacity(0.85f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
-            style.addLayer(CircleLayer("mr-highlight-pins", SRC_HIGHLIGHTS).withProperties(
-                PropertyFactory.circleColor(Expression.get("color")),
-                PropertyFactory.circleRadius(Expression.get("radius")),
-                PropertyFactory.circleStrokeColor("#FFFFFF"),
-                PropertyFactory.circleStrokeWidth(2f)))
+            // Value tags (#836): one image per highlight, drawn by the effect
+            // that writes this source. Overlap allowed, so a tag never drops
+            // out when two highlights sit close; the focused one sorts on top.
+            style.addLayer(SymbolLayer("mr-highlight-tags", SRC_HIGHLIGHTS).withProperties(
+                PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.symbolSortKey(Expression.get("sort")),
+                PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
             style.addSource(GeoJsonSource(SRC_REPLAY_TRAVELLED))
             style.addSource(GeoJsonSource(SRC_REPLAY_MARKER))
             style.addLayer(LineLayer("mr-replay-travelled-line", SRC_REPLAY_TRAVELLED).withProperties(
@@ -408,13 +409,28 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
         }
     }
     var selectedHighlight by remember { mutableStateOf<String?>(null) }
+    // Tag images, plain and focused, once per highlight list and style load
+    // (a style reload drops its images); a tap only swaps which one is shown.
+    LaunchedEffect(highlights, mapStyle) {
+        val style = mapStyle ?: return@LaunchedEffect
+        val density = context.resources.displayMetrics.density
+        for (h in highlights) {
+            if (h.stretch != null) continue
+            for (focused in listOf(false, true)) {
+                style.addImage(
+                    highlightTagImageId(h.id, focused), highlightTagBitmap(h.value, h.color, focused, density),
+                )
+            }
+        }
+    }
     LaunchedEffect(highlights, selectedHighlight, mapStyle) {
         val style = mapStyle ?: return@LaunchedEffect
         (style.getSource(SRC_HIGHLIGHTS) as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(
             highlights.filter { it.stretch == null }.map { h ->
+                val focused = h.id == selectedHighlight
                 Feature.fromGeometry(Point.fromLngLat(h.at.lon, h.at.lat)).apply {
-                    addStringProperty("color", h.color)
-                    addNumberProperty("radius", if (h.id == selectedHighlight) 10 else 6)
+                    addStringProperty("icon", highlightTagImageId(h.id, focused))
+                    addNumberProperty("sort", if (focused) 1 else 0)
                 }
             }))
         val stretch = highlights.firstOrNull { it.stretch != null }?.stretch
