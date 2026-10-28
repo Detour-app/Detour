@@ -46,6 +46,15 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.EarnedAtInvalid");
     }
 
+    public static class FeatureFlag
+    {
+        private const string Base = "FeatureFlag";
+
+        public static readonly ValidationKeyDefinition KeyInvalid =
+            ValidationKeyDefinition.Create($"{Base}.KeyInvalid")
+                .WithStringParameter("key");
+    }
+
     public static class ProblemReport
     {
         private const string Base = "ProblemReport";
@@ -77,6 +86,12 @@ public static class ValidationKeys
         public static readonly ValidationKeyDefinition EventsTooLarge =
             ValidationKeyDefinition.Create($"{Base}.EventsTooLarge")
                 .WithIntParameter("maxBytes");
+
+        public static readonly ValidationKeyDefinition FiledIssueInvalid =
+            ValidationKeyDefinition.Create($"{Base}.FiledIssueInvalid");
+
+        public static readonly ValidationKeyDefinition CursorUnknown =
+            ValidationKeyDefinition.Create($"{Base}.CursorUnknown");
     }
 
     public static class Trip
