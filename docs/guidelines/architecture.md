@@ -32,7 +32,7 @@ shared/src/
 ├── androidMain/    actual impls only (KeystorePrefs, SecretBox, Platform.android)
 ├── iosMain/         actual impls + the Swift-facing Watcher classes
 ├── commonTest/     runs on JVM *and* Kotlin/Native. Best-protected tests in the repo.
-└── androidUnitTest/ tests that need a real filesystem
+└── androidHostTest/ tests that need a real filesystem
 ```
 
 ```
