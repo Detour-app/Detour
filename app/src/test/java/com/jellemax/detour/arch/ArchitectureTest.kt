@@ -103,7 +103,8 @@ class ArchitectureTest {
         val pinned = mapOf(
             // +4: #472 car-started flag on the nav start intent; +5: #500 precise-only trip start
             // +10: #590 saved-spin id on the nav start intent, carried to the saved trip
-            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1821,
+            // +13: #822 event-log lines at the start/stop/dormancy sites (helpers in Dormancy.kt, TripSession)
+            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1834,
             // +3: #456 stale-destination guard; +1: #485 MapSurface import; -1: #432 route-fetch guard
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
             // +2: #549 camera banner and the island's gap under it
@@ -120,7 +121,8 @@ class ArchitectureTest {
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
-            "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1006,
+            // +10: #653 traffic layers held and refilled on a replacement surface, as cameras are
+            "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1016,
         )
         assertUnderLimit(1000, pinned, files.associate { it.rel to it.text.count { c -> c == '\n' } })
     }

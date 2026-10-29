@@ -24,6 +24,7 @@ public class ApiConfiguration
     public MunicipalitySettings Municipality { get; set; } = new();
     public PoiSettings Poi { get; set; } = new();
     public AccountDeletionSettings AccountDeletion { get; set; } = new();
+    public ProblemReportSettings ProblemReports { get; set; } = new();
 }
 
 /// <summary>
@@ -183,4 +184,27 @@ public class AccountDeletionSettings
     /// <summary>URL that receives a JSON <c>POST</c> per self-deleted account. Blank means
     /// "do not notify".</summary>
     public string WebhookUrl { get; set; } = "";
+}
+
+/// <summary>
+/// How long problem reports (#811) are kept, and how many. Both are enforced as each report
+/// arrives (BACKEND_SPEC §14: no background jobs), so a report past either limit is gone by the
+/// next one rather than at a fixed time.
+/// </summary>
+public class ProblemReportSettings
+{
+    public const string SectionName = "ProblemReports";
+
+    /// <summary>Days a report is kept after it arrived.</summary>
+    public int RetentionDays { get; set; } = 30;
+
+    /// <summary>Reports kept at most, newest first, whatever their age.</summary>
+    public int MaxRows { get; set; } = 5000;
+
+    /// <summary>
+    /// The key behind each report's <c>reporter</c> in the administrator list (#820). Blank means
+    /// the server makes one on first use and keeps it in the database, so a restart does not
+    /// change who looks like whom. Changing it makes every reporter look new.
+    /// </summary>
+    public string ReporterKeySecret { get; set; } = "";
 }

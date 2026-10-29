@@ -263,7 +263,7 @@ fun MapScreen(
     // `navigating`, and Kotlin resolves local declarations in order.
     LaunchedEffect(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias) {
         SpinResultHolder.publish(
-            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias)
+            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.viaRide)
         )
     }
     // Following is the resting state of the map. `camSuspended` is what a pan,

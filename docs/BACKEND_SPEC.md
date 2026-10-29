@@ -25,7 +25,7 @@ Three credential paths. They never substitute for one another.
 |---|---|---|---|
 | **Rider** | Access token minted by the realm, bearer on every request | Everything under their own account, plus friend and group interactions | Read another rider's trips, ever |
 | **Dashboard reader** | Read-only API key, as a header or a query parameter | Read *only its own owner's* rides, traces, stats, badges | Write anything; read anyone else's data |
-| **Administrator** | An ordinary rider token carrying the `detour-admin` realm role | Account metadata, row counts, deleting an account, revoking its dashboard keys | Read anyone's trips, traces, places or routes |
+| **Administrator** | A realm token carrying the `detour-admin` realm role: an ordinary rider's, or a service account's (the loop host's, §13) | Account metadata, row counts, deleting an account, revoking its dashboard keys, reading and marking problem reports (§15.11) | Read anyone's trips, traces, places or routes |
 
 The live relay is not a fourth credential: it authenticates with the same rider
 token over a WebSocket upgrade.
@@ -58,9 +58,14 @@ change must keep that property.
    friendship deletes every route shared between those two people in either
    direction. The same goes for invitations to each other's planned rides.
 8. **A place shared into a circle is revoked when its owner leaves that circle.**
-9. **Administrators see account metadata and row counts only.** The rules are not
-   relaxed for them, and the guarantee is that no such capability exists —
-   not that a permission withholds it.
+9. **Administrators see account metadata, row counts and problem reports
+   only.** A problem report is the one thing a rider wrote that an administrator
+   reads: its note and its event log, which never holds coordinates but does hold
+   trip begin/end times and speeds — trip metadata an administrator can now read
+   (owner decision, #811). It never names the account. Trips, traces, places and
+   routes stay unreadable: the rules are not relaxed for administrators, and the
+   guarantee is that no such capability exists — not that a permission
+   withholds it.
 10. **Credentials are never logged.** Anything resembling a key or a token is
     redacted on its way to a log, on both the access and the error path.
 
@@ -536,20 +541,27 @@ Each entry reports its threshold, the rider's current value, when it was earned
 
 ## 13. Administration
 
-Gated on the `detour-admin` realm role, carried by an ordinary rider token.
-There is no separate admin credential, no admin session, and no browser
-dashboard: creating accounts, resetting passwords, granting the role and locking
+Gated on the `detour-admin` realm role, carried by a realm token. That is
+usually an ordinary rider's; the problem-report endpoints below also take a
+Keycloak service account's (the loop host's `client_credentials` token), which
+has no rider row and is never provisioned as one — its username would fail the
+handle rule (§4.2), and those endpoints never look the caller up. There is no
+separate admin credential, no admin session, and no browser dashboard: creating accounts, resetting passwords, granting the role and locking
 an account out are realm operations, done in the Keycloak console against the
 realm's own audit trail.
 
 What remains is what the realm cannot know — how much a rider stored here, and
-removing it:
+removing it — plus the feature flags (§15.10), which are server state rather
+than anything a rider stored:
 
 | Action | Rules |
 |---|---|
 | Overview | Per account: handle, address, administrator flag, fog-sharing flag, created and last-seen instants, **counts** of trips, traces, badges and dashboard keys, and total distance. No trip, trace, place or route content is readable, and no capability exists that would make it readable. |
-| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places and keys. Removing the rider from the realm is a separate act. |
+| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places, keys, feature-flag overrides and problem reports. Removing the rider from the realm is a separate act. |
 | Revoke dashboard keys | All API keys for one account — the lost-device remedy for the one credential the realm does not issue. Does not touch the rider's session, which is the realm's to end. |
+| Feature flags | `GET /api/admin/flags` lists every default (with when it last changed) and every per-account override with the account's id and handle. `PUT /api/admin/flags/{key}` with `{"enabled": …}` sets a default, creating the flag; `DELETE` removes it and its overrides. `PUT`/`DELETE /api/admin/flags/{key}/accounts/{accountId}` sets or removes one account's override; the flag and the account must exist (404), `accountId` being the id the overview returns. A key that doesn't match §15.10's pattern is a 400. Flags are not rider content, so invariant 9 still holds. |
+| List problem reports | `GET /api/admin/problem-reports?filed=false&limit=50&after=<id>`, oldest first (§15.11). The full report — device, note, stack trace, event log — with no user id or username; `reporter` stands in for the account. |
+| Mark a report filed | `POST /api/admin/problem-reports/{id}/filed` with `{"issue": "<https URL>"}`, once the loop host has opened its redacted public issue. |
 
 Role changes take effect on the next token the realm issues, which is the
 15-minute access-token lifetime rather than the next click.
@@ -893,6 +905,104 @@ This endpoint is read-only: data is loaded by an operator running
 [`backend/INSTALL.md`](../backend/INSTALL.md#configuration). Same no-deletion-on-re-import rule
 as `/api/speedlimits`, `/api/roads` and `/api/municipality`, for the same reason.
 
+### 15.10 Feature flags
+
+`GET /api/flags` returns the remotely switchable rollouts (#810) for the caller: every flag the
+server holds a row for, with its default, and for a signed-in caller that account's override in
+place of the default where it holds one. Ordered by key.
+
+```json
+{
+  "flags": [
+    { "key": "flags-selftest", "enabled": true, "source": "account" }
+  ]
+}
+```
+
+`source` is `default` or `account`. A key matches `^[a-z0-9-]{1,64}\z` (no trailing newline). A key the server holds no
+row for is not listed, and the app keeps its compiled default for it; so does a server without
+this endpoint (404), which is what keeps flags free for a self-hoster on an older build.
+
+The list is **public**: without an `Authorization` header the answer is the defaults, so every key
+is readable by anyone. A key names a feature and says nothing the public repository doesn't.
+Which accounts hold an override is never part of the answer.
+
+An `Authorization` header that fails validation is a **401**, not the defaults. Answering it as
+anonymous would let an expired token cache the defaults over the account's overrides; the 401
+sends the app through its refresh-and-retry instead. A dashboard key (`X-Api-Key`) is not a
+bearer and gets the defaults.
+
+Covered by the global per-IP limiter only, not the anonymous policy (§15.2): that budget is sized
+for guessing at sign-in, there is nothing to guess here, and the app asks on every start and
+sign-in, so riders sharing one address would get a 429 and stale flags for nothing. Defaults and
+overrides live in the database, not in configuration, so switching one needs no deploy.
+
+### 15.11 Problem reports
+
+`POST /api/problem-reports` takes a crash the app caught or a rider's "Something's wrong" note
+(#811), with the app's recent event log:
+
+```json
+{
+  "kind": "crash",
+  "platform": "android",
+  "appVersion": "3.90.0",
+  "osVersion": "Android 15",
+  "deviceModel": "Pixel 8",
+  "occurredAt": 1761000000000,
+  "note": "Froze at the roundabout",
+  "stackTrace": "java.lang.IllegalStateException ...",
+  "events": ["service start: boot", "trip: idle -> recording"]
+}
+```
+
+`kind` is `crash` or `manual`, `platform` is `android` or `ios`, `occurredAt` is epoch
+milliseconds on the device; `note`, `stackTrace` and `events` are optional. The answer is
+**201** `{"id": "<uuid>"}`.
+
+**What a report holds:** the fields above as sent, when it arrived, and the account that sent it
+when the caller was signed in. The event log is the device's own (#819) and never holds
+coordinates. A report also records when it was filed as a public issue and that issue's URL, which the
+loop host sets (below).
+
+**Who sends it:** anyone, signed in or not, because the rider who most needs to report a problem
+may be the one who cannot sign in. A valid bearer links the report to the account. An
+`Authorization` header that fails validation is a **401**, not an anonymous report, so the app
+refreshes and retries rather than filing a signed-in rider's report under nobody. Every caller
+is held to the anonymous rate-limit policy (§15.2).
+
+**Who reads it:** administrators only (§13), and the loop host is the one that does. Nothing is
+sent anywhere from this server: the loop host's public issue is a redacted copy it makes itself.
+
+`GET /api/admin/problem-reports` answers `{"reports": [...]}`, oldest first by arrival (then
+id). Each report has `id`, `receivedAt`, `kind`, `platform`, `appVersion`, `osVersion`,
+`deviceModel`, `occurredAt`, `note`, `stackTrace`, `events`, `reporter`, `filedAt` and
+`filedIssue`, times in epoch milliseconds. `filed=false` (or `true`) filters on whether it was
+filed; left out, it lists both. `limit` defaults to 50 and is held to 200. `after` is the last id
+of the previous page; an id that no longer exists is a **400**, and the caller starts again from
+the first page. The list runs the same retention prune as an insert before it reads.
+
+`reporter` is `HMAC-SHA256(user id)` under a server key, hex-encoded, and `null` for an
+anonymous report. One account always gives the same value and two never share one, so the loop
+host can count distinct riders behind a crash; it cannot turn the value back into an account.
+The key is `ProblemReports:ReporterKeySecret`, or, when that is blank, one the server makes on
+first use and keeps in its database, so a restart does not change it. The response carries no
+user id or username; the loop host redacts usernames from a note by reading the account list.
+
+`POST /api/admin/problem-reports/{id}/filed` with `{"issue": "<url>"}` (an https URL, at most
+512 characters) sets when it was filed and the issue, and answers **204**. Calling it again is a
+no-op that keeps the first issue. An unknown id is a **404**.
+
+**How long it stays:** `ProblemReports:RetentionDays` (default 30) after it arrived, and at most
+the newest `ProblemReports:MaxRows` (default 5 000) in all. Both are enforced as each report
+arrives, like every other retention cap (§14), so an old report is gone by the next one rather
+than at a fixed time. A rider's reports go with their account (§13); an anonymous one leaves by
+retention alone.
+
+**Caps:** a field past its cap is a **400** (note ≤ 2 000 characters, stack trace ≤ 64 KB,
+event log ≤ 256 KB in total, app version, OS version and device model ≤ 128 characters each). A
+body past 512 KB is a **413**.
+
 ## 16. Limits and defaults
 
 | Setting | Default |
@@ -917,6 +1027,10 @@ as `/api/speedlimits`, `/api/roads` and `/api/municipality`, for the same reason
 | Circle place radius | > 0 m and ≤ 50 000 m |
 | Circle places per (circle, owner) | 50 |
 | Presence events per circle | 500 newest |
+| Problem report body | 512 KB |
+| Problem report note | ≤ 2 000 characters |
+| Problem report stack trace / event log | 64 KB / 256 KB |
+| Problem reports kept | 30 days, 5 000 newest (configurable) |
 | Voice chunk | ≈20 000 base64 characters |
 | Destination candidates per offer | 1–3 |
 | Destination name | ≤ 80 characters |
