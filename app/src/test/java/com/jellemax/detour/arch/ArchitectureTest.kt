@@ -45,8 +45,13 @@ class ArchitectureTest {
 
     @Test
     fun `commonMain has no Dispatchers or withContext - section 2_1`() {
-        val banned = setOf("kotlinx.coroutines.Dispatchers", "kotlinx.coroutines.withContext", "kotlinx.coroutines.*")
-        val offenders = commonMain.filter { f -> f.imports.any { it.name in banned } }.map { it.rel }
+        val banned = setOf("kotlinx.coroutines.Dispatchers", "kotlinx.coroutines.*")
+        // withContext(NonCancellable) is §2.1's one exception: it picks no dispatcher.
+        val dispatching = Regex("""withContext\((?!NonCancellable\))""")
+        val offenders = commonMain.filter { f ->
+            f.imports.any { it.name in banned } ||
+                (f.imports.any { it.name == "kotlinx.coroutines.withContext" } && dispatching.containsMatchIn(f.text))
+        }.map { it.rel }
         assertTrue(
             "commonMain APIs are `suspend`; the caller picks the dispatcher (architecture.md §2.1):\n" +
                 offenders.joinToString("\n"),

@@ -12,6 +12,13 @@ import android.util.Log
  * Every value is stored as text, including numbers and booleans: one code path for
  * sealing, and the typed getters parse on the way out. A parse failure returns the
  * default for the same reason a decrypt failure does — see [SecretBox].
+ *
+ * Writes are `commit()`, not `apply()`. This store holds the refresh token, and the
+ * realm rotates it on every use: once a refresh has succeeded the old token is dead.
+ * `apply()` only queues the disk write, so a process killed right after a refresh — an
+ * app update does exactly that — could come back with the dead token on disk and be
+ * signed out by its next refresh (#467). The writes are a few small values every
+ * 15 minutes, next to a Keystore seal that already costs more than the commit.
  */
 internal class KeystorePrefs(private val p: SharedPreferences) : Prefs {
 
@@ -25,10 +32,10 @@ internal class KeystorePrefs(private val p: SharedPreferences) : Prefs {
             // serving a token that has just been refreshed or revoked, and the read path
             // already treats "cannot decrypt" as "no value".
             Log.w(TAG, "sealing failed for $key; removing it instead of writing stale ciphertext")
-            p.edit().remove(key).apply()
+            p.edit().remove(key).commit()
             return
         }
-        p.edit().putString(key, sealed).apply()
+        p.edit().putString(key, sealed).commit()
     }
 
     override fun string(key: String, def: String): String = read(key) ?: def
@@ -41,8 +48,8 @@ internal class KeystorePrefs(private val p: SharedPreferences) : Prefs {
     override fun put(key: String, value: Float) = write(key, value.toString())
     override fun put(key: String, value: Long) = write(key, value.toString())
 
-    override fun remove(key: String) { p.edit().remove(key).apply() }
-    override fun clear() { p.edit().clear().apply() }
+    override fun remove(key: String) { p.edit().remove(key).commit() }
+    override fun clear() { p.edit().clear().commit() }
 
     private companion object {
         const val TAG = "KeystorePrefs"

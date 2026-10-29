@@ -132,7 +132,7 @@ change; `Platform.kt:11-14` is a documented decision and reversing it is its own
 
 | Concern | Status in `commonMain` | What to do instead |
 |---|---|---|
-| `Dispatchers.*` / `withContext` | **Zero occurrences.** Not available: the module has androidTarget + iOS targets and no jvm∩native intermediate source set | Make the function `suspend` and let the caller pick the dispatcher. Every network API already does this (`RoadRoulette`, `SpeedCameras`, `Geocoder`, `CircleFixes`) |
+| `Dispatchers.*` / `withContext` | **Zero occurrences**, except `withContext(NonCancellable)` in `Auth.refresh` (picks no dispatcher; architecture.md §2.1). Not available: the module has androidTarget + iOS targets and no jvm∩native intermediate source set | Make the function `suspend` and let the caller pick the dispatcher. Every network API already does this (`RoadRoulette`, `SpeedCameras`, `Geocoder`, `CircleFixes`) |
 | Wall clock | **Exists.** `internal fun nowMs(): Long` at `shared/src/commonMain/kotlin/com/jellemax/detour/data/Angles.kt:16`, over `kotlinx.datetime.Clock.System` | See the warning below |
 | `kotlin.random.Random` | Available (common stdlib), used at `RoadRoulette.kt`, `PoiRoulette.kt`, `RoundTripPlanner.kt` | no obstacle |
 | `kotlin.math` | Available; `Angles.kt:11,13` supplies the two `java.lang.Math` degree/radian converters common Kotlin lacks | no obstacle |
