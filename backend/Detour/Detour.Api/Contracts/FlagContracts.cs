@@ -41,3 +41,24 @@ public record FlagsResponse([Required] IReadOnlyList<FlagResponse> Flags)
         ]);
     }
 }
+
+/// <summary>The value an admin call switches a default or an override to.</summary>
+public record SetFlagBody([Required] bool Enabled);
+
+/// <summary>One default as the owner sees it, with when it last changed.</summary>
+public record AdminFlagResponse(
+    [Required] string Key,
+    [Required] bool Enabled,
+    [Required] long UpdatedAtMs);
+
+/// <summary>One account's override, named so the owner can tell whose it is.</summary>
+public record AdminFlagOverrideResponse(
+    [Required] string Key,
+    [Required] Guid AccountId,
+    [Required] string Username,
+    [Required] bool Enabled);
+
+/// <summary>Every default and every override on this server, each ordered by key.</summary>
+public record AdminFlagsResponse(
+    [Required] IReadOnlyList<AdminFlagResponse> Flags,
+    [Required] IReadOnlyList<AdminFlagOverrideResponse> Overrides);
