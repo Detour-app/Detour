@@ -547,28 +547,31 @@ private fun AppRoot() {
                 // hub row is tapped (Licences did). Each renders through the same SettingsSpokeScreen,
                 // whose `when` is exhaustive over Destination.SettingsSpoke.
                 entry<Destination.SettingsAppearanceMap> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsTrackingVehicles> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsNavigation> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsFog> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsDisplaysMedia> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsServersSync> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsObd2> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsLicences> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                }
+                entry<Destination.SettingsProblemReport> { key ->
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SavedPlaces> { SavedPlacesScreen(onBack = { backStack.pop() }) }
                 entry<Destination.Routes> {

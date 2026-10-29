@@ -47,13 +47,14 @@ import kotlinx.coroutines.withContext
  * worth having.
  */
 @Composable
-fun DiagnosticsSection() {
+fun DiagnosticsSection(onReportProblem: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val tracing by Settings.perfTracing.collectAsStateWithLifecycle()
     var status by remember { mutableStateOf<String?>(null) }
 
     SettingsSection(stringResource(R.string.settings_diagnostics)) {
+        TextButton(onClick = onReportProblem) { Text(stringResource(R.string.settings_spoke_problem_report)) }
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

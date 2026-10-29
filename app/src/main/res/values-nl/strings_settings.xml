@@ -252,4 +252,28 @@
     <string name="settings_traffic_unreachable">HERE is niet bereikbaar. Controleer je verbinding en probeer het opnieuw.</string>
     <string name="settings_traffic_over_title">Gratis tegoed overschrijden</string>
     <string name="settings_traffic_over_body">Uit: verkeer pauzeert na %2$d verzoeken per maand, zodat HERE nooit rekent. Deze maand gebruikt: %1$d.</string>
+    <string name="settings_spoke_problem_report">Er is iets mis</string>
+    <string name="settings_report_what_is_sent">Wat er verstuurd wordt</string>
+    <string name="settings_report_intro">Dit gaat naar je eigen Detour-server, en pas als je op Versturen tikt. Het gebeurtenislogboek bevat geen locaties.</string>
+    <string name="settings_report_reading_log">Gebeurtenislogboek lezen…</string>
+    <string name="settings_report_platform">Platform</string>
+    <string name="settings_report_version">Appversie</string>
+    <string name="settings_report_device">Toestel</string>
+    <string name="settings_report_os">Besturingssysteem</string>
+    <string name="settings_report_time">Tijdstip</string>
+    <string name="settings_report_stack">Crash</string>
+    <plurals name="settings_report_events">
+        <item quantity="one">Gebeurtenislogboek (%1$d regel)</item>
+        <item quantity="other">Gebeurtenislogboek (%1$d regels)</item>
+    </plurals>
+    <string name="settings_report_note">Opmerking</string>
+    <string name="settings_report_note_hint">Wat gebeurde er, en wat verwachtte je?</string>
+    <string name="settings_report_send">Versturen</string>
+    <string name="settings_report_sending">Versturen…</string>
+    <string name="settings_report_retry">Opnieuw proberen</string>
+    <string name="settings_report_cancel">Annuleren</string>
+    <string name="settings_report_done">Klaar</string>
+    <string name="settings_report_sent">Melding verstuurd. Het id is %1$s.</string>
+    <string name="settings_report_unsupported">Je Detour-server neemt nog geen meldingen aan.</string>
+    <string name="settings_report_failed">De melding is niet aangekomen. Controleer je verbinding en probeer het opnieuw.</string>
 </resources>
