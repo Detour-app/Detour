@@ -183,6 +183,16 @@ class FilingTest(unittest.TestCase):
         self.assertEqual(api.posts, [(f"/api/admin/problem-reports/{report(1)['id']}/filed",
                                       {"issue": "https://github.com/o/r/issues/900"})])
 
+    def test_a_username_in_the_headline_frame_is_redacted_from_the_title(self):
+        accounts = ACCOUNTS + [{"username": "Kerkstraat", "email": None}]
+        stack = "java.lang.IllegalStateException: boom\n\tat com.jellemax.detour.Kerkstraat.go(Kerkstraat.kt:3)"
+        api, gh = FakeApi([report(1, stack=stack)], accounts=accounts), FakeGh()
+        run(api, gh)
+        (title, text, _), = gh.created
+        self.assertNotIn("kerkstraat", title.lower())
+        self.assertNotIn("kerkstraat", text.lower())
+        self.assertTrue(title.startswith("Crash: IllegalStateException at "))
+
     def test_the_same_signature_adds_a_plus_one_instead(self):
         api, gh = FakeApi([report(1), report(2, reporter="s" * 64, stack=CRASH.replace(":781)", ":800)"))]), FakeGh()
         run(api, gh)

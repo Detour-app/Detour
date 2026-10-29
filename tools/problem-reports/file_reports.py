@@ -221,7 +221,9 @@ def title_for(report, plan, names):
     if plan["anonymous"]:
         return f"Unauthenticated problem report ({platform} {version})"
     if plan["sig"]:
-        return f"Crash: {headline(plan['lines'])} ({platform} {version})"
+        # The title is public and outside the body's redaction, and a frame can carry a
+        # username (an account named like a class or package segment).
+        return f"Crash: {redact(headline(plan['lines']), names)} ({platform} {version})"
     return f"Problem report ({platform} {version})"
 
 
