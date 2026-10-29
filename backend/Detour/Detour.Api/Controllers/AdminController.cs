@@ -23,6 +23,10 @@ namespace Detour.Api.Controllers;
 /// endpoint that returns anyone's trips, traces, routes or places — the privacy rules are not
 /// relaxed for administrators, and the way that is guaranteed is that the capability does not
 /// exist rather than that a permission withholds it.
+///
+/// The one rider-written thing an administrator reads is a problem report, through
+/// <see cref="AdminProblemReportsController"/>: its note and its event log, whose trip begin/end
+/// times and speeds are trip metadata (owner decision, #811). It never names the account.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]

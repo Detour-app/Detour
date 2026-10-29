@@ -61,6 +61,7 @@ import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.diag.PermissionEvents
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.CircleSyncWorker
 import com.jellemax.detour.notif.PendingCircleOpen
@@ -180,6 +181,13 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         lifecycleScope.launch { UpdateChecker.automaticCheck(this@MainActivity) }
+    }
+
+    /** onResume, not onStart: coming back from the system's permission screen
+     *  or a permission dialog resumes the activity without stopping it. */
+    override fun onResume() {
+        super.onResume()
+        PermissionEvents.recordIfChanged(this)
     }
 
     /**

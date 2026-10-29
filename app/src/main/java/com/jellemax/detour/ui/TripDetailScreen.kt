@@ -71,6 +71,7 @@ import com.jellemax.detour.data.Gpx
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MunicipalityStore
 import com.jellemax.detour.data.RoadRoulette
+import com.jellemax.detour.data.RouteSpeed
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedSpins
 import com.jellemax.detour.data.Settings
@@ -249,8 +250,14 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
     // frame. Null means "still loading". The timestamps come along because the
     // GPX export needs them; the map only reads the coordinates.
     var trace by remember { mutableStateOf<List<TraceStore.TracePoint>?>(null) }
+    // The route's speed steps (#834), worked out with the load (a hop speed per
+    // point, then a sort) and set before [trace], so the route effect below
+    // never draws a timed trace in ink first. Null: no times to colour by.
+    var routeSteps by remember { mutableStateOf<List<Int>?>(null) }
     LaunchedEffect(trip.startTimeMs) {
-        trace = withContext(Dispatchers.IO) { loadTripPoints(trip) }
+        val loaded = withContext(Dispatchers.IO) { loadTripPoints(trip) }
+        routeSteps = withContext(Dispatchers.Default) { RouteSpeed.buckets(loaded) }
+        trace = loaded
     }
 
     val themePref by Settings.theme.collectAsStateWithLifecycle()
@@ -264,6 +271,11 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
     // (see the "Do not modify MapLibreMap.kt" constraint), so they're set up
     // and pushed to directly against the raw Style.
     var mapStyle by remember { mutableStateOf<Style?>(null) }
+    // The route's own colours (#834), read here because the style callback
+    // below isn't composable; they follow darkTheme, which keys that effect.
+    val routeInk = MaterialTheme.colorScheme.primary.toHex()
+    val routeCasing = MaterialTheme.colorScheme.surface.toHex()
+    val routeDot = MaterialTheme.colorScheme.onSurface.toHex()
     // Which style load is the current one — see the setStyle effect below.
     // Plain holder, not state: nothing recomposes on it.
     val styleGeneration = remember { intArrayOf(0) }
@@ -303,7 +315,10 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
             // A superseded load still calls back with a Style the newer
             // setStyle has already invalidated — same guard as RetainedMap.
             if (generation != styleGeneration[0]) return@setStyle
+            quietenLogbookMap(darkTheme, style::getLayer)
             mapOverlays = MapOverlays(style, context, darkTheme)
+            // The route itself, coloured by speed, over MapOverlays' (empty) one.
+            addSpeedRouteLayers(style, casingHex = routeCasing, dotHex = routeDot)
             // Own sources/layers for replay, set up once per style load same as
             // MapOverlays does for its own — added after, so they draw on top of
             // the route MapOverlays.render puts down.
@@ -344,14 +359,18 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
     // are ready — the trace load and the style load race, so either one
     // arriving last is what should trigger this.
     val fitPaddingPx = with(LocalDensity.current) { FIT_PADDING_DP.dp.roundToPx() }
-    LaunchedEffect(trace, mapOverlays) {
+    LaunchedEffect(trace, mapOverlays, mapStyle) {
         val points = trace?.map { it.at } ?: return@LaunchedEffect
         val overlays = mapOverlays ?: return@LaunchedEffect
+        val style = mapStyle ?: return@LaunchedEffect
         val map = mapLibreMap ?: return@LaunchedEffect
+        // This screen draws the route and its end dots itself (setSpeedRoute);
+        // MapOverlays only clears its own route and destination layers.
+        setSpeedRoute(style, points, routeSteps, inkHex = routeInk)
         overlays.render(
             myLocation = null,
-            destination = points.lastOrNull(),
-            routePolyline = points,
+            destination = null,
+            routePolyline = emptyList(),
             reachMeters = null,
             directionDeg = null,
             candidates = emptyList(),
@@ -714,7 +733,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
 }
 
 /** The ride's title — the same one the Logbook shows — then one line of
- *  when, how far and on what roads, then the towns it passed as stamps.
+ *  when, how far and on what roads, then the towns it passed.
  *  The generated title names places, so it waits for them rather than
  *  flashing a placeless one first. */
 @Composable
@@ -733,7 +752,7 @@ private fun TripStoryHeader(trip: Trip, editedTitle: String?, extras: TripDetail
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        extras?.places?.takeIf { it.isNotEmpty() }?.let { PlaceStamps(it, max = Int.MAX_VALUE) }
+        extras?.places?.takeIf { it.isNotEmpty() }?.let { PlaceLine(it, max = Int.MAX_VALUE, maxLines = Int.MAX_VALUE) }
     }
 }
 
