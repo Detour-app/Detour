@@ -41,6 +41,21 @@ object BuildDefaults {
     var versionName: String = "0"
         private set
 
+    /**
+     * What a problem report (#811) says the device is: [DevicePlatform], the
+     * OS release, and the phone's maker and model. Pushed in rather than read
+     * through a new `expect`, the same way [versionName] is, by
+     * [configureDevice]. A null platform means the platform didn't say, and
+     * [ProblemReports.send] then answers `Unsupported` without posting: the
+     * server takes `android` or `ios` only. A blank OS or model reads `unknown`.
+     */
+    var platform: DevicePlatform? = null
+        private set
+    var osVersion: String = ""
+        private set
+    var deviceModel: String = ""
+        private set
+
     fun configure(
         routingUrl: String = "",
         apiUrl: String = "",
@@ -56,4 +71,14 @@ object BuildDefaults {
         this.liveUrl = liveUrl
         this.versionName = versionName
     }
+
+    /** The device half, apart from [configure] so neither passes seven parameters (§8.4). */
+    fun configureDevice(platform: DevicePlatform? = null, osVersion: String = "", deviceModel: String = "") {
+        this.platform = platform
+        this.osVersion = osVersion
+        this.deviceModel = deviceModel
+    }
 }
+
+/** The platforms a problem report (#818) may name; the server refuses any other. */
+enum class DevicePlatform(val wire: String) { ANDROID("android"), IOS("ios") }
