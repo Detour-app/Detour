@@ -1,5 +1,8 @@
 package com.jellemax.detour.tracking
 
+import com.jellemax.detour.data.EventKind
+import com.jellemax.detour.data.EventLog
+
 /** What [TripTrackingService] should do with itself once nothing needs it
  *  foreground — see [dormancyDecision] and issue #90. */
 enum class DormancyDecision {
@@ -131,4 +134,34 @@ fun dormancyBlocker(
     !hasActivityRecognition -> DormancyBlocker.ACTIVITY_RECOGNITION
     !hasBackgroundLocation -> DormancyBlocker.BACKGROUND_LOCATION
     else -> DormancyBlocker.NONE
+}
+
+/**
+ * The cause [TripTrackingService.onStartCommand] logs for a start (#822). A
+ * null intent is a START_STICKY restart by the system, #490's storm; an intent
+ * without an action is [TripTrackingService.startMonitoring] (map screen, car
+ * screen, boot), which must not read as one; otherwise the action's last part.
+ */
+fun serviceStartCause(sticky: Boolean, action: String?): String = when {
+    sticky -> "sticky restart"
+    action == null -> "monitor"
+    else -> action.substringAfterLast('.')
+}
+
+/**
+ * Writes [TripTrackingService]'s dormancy outcomes to [EventLog] (#822), only
+ * when one differs from the last: the evaluation runs on every location batch,
+ * and a STAY_ALIVE line per fix would push the rest of a ride out of the log.
+ * A park the service could not honour logs what it wanted too, which is the
+ * line #490 and #491 are read against. Main thread only, like its caller.
+ */
+class DormancyEvents {
+    private var last: String? = null
+
+    fun record(decision: DormancyDecision, resolved: DormancyDecision) {
+        val outcome = if (resolved == decision) resolved.name else "${resolved.name} (wanted ${decision.name})"
+        if (outcome == last) return
+        last = outcome
+        EventLog.record(EventKind.DORMANCY, outcome)
+    }
 }

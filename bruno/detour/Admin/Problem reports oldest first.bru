@@ -1,0 +1,30 @@
+meta {
+  name: Problem reports, oldest first
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{BASE_URL}}/api/admin/problem-reports?filed={{filed}}&limit={{limit}}&after={{after}}
+  body: none
+  auth: inherit
+}
+
+params:query {
+  filed: {{filed}}
+  limit: {{limit}}
+  after: {{after}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  filed=false for the ones not filed yet; leave it out for all. limit defaults to 50, at most 200. after is the last id of the previous page; an id that is gone (filed and pruned, or past retention) answers 400, and the caller lists again from the start. Prunes past retention before it reads, like an insert. No user id or username: reporter is an HMAC of the account, null for an anonymous report.
+
+  Responses:
+  - 200: OK
+  - 400: Bad Request
+  - 403: Forbidden
+}

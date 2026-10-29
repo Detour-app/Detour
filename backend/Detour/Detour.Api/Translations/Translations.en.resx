@@ -95,6 +95,12 @@
   <data name="ProblemReport.EventsTooLarge" xml:space="preserve">
     <value>The event log is at most {0} bytes in total.</value>
   </data>
+  <data name="ProblemReport.FiledIssueInvalid" xml:space="preserve">
+    <value>A filed issue is an https URL of at most 512 characters.</value>
+  </data>
+  <data name="ProblemReport.CursorUnknown" xml:space="preserve">
+    <value>No report has that id any more; list again from the start.</value>
+  </data>
   <data name="Trip.StartTimeRequired" xml:space="preserve">
     <value>A trip needs a start time.</value>
   </data>

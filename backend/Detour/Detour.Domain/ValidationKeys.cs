@@ -86,6 +86,12 @@ public static class ValidationKeys
         public static readonly ValidationKeyDefinition EventsTooLarge =
             ValidationKeyDefinition.Create($"{Base}.EventsTooLarge")
                 .WithIntParameter("maxBytes");
+
+        public static readonly ValidationKeyDefinition FiledIssueInvalid =
+            ValidationKeyDefinition.Create($"{Base}.FiledIssueInvalid");
+
+        public static readonly ValidationKeyDefinition CursorUnknown =
+            ValidationKeyDefinition.Create($"{Base}.CursorUnknown");
     }
 
     public static class Trip
