@@ -2516,6 +2516,37 @@ check 'phone reads the shared break/regroup state' 1 \
 ```
 ---
 
+## 32. Problem reports: Android says what device it is, iOS does not yet
+
+**New with `#821`** — recorded because iOS is parked (owner decision 2026-10-27) and the shared
+client is written for both.
+
+**What.** A problem report (#811) names the platform, OS release and device model. They are pushed
+into `BuildDefaults` by `configureDevice` (`shared/…/data/BuildDefaults.kt`), the way `versionName`
+is, so there is no new `expect`.
+
+**Copies.** Android calls `BuildDefaults.configureDevice(platform = DevicePlatform.ANDROID, …)` in
+`app/…/DetourApplication.kt`. iOS calls only `BuildDefaults.shared.configure(…)` in
+`iosApp/Detour/DetourApp.swift`, so its platform stays null.
+
+**32a — an iOS report is never sent.** The server takes `android` or `ios` only, so
+`ProblemReports.send` answers `Unsupported` for a null platform instead of guessing and getting a
+400 on every try. Nothing on iOS calls `send` yet (no report UI), so nobody hits it today. The fix
+is one call next to `configure` in `DetourApp.swift`: `BuildDefaults.shared.configureDevice(
+platform: .ios, osVersion: …, deviceModel: …)`, with `UIDevice` for the last two.
+
+**Fence.**
+
+```sh
+# Entry 32 — only Android tells the shared core what device it is.
+check 'android names its platform for problem reports' 1 \
+    "$(grep -c 'platform = DevicePlatform.ANDROID' app/src/main/java/com/jellemax/detour/DetourApplication.kt)"
+check 'iOS does not configure the device yet' 0 \
+    "$(grep -c 'configureDevice' iosApp/Detour/DetourApp.swift)"
+```
+
+---
+
 ## §A — Summary, ranked by how user-visible the decision is
 
 **22 divergences.** By kind:
