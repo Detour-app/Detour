@@ -25,6 +25,8 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.data.DisplayPin
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.Settings
+import com.jellemax.detour.data.SunTimes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
@@ -611,9 +613,34 @@ object BleNavServer {
         val payload = JSONObject().apply {
             put("epochMs", now)
             put("utcOffsetMin", TimeZone.getDefault().getOffset(now) / 60_000)
+            put("light", !displayDark(context, now))
         }.toString().toByteArray()
 
         characteristic.value = payload
         notifySubscribers(characteristic)
+    }
+
+    /**
+     * The app theme preference resolved to dark yes/no, without Compose, so the
+     * display follows the same day/night call the app makes. AUTO uses the last
+     * known location, else the clock guess, like the app's own isNightNow().
+     */
+    @Suppress("MissingPermission")
+    private fun displayDark(context: Context, now: Long): Boolean = when (Settings.theme.value) {
+        Settings.Theme.LIGHT -> false
+        Settings.Theme.DARK -> true
+        Settings.Theme.SYSTEM ->
+            (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        Settings.Theme.AUTO -> {
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+            val loc = try {
+                lm.getProviders(true).mapNotNull { lm.getLastKnownLocation(it) }.maxByOrNull { it.time }
+            } catch (e: Exception) {
+                null
+            }
+            if (loc != null) SunTimes.isNight(loc.latitude, loc.longitude, now)
+            else SunTimes.isNightFallback(now)
+        }
     }
 }
