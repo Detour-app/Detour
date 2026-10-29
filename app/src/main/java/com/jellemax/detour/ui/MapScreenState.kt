@@ -11,8 +11,10 @@ import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.ViaStops
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.map.CameraAuthority
+import com.jellemax.detour.map.NavPolicy
 import kotlinx.coroutines.Job
 
 /**
@@ -59,8 +61,25 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     // activity recreation; this object only has to carry them across a
     // recomposition.
     var candidates: List<RouteCandidate> by mutableStateOf(seed.candidates)
-    var destination: LatLon? by mutableStateOf(seed.destination)
+    private var destinationState: LatLon? by mutableStateOf(seed.destination)
+
+    /** Any other destination drops [vias]: they were the stops on the way to
+     *  this one, and a dozen writers set it without knowing they exist. */
+    var destination: LatLon?
+        get() = destinationState
+        set(value) {
+            if (value != destinationState) {
+                vias = emptyList()
+                viaRide = null
+            }
+            destinationState = value
+        }
     var destinationName: String? by mutableStateOf(seed.destinationName)
+
+    /** A planned route's stops still to ride through on the way to
+     *  [destination] (#736), dropped as [followPlanned] sees them passed. */
+    var vias: List<LatLon> by mutableStateOf(seed.vias)
+        private set
     var route: RouteResult? by mutableStateOf(seed.route)
     var spinning: Boolean by mutableStateOf(false)
     var spinJob: Job? by mutableStateOf(null)
@@ -70,6 +89,35 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var navProgress: NavEngine.Progress? by mutableStateOf(null)
     var rerouting: Boolean by mutableStateOf(false)
     var lastRerouteMs: Long by mutableLongStateOf(0L)
+
+    /** Where the rider is along a line fetched through [vias], for
+     *  [followPlanned]; seeded from [SpinResult.ride], so a rotation picks the
+     *  ride up where it was. Not state: nothing draws it, and only the next
+     *  fix reads it. */
+    var viaRide: ViaStops.Ride? = seed.ride
+        private set
+
+    /**
+     * The rider at [at] moved on along [line], forward only, while [line] is
+     * one fetched through planned stops: drops the [vias] they have passed and
+     * returns where they are on it, for [NavEngine.progressAlong]. Null for
+     * any other line, which [NavEngine.progress] places on its own.
+     *
+     * Kept after the last stop is passed, until the line changes: a line
+     * through stops can ride a road twice, and its way back is where the
+     * global snap goes wrong (#736).
+     */
+    fun followPlanned(line: List<LatLon>, at: LatLon): NavEngine.Along? {
+        val ride = viaRide?.takeIf { it.line === line }
+        if (ride == null && vias.isEmpty()) {
+            viaRide = null
+            return null
+        }
+        val next = ViaStops.follow(ride, line, vias, at, NavPolicy.OFF_ROUTE_METERS).also { viaRide = it }
+        val left = ViaStops.ahead(next)
+        if (left.size < vias.size) vias = left
+        return next.along
+    }
 
     // --- camera ---------------------------------------------------------
     /** Follow/park/gesture, all three transitions dispatched through

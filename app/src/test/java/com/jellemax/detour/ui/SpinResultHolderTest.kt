@@ -50,6 +50,7 @@ class SpinResultHolderTest {
                 route = route(),
                 candidates = candidates,
                 navigating = true,
+                vias = listOf(LatLon(51.1, 4.1)),
             )
         )
         val s = SpinResultHolder.state.value
@@ -58,6 +59,7 @@ class SpinResultHolderTest {
         assertEquals(12_000.0, s.route!!.distanceMeters!!, 1e-9)
         assertEquals(1, s.candidates.size)
         assertTrue(s.navigating)
+        assertEquals(listOf(LatLon(51.1, 4.1)), s.vias)
     }
 
     /**
@@ -86,6 +88,7 @@ class SpinResultHolderTest {
             destination = LatLon(52.0, 5.0),
             name = "Bruges",
             route = route(),
+            vias = listOf(LatLon(51.5, 4.5)),
         )
         val s = SpinResultHolder.state.value
         assertEquals(LatLon(52.0, 5.0), s.destination)
@@ -94,6 +97,7 @@ class SpinResultHolderTest {
         // it is certainly not a running navigation.
         assertTrue(s.candidates.isEmpty())
         assertFalse(s.navigating)
+        assertEquals("#736: the planned stops ride along with the destination", listOf(LatLon(51.5, 4.5)), s.vias)
     }
 
     @Test
@@ -103,5 +107,6 @@ class SpinResultHolderTest {
         assertEquals(null, s.route)
         assertTrue(s.candidates.isEmpty())
         assertFalse(s.navigating)
+        assertTrue(s.vias.isEmpty())
     }
 }

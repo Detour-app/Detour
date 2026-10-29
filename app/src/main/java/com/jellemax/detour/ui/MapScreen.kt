@@ -261,9 +261,9 @@ fun MapScreen(
     // pick, a cancel, or navigation ending and clearing the result. Declared
     // here rather than beside `destination` because it now also reads
     // `navigating`, and Kotlin resolves local declarations in order.
-    LaunchedEffect(s.destination, s.destinationName, s.route, s.candidates, s.navigating) {
+    LaunchedEffect(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias) {
         SpinResultHolder.publish(
-            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating)
+            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.viaRide)
         )
     }
     // Following is the resting state of the map. `camSuspended` is what a pan,
@@ -864,7 +864,7 @@ fun MapScreen(
                 s.rerouting = true
                 scope.launch {
                     try {
-                        val route = fetchStartRoute(serverConfig, loc, start.destination, mode)
+                        val route = fetchStartRoute(serverConfig, loc, start.destination, mode, s.vias)
                         if (s.destination != start.destination) return@launch // #456: ✕'d or re-picked mid-fetch
                         s.route = route
                         beginGuidance(start.destination)

@@ -4,6 +4,7 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.SavedSpins
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.ViaStops
 
 /** A point in a route thumbnail's own coordinate box, y growing downward. */
 data class ThumbPoint(val x: Double, val y: Double)
@@ -14,30 +15,28 @@ data class RouteCard(
     val name: String,
     val subtitle: String,
     val polyline: List<LatLon>,
-    /** What the card's action pill says — see [routeOpensExternally]. */
-    val actionLabel: String,
+    /** Whether the card's action hands off to a maps app — see
+     *  [routeOpensExternally]; the pill has to say so. */
+    val opensExternally: Boolean = false,
 )
 
 /**
  * Whether riding this route hands off to an external maps app instead of
- * staying in Detour.
+ * staying in Detour: only a planned route with stops in between, and only
+ * without a usable routing server ([serverUsable]).
  *
- * `seedRouteNavigation` carries only a route's *final* stop to the map, so
- * anything past a plain A-to-B would silently drop the stops in between;
- * `RoutesScreen.navigateStopsExternally` hands those to Google Maps' directions
- * URL, which can carry real via points, instead.
+ * In-app, Go routes through those stops (#736). Without a server there is no
+ * in-app route, and the map's own fallback opens a maps app with the
+ * destination alone, so the stops leave with the route to Google Maps'
+ * directions URL instead, which carries real via points. A saved spin loop
+ * has its own path (#589) and never leaves.
  *
  * The rule is here, rather than inline at that branch, because the card's
- * action label has to agree with it. Both readings said "Ride" — same label,
- * same weight, a different app, decided by a stop count that appeared only in
- * the subtitle — so a rider tapping it had no way to know they were leaving.
+ * action label has to agree with it: a pill that says "Ride" and opens
+ * another app gives the rider no way to know they are leaving.
  */
-fun routeOpensExternally(stopCount: Int): Boolean = stopCount > 2
-
-/** [routeOpensExternally] for a whole route: a saved spin loop has many stops
- *  but rides in-app through them (#589), so only a planned route leaves. */
-fun routeOpensExternally(route: SavedRoute): Boolean =
-    !SavedSpins.isLoop(route) && routeOpensExternally(route.stops.size)
+fun routeOpensExternally(route: SavedRoute, serverUsable: Boolean): Boolean =
+    !serverUsable && !SavedSpins.isLoop(route) && ViaStops.of(route).isNotEmpty()
 
 /**
  * Marks whether the Routes screen's initial disk read has completed.
@@ -135,13 +134,14 @@ fun thumbnailPoints(
  * Pure map from stored routes to display cards. Returns the list directly,
  * not wrapped in [RoutesState] — [RoutesState] only tracks the initial-load
  * flag, which this mapper has no opinion on. See [RoutesPresenter]'s KDoc.
+ * [serverUsable] decides each card's [RouteCard.opensExternally].
  */
-fun routesStateFrom(routes: List<SavedRoute>): List<RouteCard> = routes.map { r ->
+fun routesStateFrom(routes: List<SavedRoute>, serverUsable: Boolean = true): List<RouteCard> = routes.map { r ->
     RouteCard(
         id = r.id,
         name = r.name,
         subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy),
         polyline = r.polyline,
-        actionLabel = if (routeOpensExternally(r)) "Open in Maps" else "Ride",
+        opensExternally = routeOpensExternally(r, serverUsable),
     )
 }

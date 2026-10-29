@@ -178,6 +178,8 @@
     <string name="card_peak_g">MAX. G</string>
 
     <!-- RoutesScreen.kt -->
+    <string name="routes_ride">Rijden</string>
+    <string name="routes_open_in_maps">Openen in Maps</string>
     <string name="routes_no_maps_app">Geen app om een route met meerdere stops te openen</string>
     <string name="routes_loop_join_title">Je bent niet bij de start van de lus</string>
     <string name="routes_loop_join_text">Hoe wil je deze lus oppakken? Je rijdt hem hoe dan ook één keer, in de richting waarin hij is opgeslagen.</string>

@@ -12,6 +12,7 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
@@ -25,6 +26,21 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * Where the rider at [pos] is along [route]. A line through planned stops can
+ * ride a road twice, so on one the rider is placed forward only, and a stop
+ * passed drops off every later reroute (#736); how far off the line they are
+ * stays the global answer. The ride goes to [SpinResultHolder] every fix, so
+ * a rotation carries on from it rather than from metre zero.
+ */
+private fun progressOn(s: MapScreenState, route: RouteResult, pos: LatLon): NavEngine.Progress? {
+    val global = NavEngine.progress(route, pos) ?: return null
+    val along = s.followPlanned(route.polyline, pos)
+    SpinResultHolder.keepRide(s.viaRide)
+    if (along == null) return global
+    return NavEngine.progressAlong(route, along, global.offRouteMeters) ?: global
+}
 
 /**
  * Following the route: progress, arrival, reroute — and the external display,
@@ -88,7 +104,7 @@ internal fun MapNavigationSession(
         val fix = liveFix ?: return@LaunchedEffect
         val r = s.route ?: return@LaunchedEffect
         val pos = LatLon(fix.lat, fix.lon)
-        val progress = NavEngine.progress(r, pos) ?: return@LaunchedEffect
+        val progress = progressOn(s, r, pos) ?: return@LaunchedEffect
         s.navProgress = progress
         // No setDrivenFraction here: the marker's frame loop (MapCamera.kt) fades
         // the road behind you off its own eased position. A per-fix write would
@@ -109,6 +125,7 @@ internal fun MapNavigationSession(
         when (NavPolicy.decide(
             progress = progress,
             hasDestination = dest != null,
+            stopsAhead = s.vias.isNotEmpty(),
             rerouting = s.rerouting,
             lastRerouteMs = s.lastRerouteMs,
             nowMs = now,
@@ -118,9 +135,10 @@ internal fun MapNavigationSession(
                 arrive()
                 return@LaunchedEffect
             }
-            // Off route → fresh route to the destination. Launched on the screen
-            // scope so the next GPS fix doesn't cancel the request; loops keep
-            // their drawn line (rerouting a loop would change the whole trip).
+            // Off route → fresh route to the destination, through any planned
+            // stops not yet passed (#736). Launched on the screen scope so the
+            // next GPS fix doesn't cancel the request; loops keep their drawn
+            // line (rerouting a loop would change the whole trip).
             NavPolicy.Decision.Reroute -> {
                 val target = dest ?: return@LaunchedEffect // Reroute implies a destination
                 s.rerouting = true
@@ -133,7 +151,7 @@ internal fun MapNavigationSession(
                 val heading = NavPolicy.headingHint(fix.bearingDeg, fix.speedMps)
                 scope.launch {
                     try {
-                        val fresh = fetchNavRoute(serverConfig, pos, target, mode, heading)
+                        val fresh = fetchNavRoute(serverConfig, pos, target, mode, heading, s.vias)
                         s.route = fresh
                         // #737: the new line may leave the corridor cached at the start,
                         // and this is the one moment there is signal to extend it.
