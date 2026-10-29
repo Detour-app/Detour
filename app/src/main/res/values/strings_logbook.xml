@@ -8,6 +8,9 @@
     <string name="history_filter_moto">Moto</string>
     <string name="history_filter_car">Car</string>
     <string name="history_no_rides">No rides yet.</string>
+    <!-- Ends of the speed legend under a Logbook card's map (#834). -->
+    <string name="history_speed_slow">Slow</string>
+    <string name="history_speed_fast">Fast</string>
     <string name="history_no_moto_rides">No moto rides yet.</string>
     <string name="history_no_car_rides">No car rides yet.</string>
     <string name="history_empty_title">No trips yet</string>
@@ -15,6 +18,7 @@
     <string name="history_try_again">Try again</string>
     <string name="history_year_so_far">%1$d so far</string>
     <string name="history_week_streak">week streak</string>
+    <string name="history_avg_kmh">avg km/h</string>
     <string name="history_collapse_month">Collapse month</string>
     <string name="history_expand_month">Expand month</string>
     <string name="history_this_week">This week</string>
