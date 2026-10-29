@@ -91,8 +91,8 @@ device_scoped="$(
 check 'no file on the scoped list is reached through deviceFile() (that would pool it across every rider on the device)' \
     '' "$device_scoped"
 
-check 'the scoped list still names all eight rider files' \
-    8 "$(scoped_names | wc -l | tr -d ' ')"
+check 'the scoped list still names all nine rider files' \
+    9 "$(scoped_names | wc -l | tr -d ' ')"
 
 printf '\n%d checks, %d failed\n' 8 "$fails"
 if [ "$fails" -ne 0 ]; then
