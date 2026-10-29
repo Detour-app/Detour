@@ -1,5 +1,5 @@
 plugins {
-    id("com.android.application") version "9.4.1" apply false
+    id("com.android.application") version "9.5.0" apply false
     id("com.android.library") version "9.4.1" apply false
     id("org.jetbrains.kotlin.android") version "2.4.21" apply false
     id("org.jetbrains.kotlin.multiplatform") version "2.4.21" apply false
@@ -36,7 +36,7 @@ listOf(":app", ":shared").forEach { path -> project(path) {
     }
 
     dependencies {
-        add("detektPlugins", "io.nlopez.compose.rules:detekt:0.4.22")
+        add("detektPlugins", "io.nlopez.compose.rules:detekt:0.6.8")
     }
 
     // The default `detekt` task runs without type resolution, which is enough
