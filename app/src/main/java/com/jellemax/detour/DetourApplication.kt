@@ -1,7 +1,9 @@
 package com.jellemax.detour
 
 import android.app.Application
+import android.os.Build
 import com.jellemax.detour.data.BuildDefaults
+import com.jellemax.detour.data.DevicePlatform
 import com.jellemax.detour.data.EventKind
 import com.jellemax.detour.data.EventLog
 import com.jellemax.detour.data.initSharedCore
@@ -40,6 +42,11 @@ class DetourApplication : Application() {
                 geocoderUrl = BuildConfig.GEOCODER_URL,
                 liveUrl = BuildConfig.LIVE_URL,
                 versionName = BuildConfig.VERSION_NAME,
+            )
+            BuildDefaults.configureDevice(
+                platform = DevicePlatform.ANDROID,
+                osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
             )
         }
     }

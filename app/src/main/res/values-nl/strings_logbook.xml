@@ -8,6 +8,8 @@
     <string name="history_filter_moto">Moto</string>
     <string name="history_filter_car">Auto</string>
     <string name="history_no_rides">Nog geen ritten.</string>
+    <string name="history_speed_slow">Traag</string>
+    <string name="history_speed_fast">Snel</string>
     <string name="history_no_moto_rides">Nog geen motorritten.</string>
     <string name="history_no_car_rides">Nog geen autoritten.</string>
     <string name="history_empty_title">Nog geen ritten</string>
