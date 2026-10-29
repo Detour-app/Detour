@@ -8,6 +8,9 @@
     <string name="history_filter_moto">Moto</string>
     <string name="history_filter_car">Car</string>
     <string name="history_no_rides">No rides yet.</string>
+    <!-- Ends of the speed legend under a Logbook card's map (#834). -->
+    <string name="history_speed_slow">Slow</string>
+    <string name="history_speed_fast">Fast</string>
     <string name="history_no_moto_rides">No moto rides yet.</string>
     <string name="history_no_car_rides">No car rides yet.</string>
     <string name="history_empty_title">No trips yet</string>
