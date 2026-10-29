@@ -106,3 +106,27 @@ fun convoyBreakRegroupStateFrom(
         isHost = convoy?.isOwnedBy(selfId) == true,
     )
 }
+
+/**
+ * The break requests in [current] a surface has not announced yet (#657): from
+ * another rider, and new since [announced] — a rider asking again re-stamps
+ * [BreakRequest.receivedAtMs], so that one is announced again. Oldest first,
+ * the order they arrived in. For a surface that announces rather than shows
+ * (the car's toast); the pills themselves are [convoyBreakRegroupStateFrom]'s.
+ */
+fun breakRequestsToAnnounce(
+    announced: Map<RiderId, BreakRequest>,
+    current: Map<RiderId, BreakRequest>,
+    selfId: RiderId,
+): List<BreakRequest> = current.values
+    .filter { it.riderId != selfId && announced[it.riderId]?.receivedAtMs != it.receivedAtMs }
+    .sortedBy { it.receivedAtMs }
+
+/**
+ * [current] when it is a meeting point to announce: set by someone else and
+ * not the one last announced. [announced] is the last non-null pin, so the
+ * relay replaying an unchanged pin after a reconnect (which clears it first)
+ * stays quiet.
+ */
+fun regroupPinToAnnounce(announced: RegroupPin?, current: RegroupPin?, selfId: RiderId): RegroupPin? =
+    current?.takeIf { it != announced && it.setBy != selfId }
