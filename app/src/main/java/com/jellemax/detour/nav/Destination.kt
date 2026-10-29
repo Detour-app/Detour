@@ -165,4 +165,8 @@ sealed interface Destination : NavKey {
      *  basemap attribution button (#371). */
     @Serializable
     data object SettingsLicences : SettingsSpoke
+
+    /** "Something's wrong" (#823), from Diagnostics: preview a problem report and send it. */
+    @Serializable
+    data object SettingsProblemReport : SettingsSpoke
 }

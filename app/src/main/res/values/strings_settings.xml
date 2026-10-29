@@ -255,4 +255,28 @@
     <string name="settings_traffic_unreachable">Couldn\'t reach HERE. Check your connection and try again.</string>
     <string name="settings_traffic_over_title">Go over the free allocation</string>
     <string name="settings_traffic_over_body">Off: traffic pauses at %2$d requests a month so HERE never bills you. Used this month: %1$d.</string>
+    <string name="settings_spoke_problem_report">Something\'s wrong</string>
+    <string name="settings_report_what_is_sent">What will be sent</string>
+    <string name="settings_report_intro">This goes to your own Detour server, only when you tap Send. The event log holds no locations.</string>
+    <string name="settings_report_reading_log">Reading the event log…</string>
+    <string name="settings_report_platform">Platform</string>
+    <string name="settings_report_version">App version</string>
+    <string name="settings_report_device">Device</string>
+    <string name="settings_report_os">OS version</string>
+    <string name="settings_report_time">Time</string>
+    <string name="settings_report_stack">Crash</string>
+    <plurals name="settings_report_events">
+        <item quantity="one">Event log (%1$d line)</item>
+        <item quantity="other">Event log (%1$d lines)</item>
+    </plurals>
+    <string name="settings_report_note">Note</string>
+    <string name="settings_report_note_hint">What happened, and what did you expect?</string>
+    <string name="settings_report_send">Send</string>
+    <string name="settings_report_sending">Sending…</string>
+    <string name="settings_report_retry">Try again</string>
+    <string name="settings_report_cancel">Cancel</string>
+    <string name="settings_report_done">Done</string>
+    <string name="settings_report_sent">Report sent. Its id is %1$s.</string>
+    <string name="settings_report_unsupported">Your Detour server doesn\'t accept reports yet.</string>
+    <string name="settings_report_failed">The report didn\'t arrive. Check your connection and try again.</string>
 </resources>
