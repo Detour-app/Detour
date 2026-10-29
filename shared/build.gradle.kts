@@ -1,11 +1,16 @@
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
-    id("com.android.library")
+    id("com.android.kotlin.multiplatform.library")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 kotlin {
-    androidTarget {
+    android {
+        namespace = "com.jellemax.detour.shared"
+        compileSdk = 37
+        minSdk = 26
+        // The JVM tests under src/androidHostTest (real filesystem, no device).
+        withHostTest {}
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
@@ -102,14 +107,11 @@ tasks.register<Sync>("packForXcode") {
     into(layout.buildDirectory.dir("xcode-frameworks"))
 }
 
-android {
-    namespace = "com.jellemax.detour.shared"
-    compileSdk = 37
-    defaultConfig {
-        minSdk = 26
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
+// The KMP library plugin names the host-test task testAndroidHostTest. CI
+// (.github/workflows/build.yml, ios.yml) and the skills still call
+// :shared:testDebugUnitTest, the com.android.library name, so keep it as an alias.
+tasks.register("testDebugUnitTest") {
+    group = "verification"
+    description = "Alias of testAndroidHostTest, the task name before the KMP library plugin."
+    dependsOn("testAndroidHostTest")
 }

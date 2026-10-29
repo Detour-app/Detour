@@ -132,7 +132,7 @@ change; `Platform.kt:11-14` is a documented decision and reversing it is its own
 
 | Concern | Status in `commonMain` | What to do instead |
 |---|---|---|
-| `Dispatchers.*` / `withContext` | **Zero occurrences.** Not available: the module has androidTarget + iOS targets and no jvm∩native intermediate source set | Make the function `suspend` and let the caller pick the dispatcher. Every network API already does this (`RoadRoulette`, `SpeedCameras`, `Geocoder`, `CircleFixes`) |
+| `Dispatchers.*` / `withContext` | **Zero occurrences.** Not available: the module has an Android target + iOS targets and no jvm∩native intermediate source set | Make the function `suspend` and let the caller pick the dispatcher. Every network API already does this (`RoadRoulette`, `SpeedCameras`, `Geocoder`, `CircleFixes`) |
 | Wall clock | **Exists.** `internal fun nowMs(): Long` at `shared/src/commonMain/kotlin/com/jellemax/detour/data/Angles.kt:16`, over `kotlinx.datetime.Clock.System` | See the warning below |
 | `kotlin.random.Random` | Available (common stdlib), used at `RoadRoulette.kt`, `PoiRoulette.kt`, `RoundTripPlanner.kt` | no obstacle |
 | `kotlin.math` | Available; `Angles.kt:11,13` supplies the two `java.lang.Math` degree/radian converters common Kotlin lacks | no obstacle |
@@ -296,7 +296,7 @@ Before opening a PR that touches `shared/`:
 
 Three files, 60 `@Test` — `GroupsTest.kt` (22), `ParsingTest.kt` (24), `RoutesTest.kt` (14) —
 all in `shared/src/commonTest/kotlin/com/jellemax/detour/data/`. Plus one Android-only test in
-`shared/src/androidUnitTest/` (`RouteStoreLoadOrderTest.kt`). Match what is there:
+`shared/src/androidHostTest/` (`RouteStoreLoadOrderTest.kt`). Match what is there:
 
 - **Plain `kotlin.test`**: `import kotlin.test.Test`, `assertEquals`, `assertTrue`,
   `assertNull`, `assertNotNull`, `assertFalse`. No mocking library, no test framework beyond
@@ -321,5 +321,5 @@ all in `shared/src/commonTest/kotlin/com/jellemax/detour/data/`. Plus one Androi
   scientific-notation test asserts `lon="0.0000100"` and adds the whole document to the failure
   message, because `1.0E-5` is what no GPX reader parses.
 - No file access. These run on JVM and Kotlin/Native both, so anything needing
-  `expect val fileSystem` belongs in `androidUnitTest` (which is what
+  `expect val fileSystem` belongs in `androidHostTest` (which is what
   `RouteStoreLoadOrderTest.kt` is for) or must take its input as a string.
