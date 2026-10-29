@@ -132,7 +132,7 @@ class ConvoyBreakRegroupStateTest {
     // ---- what the car announces (#657) ----
 
     @Test
-    fun `a new request from another rider is announced, your own is not`() {
+    fun `a new request from another rider is announced your own is not`() {
         val current = mapOf(
             sam to BreakRequest(sam, near, now),
             host to BreakRequest(host, far, now - 1),
@@ -141,7 +141,7 @@ class ConvoyBreakRegroupStateTest {
     }
 
     @Test
-    fun `an already announced request stays quiet, asking again is announced again`() {
+    fun `an already announced request stays quiet asking again is announced again`() {
         val first = BreakRequest(sam, near, now)
         assertTrue(breakRequestsToAnnounce(mapOf(sam to first), mapOf(sam to first), selfId = host).isEmpty())
         val again = BreakRequest(sam, near, now + 60_000)
@@ -165,7 +165,7 @@ class ConvoyBreakRegroupStateTest {
     }
 
     @Test
-    fun `a moved pin is announced, a cleared one and your own are not`() {
+    fun `a moved pin is announced a cleared one and your own are not`() {
         val pin = RegroupPin(pinAt, null, setBy = host)
         val moved = pin.copy(location = far)
         assertEquals(moved, regroupPinToAnnounce(announced = pin, current = moved, selfId = sam))
