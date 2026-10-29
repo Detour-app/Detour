@@ -551,13 +551,15 @@ an account out are realm operations, done in the Keycloak console against the
 realm's own audit trail.
 
 What remains is what the realm cannot know — how much a rider stored here, and
-removing it:
+removing it — plus the feature flags (§15.10), which are server state rather
+than anything a rider stored:
 
 | Action | Rules |
 |---|---|
 | Overview | Per account: handle, address, administrator flag, fog-sharing flag, created and last-seen instants, **counts** of trips, traces, badges and dashboard keys, and total distance. No trip, trace, place or route content is readable, and no capability exists that would make it readable. |
 | Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places, keys, feature-flag overrides and problem reports. Removing the rider from the realm is a separate act. |
 | Revoke dashboard keys | All API keys for one account — the lost-device remedy for the one credential the realm does not issue. Does not touch the rider's session, which is the realm's to end. |
+| Feature flags | `GET /api/admin/flags` lists every default (with when it last changed) and every per-account override with the account's id and handle. `PUT /api/admin/flags/{key}` with `{"enabled": …}` sets a default, creating the flag; `DELETE` removes it and its overrides. `PUT`/`DELETE /api/admin/flags/{key}/accounts/{accountId}` sets or removes one account's override; the flag and the account must exist (404), `accountId` being the id the overview returns. A key that doesn't match §15.10's pattern is a 400. Flags are not rider content, so invariant 9 still holds. |
 | List problem reports | `GET /api/admin/problem-reports?filed=false&limit=50&after=<id>`, oldest first (§15.11). The full report — device, note, stack trace, event log — with no user id or username; `reporter` stands in for the account. |
 | Mark a report filed | `POST /api/admin/problem-reports/{id}/filed` with `{"issue": "<https URL>"}`, once the loop host has opened its redacted public issue. |
 
