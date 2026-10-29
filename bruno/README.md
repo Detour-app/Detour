@@ -1,6 +1,6 @@
 # Bruno collection
 
-39 requests covering every endpoint the backend exposes, grouped by controller.
+46 requests covering every endpoint the backend exposes, grouped by controller.
 
 Open `bruno/detour` in [Bruno](https://usebruno.com), pick the **local**
 environment, and point it at the stack from [`docker/dev`](../docker/dev/README.md).
@@ -8,7 +8,7 @@ environment, and point it at the stack from [`docker/dev`](../docker/dev/README.
 ## Generated, not hand-maintained
 
 `bruno/generate.py` builds the request folders from the API's own OpenAPI
-document. Keeping 39 requests in step with controllers by hand is a collection
+document. Keeping 46 requests in step with controllers by hand is a collection
 that silently rots the first time a route changes — a request that 404s because
 the path moved looks exactly like a broken feature.
 
