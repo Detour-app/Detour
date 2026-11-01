@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     // Navigation 3 persists the back stack through kotlinx-serialization, so the
     // Destination keys need the serialization compiler plugin. The runtime
@@ -212,8 +211,8 @@ android {
     // there, since the manifest entries that register them are in
     // src/debug/AndroidManifest.xml.
     sourceSets {
-        getByName("githubRelease").java.srcDir("src/release/java")
-        getByName("automotive").java.srcDir("src/debug/java")
+        getByName("githubRelease").kotlin.directories.add("src/release/java")
+        getByName("automotive").kotlin.directories.add("src/debug/java")
     }
 
     buildFeatures {
