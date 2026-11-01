@@ -339,8 +339,8 @@ The owner flips flags with the requests in
 2. *Every account with what it holds* gives the owner's account id. *Set a
    feature flag for one account* with that id and `"enabled": true`.
 3. On the phone, restart the app (or sign out and in) and open **Settings →
-   Diagnostics → Flags**: the row reads `<key> · on · account`. Every other account
-   still reads `off`.
+   Servers & sync → Diagnostics → Flags**: the row reads `<key> · on · account`.
+   Every other account still reads `off`.
 4. **Ride it.** The PR adds an item to the field-test checklist (#809):
    `- [ ] #<issue> (PR #<pr>, flag <key>): <ride check> → then switch <key> on for everyone`.
    The flag does not go on for everyone until that item is ticked.
@@ -354,11 +354,13 @@ To pull a feature back, set the default to `false` again: no release needed.
 
 Once a flag has been on for everyone for a release with no reports against it,
 remove it in a PR of its own: delete the `FlagDef` and its `Flag.all` entry,
-keep the "on" branch of every `isOn` and drop the "off" one, and run *Delete a
-feature flag and its overrides* afterwards. Deleting the server row first is
-harmless — the app falls back to its compiled `false`, which is exactly the
-feature switching off for everyone, so do it after the release without the flag
-is out.
+keep the "on" branch of every `isOn` and drop the "off" one. Leave the server
+row at its `true` default: builds that still read the flag keep the feature on
+only while it is there. Deleting it (*Delete a feature flag and its overrides*)
+sends every one of those builds back to its compiled `false` — the feature
+switching off for everyone not yet updated — so run it only once no supported
+build reads the flag, or never. A dead row costs nothing: the key is never
+reused, and a build that doesn't know a key ignores it.
 
 To try the whole path without a real feature, use `flags-selftest`: it guards
 nothing and exists for this check.
