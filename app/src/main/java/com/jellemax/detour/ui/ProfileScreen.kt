@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
+import com.jellemax.detour.data.FeatureFlags
+import com.jellemax.detour.data.refreshQuietly
 import com.jellemax.detour.presentation.avatarInitialOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -155,7 +157,8 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                     // *local* sign-out did not finish. Navigating on that would
                     // leave the rider on the map still holding a live session.
                     runCatching { Account.signOut() }
-                        .onSuccess { onSignedOut() }
+                        // Flags: the server's signed-out defaults, not compiled ones.
+                        .onSuccess { FeatureFlags.refreshQuietly(); onSignedOut() }
                         .onFailure {
                             // runCatching swallows cancellation too; leaving
                             // the screen is not a failed sign-out to report.
