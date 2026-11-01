@@ -39,7 +39,7 @@ again.
 | `:docker-compose.routing.yml` | `osm-extract` (one-shot), `graphhopper` | you want in-app turn-by-turn and routed spin distances/ETAs. Without it, "Navigate in app" is absent and spins fall back to crow-flies |
 | `:docker-compose.search.yml` | `photon` | you want address search on your own hardware. Without it, the app uses the public `photon.komoot.io` (Settings can forbid that) |
 | `:docker-compose.cloudflare.yml` | `cloudflared` | you expose the stack through a Cloudflare tunnel — see [CLOUDFLARE.md](CLOUDFLARE.md) |
-| `:docker-compose.proxy.yml` | `proxy` (nginx) | you want one public hostname path-routed to API + GraphHopper + Photon instead of one address per service. Assumes `+routing` and `+search` are also in the list |
+| `:docker-compose.proxy.yml` | `proxy` (nginx) | you want one public hostname path-routed to API + GraphHopper + Photon instead of one address per service. Assumes `+routing` and `+search` are also in the list, and needs `ROUTING_BASE_URL` set to that hostname, or riders get no in-app navigation (see below) |
 
 The order is the colon-separated list in `.env`, e.g.
 
@@ -48,6 +48,17 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.ym
 ```
 
 `cloudflare` / `proxy` go on the end of whatever list you chose.
+
+**Breaking since app 4.1.0 (#854): announce routing or riders lose it.** The app
+used to send route requests to the server address a rider typed whenever the
+server announced no routing. It no longer does: once `/api/capabilities` answers,
+the app routes only through the `routing.baseUrl` it announces (or an address the
+rider typed under Routing). Any deployment that serves `/route` on the API's own
+address without announcing it (the `proxy` layer, your own reverse proxy,
+Cloudflare path rules) must set `ROUTING_BASE_URL` in `.env`, or its riders lose
+"Navigate in app" and routed spins once they update. A routing address announced
+on another host waits for the rider to accept it in Settings; declined, it means
+no in-app navigation either.
 
 ## First boot
 
