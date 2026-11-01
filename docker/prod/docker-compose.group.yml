@@ -1,0 +1,20 @@
+# docker/prod/docker-compose.group.yml
+#
+# Invite-only group server: imports config/keycloak/group-realm.json into the
+# bundled Keycloak on first start. Needs the idp overlay underneath it:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml:docker-compose.group.yml
+#
+# The realm ships no users and no self-registration; riders get an invite (a
+# throwaway username + temporary password) from an administrator and choose their
+# own handle and password on first sign-in. See config/keycloak/GROUP-REALM.md.
+#
+# Keycloak skips an import whose realm already exists, so restarts are safe and
+# edits to the JSON after the first start do nothing; change a live realm in the
+# admin console instead.
+
+services:
+  keycloak:
+    volumes:
+      - ./config/keycloak/group-realm.json:/opt/keycloak/data/import/group-realm.json:ro
+    command: start --import-realm

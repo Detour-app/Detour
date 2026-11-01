@@ -46,6 +46,7 @@ jobs:
           for combo in \
             "docker-compose.yml" \
             "docker-compose.yml:docker-compose.idp.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.group.yml" \
             "docker-compose.yml:docker-compose.routing.yml" \
             "docker-compose.yml:docker-compose.search.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml" \
@@ -74,6 +75,16 @@ jobs:
           export COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml
           docker compose config --format json \
             | jq -e '.services.api.depends_on | has("db") and has("keycloak")'
+
+      - name: group realm ships no users and no self-registration
+        working-directory: docker/prod
+        run: |
+          jq -e 'has("users") | not' config/keycloak/group-realm.json
+          jq -e '.registrationAllowed == false' config/keycloak/group-realm.json
+          # The overlay must mount this file, or the checks above guard nothing.
+          COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml:docker-compose.group.yml \
+            docker compose config --format json \
+            | jq -e '[.services.keycloak.volumes[] | select(.target == "/opt/keycloak/data/import/group-realm.json")] | length == 1'
 
   smoke:
     runs-on: ubuntu-latest
