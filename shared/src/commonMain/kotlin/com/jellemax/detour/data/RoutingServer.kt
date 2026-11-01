@@ -209,9 +209,12 @@ object RoutingServer {
      * Not probed (an old server with no `/api/capabilities`, or offline before
      * the first probe) keeps the full precedence, so those riders lose nothing.
      *
-     * No second "probed" flag is stored for this: [probeCapabilities] writes the
-     * announcement before the feature list, so a feature list on disk always
-     * comes with the routing state of the same probe or a later one.
+     * No second "probed" flag is stored for this: every probe goes through
+     * [rememberProbe], which writes the announcement before the feature list,
+     * so a feature list this build wrote comes with the routing state of the
+     * same probe or a later one. One written by an older build, which stored
+     * features without announcements at sign-in, can stand alone until the
+     * next probe; that rider has no routing until then.
      */
     internal fun routingResolved(
         custom: ServerConfig?,
@@ -707,29 +710,33 @@ object RoutingServer {
     suspend fun probeCapabilities() {
         val custom = loadCustom()
         val api = apiBase(custom)
-        val fetched = Capabilities.fetch(api, userAgentHeaders())
-        // Same "null leaves it alone, a parsed document always overwrites" rule
-        // as rememberServerFeatures — a failed or unparseable probe must not
-        // evict an accepted routing/geocoder base just because the rider is
-        // offline right now.
-        if (fetched != null) {
-            rememberAnnouncedService(ROUTING_KEYS, fetched.routingBaseUrl, api)
-            rememberAnnouncedService(GEOCODER_KEYS, fetched.geocoderBaseUrl, api)
-            rememberAnnouncedService(CAMERAS_KEYS, fetched.camerasBaseUrl, api)
-            rememberAnnouncedService(SPEEDLIMITS_KEYS, fetched.speedLimitsBaseUrl, api)
-            rememberAnnouncedService(ROADS_KEYS, fetched.roadsBaseUrl, api)
-            rememberAnnouncedService(MUNICIPALITY_KEYS, fetched.municipalityBaseUrl, api)
-            rememberAnnouncedService(POIS_KEYS, fetched.poisBaseUrl, api)
-        }
-        // After the announcements, not before: a stored feature list is what
-        // [routingResolved] reads as "probed", and then trusts a blank routing
-        // announcement as "none". Written first, a process death in between
-        // would leave a first probe's features beside no routing state, and the
-        // rider without routing until the next start. Each put is its own async
-        // commit on Android, but into one file, and each
-        // commit writes the whole map, so a later one on disk carries the earlier.
-        rememberServerFeatures(fetched?.features)
-        if (fetched != null) bumpRevision()
+        rememberProbe(Capabilities.fetch(api, userAgentHeaders()), api)
+    }
+
+    /**
+     * Records one capability document: every announced service, then the
+     * feature list, then a [revision] bump. The one writer of the probe's
+     * answer, shared by [probeCapabilities] and [Oidc.resolveIssuer], so a
+     * stored feature list never stands beside routing state from no probe.
+     *
+     * A null [fetched] (failed or unparseable) changes nothing, so an offline
+     * rider keeps an accepted base. Features go last: a stored list is what
+     * [routingResolved] reads as "probed", and then trusts a blank routing
+     * announcement as "none"; written first, a process death in between would
+     * leave the rider without routing until the next start. Each put commits
+     * the whole prefs file, so a later one on disk carries the earlier.
+     */
+    internal fun rememberProbe(fetched: ServerCapabilities?, api: String) {
+        if (fetched == null) return
+        rememberAnnouncedService(ROUTING_KEYS, fetched.routingBaseUrl, api)
+        rememberAnnouncedService(GEOCODER_KEYS, fetched.geocoderBaseUrl, api)
+        rememberAnnouncedService(CAMERAS_KEYS, fetched.camerasBaseUrl, api)
+        rememberAnnouncedService(SPEEDLIMITS_KEYS, fetched.speedLimitsBaseUrl, api)
+        rememberAnnouncedService(ROADS_KEYS, fetched.roadsBaseUrl, api)
+        rememberAnnouncedService(MUNICIPALITY_KEYS, fetched.municipalityBaseUrl, api)
+        rememberAnnouncedService(POIS_KEYS, fetched.poisBaseUrl, api)
+        rememberServerFeatures(fetched.features)
+        bumpRevision()
     }
 
     /**
