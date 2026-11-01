@@ -2545,6 +2545,33 @@ check 'iOS does not configure the device yet' 0 \
     "$(grep -c 'configureDevice' iosApp/Detour/DetourApp.swift)"
 ```
 
+## 33. The routing gate: Android asks the probe, iOS still asks `usable`
+
+**New with `#854`**, recorded because iOS is parked (owner decision 2026-10-27).
+
+**What.** When a server's capability probe announced no routing, the shared resolution no longer
+falls back to the general or baked address (`RoutingServer.routingResolved`). Whether routing can
+be tried is now `RoutingServer.routingUsable(config)`, re-read when `RoutingServer.revision` moves.
+
+**Copies.** Android gates on `routingUsable` in `MapBottom.kt`, `RouteEditorScreen.kt`, and in
+`LoopSpin` and `SpinPicker` in shared. iOS still gates on `ServerConfig.usable` in
+`iosApp/Detour/RouteEditorScreen.swift` (`serverUsable`) and `iosApp/Detour/SpinModel.swift`
+(two `guard server.usable`).
+
+**33a. On iOS, a server that announced no routing still offers routing.** The editor's fill and
+the spin's road path go ahead, and `RoutingClient` throws `NoRoutingServerException` instead of
+the spin taking the crow-flies path. The fix is to swap those three reads for
+`RoutingServer.shared.routingUsable(config:)`, observing `revision` through the existing
+`IntWatcher` (`FlowWatcher.kt`).
+
+**Fence.**
+
+```sh
+# Entry 33 — iOS still gates routing on ServerConfig.usable. A changed count means iOS moved.
+check 'iOS gates routing on usable, not routingUsable' 3 \
+    "$(cat iosApp/Detour/RouteEditorScreen.swift iosApp/Detour/SpinModel.swift | grep -c '\.usable')"
+```
+
 ---
 
 ## §A — Summary, ranked by how user-visible the decision is
