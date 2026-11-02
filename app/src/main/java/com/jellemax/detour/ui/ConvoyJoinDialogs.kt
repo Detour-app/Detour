@@ -199,7 +199,8 @@ internal fun SignedOutConvoyJoin() {
 }
 
 /** Whether [Flag.CONVOY_JOIN_LINK] is on, following a flags refresh that lands while the screen is
- *  up. Gates the two ways a link gets into [ConvoyJoinStore]; nothing else can put one there. */
+ *  up. Gates the paste dialog and the signed-out row; a tapped link (#764) checks the same flag
+ *  through `FeatureFlags.isOn` in MainActivity's `ConvoyInviteOpener`. */
 @Composable
 internal fun convoyJoinLinkOn(): Boolean {
     val flags by FeatureFlags.readings.collectAsStateWithLifecycle()

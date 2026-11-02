@@ -377,5 +377,14 @@ class NavActionsTest {
         assertEquals(Destination.Map, tripNotificationStack(null).first())
         assertEquals(Destination.Map, circleNotificationStack("c").first())
         assertEquals(Destination.Map, circleNotificationStack(null).first())
+        assertEquals(Destination.Map, convoyInviteStack().first())
+    }
+
+    @Test
+    fun `an invite link lands on friends, with back through the hub`() {
+        val s = convoyInviteStack().toMutableList()
+        assertEquals(Destination.Friends, s.last())
+        s.pop()
+        assertEquals(listOf(Destination.Map, Destination.Hub), s)
     }
 }

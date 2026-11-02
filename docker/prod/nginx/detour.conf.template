@@ -132,6 +132,24 @@ server {
         proxy_read_timeout 1h;
     }
 
+    # Convoy invite links (#764): the page a link opens on without the app, and
+    # the file Android reads to let the app claim that path. Both are the API's,
+    # at fixed paths outside /api. Exact matches, so nothing else at the root
+    # reaches the API.
+    location = /convoy-invite {
+        proxy_pass http://api:7500/convoy-invite;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    }
+
+    location = /.well-known/assetlinks.json {
+        proxy_pass http://api:7500/.well-known/assetlinks.json;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    }
+
     # GraphHopper. RoutingClient calls /route (GET and POST) and RoutingSupport
     # reads /info for the graph's encoded values (#586) — no /isochrone,
     # /nearest or /health from the app, so nothing else is routed.

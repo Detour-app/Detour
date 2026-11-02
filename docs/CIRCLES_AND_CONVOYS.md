@@ -112,7 +112,7 @@ answer, so ids cannot be enumerated.
 ### 4.1 Convoy invite links
 
 The server half of joining a convoy without being friends (#641, part of #634).
-No app change and no App Links yet.
+The Android app joins by pasted link (#763) or by tapping one (#764, below).
 
 | Path | Who | Answer |
 |---|---|---|
@@ -160,6 +160,61 @@ The rules, and why each one is there:
   the same rule the global limiter follows. The counters are in process memory:
   a restart resets them, and a multi-instance deployment would count per
   instance.
+
+#### Opening a link in the app (#764)
+
+The link is `<API base>/convoy-invite#<token>` (shared `convoyInviteLink`). The
+token rides in the fragment, which a browser never sends, so neither page below
+ever sees it.
+
+| Path | Answer |
+|---|---|
+| `GET /.well-known/assetlinks.json` | The Digital Asset Links file for this host: one `android_app` statement per configured applicationId, `[]` when none is configured |
+| `GET /convoy-invite` | A short page (EN + NL) saying to open the link on a phone with Detour, with a button to `AppLinks:InstallUrl` |
+
+Both are public, outside `/api`, and left out of the OpenAPI document. The
+Android manifest claims `https://<api.url host><api.url path>/convoy-invite`
+with `autoVerify`, from the `api.url` the APK was built with. Android fetches
+the asset file from that host once per install or update, and on a match a
+tapped link opens the app straight on Friends, where the join confirm screen
+takes it (signed out: sign in first, then the screen opens). No match, and the
+link opens the page in the browser. The rider can still paste the link in the
+app, which is also the only way for a server typed in Settings rather than
+baked in: a manifest can't follow a runtime setting. Tapping a link is behind
+the same `convoy-join-link` flag as pasting one.
+
+**Setting the fingerprints (self-hosters).** They are the SHA-256 of the
+certificate *your* APKs are signed with, so each deployment sets its own, in
+`docker/prod/.env`:
+
+```sh
+# release build
+keytool -list -v -keystore release.jks -alias <alias> | grep SHA256
+# debug build (applicationId suffix .debug)
+keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android | grep SHA256
+```
+
+```dotenv
+APP_LINKS_SHA256=14:6D:E9:...:44:E5
+APP_LINKS_DEBUG_SHA256=
+APP_LINKS_INSTALL_URL=https://example.org/how-to-install
+```
+
+The compose file maps these to `AppLinks:Android:0` (`io.github.maxke24.detour`)
+and `:1` (`.debug`); an entry without a fingerprint is left out. A Play-signed
+build is signed with Play's app-signing key, not the upload key: take that
+fingerprint from the Play Console. Then check what Android sees:
+
+```sh
+curl -s https://api.example.com/.well-known/assetlinks.json
+adb shell pm verify-app-links --re-verify io.github.maxke24.detour
+adb shell pm get-app-links io.github.maxke24.detour   # api.example.com: verified
+```
+
+The file must answer `200` with JSON over HTTPS, without a redirect. The
+one-hostname nginx proxy (`docker/prod/nginx`) routes both paths to the API; a
+tunnel or proxy of your own needs the same two exact paths. iOS Universal Links
+are not built.
 
 > **Path naming, learned the hard way.** Do not name anything under `/route…`.
 > A public hostname sharing a tunnel with GraphHopper matches `/route` as a
