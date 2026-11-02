@@ -286,4 +286,14 @@
     <string name="settings_report_sent">Report sent. Its id is %1$s.</string>
     <string name="settings_report_unsupported">Your Detour server doesn\'t accept reports yet.</string>
     <string name="settings_report_failed">The report didn\'t arrive. Check your connection and try again.</string>
+    <string name="settings_send_crash_reports">Send crash reports automatically</string>
+    <string name="settings_send_crash_reports_hint">After a crash, the next start sends the report to your Detour server without asking: app version, phone model and recent app events. Never locations.</string>
+    <string name="settings_force_crash">Force a crash (debug)</string>
+    <string name="crash_offer_title">Detour stopped unexpectedly</string>
+    <string name="crash_offer_body">Send a report? You can read everything it holds first.</string>
+    <string name="crash_offer_review">Review &amp; send</string>
+    <string name="crash_not_now">Not now</string>
+    <string name="crash_notice_title">Help fix crashes?</string>
+    <string name="crash_notice_body">If Detour stops unexpectedly, it can send a report to your Detour server: app version, phone model and recent app events. Never locations. You can change this in Settings → Servers &amp; sync → Diagnostics.</string>
+    <string name="crash_notice_turn_on">Turn on</string>
 </resources>
