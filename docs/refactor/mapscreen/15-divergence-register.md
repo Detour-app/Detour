@@ -2563,7 +2563,8 @@ once per link, and stepping back on a cancel are all in `shared/`. Android draws
 `app/…/ui/ConvoyJoinDialogs.kt`, from the Convoys header and the signed-out Friends screen, with
 `friends_convoy_join_*` strings in English and Dutch. iOS's Convoys section
 (`iosApp/Detour/FriendsScreen.swift` `convoysSection`) lists convoys and answers invitations but
-has no way in by link, so an iPhone rider sent a link cannot join with it. #763 is the phone's
+has no way in by link, so an iPhone rider sent a link cannot join with it. On Android both ways in are behind the remote
+flag `convoy-join-link` (default off) until it has been ridden. #763 is the phone's
 slice of #634; the iPhone's is not filed.
 
 **Verdict: survive — Android's flow, and iOS follows.** Not a product question: the iOS row binds

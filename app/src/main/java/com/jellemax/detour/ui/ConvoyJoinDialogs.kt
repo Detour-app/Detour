@@ -25,6 +25,8 @@ import com.jellemax.detour.data.ConvoyInvitePreview
 import com.jellemax.detour.data.ConvoyJoinRefusal
 import com.jellemax.detour.data.ConvoyJoinStep
 import com.jellemax.detour.data.ConvoyJoinStore
+import com.jellemax.detour.data.FeatureFlags
+import com.jellemax.detour.data.Flag
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.parseConvoyInviteLink
 import kotlinx.coroutines.CoroutineScope
@@ -179,6 +181,7 @@ private fun refusalText(refusal: ConvoyJoinRefusal): Int = when (refusal) {
  */
 @Composable
 internal fun SignedOutConvoyJoin() {
+    if (!convoyJoinLinkOn()) return
     val join by ConvoyJoinStore.state.collectAsStateWithLifecycle()
     var pasteOpen by remember { mutableStateOf(false) }
     if (join.link != null) {
@@ -193,4 +196,12 @@ internal fun SignedOutConvoyJoin() {
         }
     }
     if (pasteOpen) JoinConvoyByLinkDialog(onDismiss = { pasteOpen = false })
+}
+
+/** Whether [Flag.CONVOY_JOIN_LINK] is on, following a flags refresh that lands while the screen is
+ *  up. Gates the two ways a link gets into [ConvoyJoinStore]; nothing else can put one there. */
+@Composable
+internal fun convoyJoinLinkOn(): Boolean {
+    val flags by FeatureFlags.readings.collectAsStateWithLifecycle()
+    return flags.firstOrNull { it.key == Flag.CONVOY_JOIN_LINK.key }?.enabled ?: Flag.CONVOY_JOIN_LINK.default
 }

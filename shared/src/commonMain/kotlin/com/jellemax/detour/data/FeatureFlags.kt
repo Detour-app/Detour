@@ -25,7 +25,11 @@ object Flag {
      *  the Diagnostics list — can be checked before a real feature depends on it (#810). */
     val SELFTEST = FlagDef("flags-selftest", false)
 
-    val all: List<FlagDef> = listOf(SELFTEST)
+    /** Join a convoy by pasted invite link, with the confirm screen (#763). Remove once it has
+     *  been on for everyone. */
+    val CONVOY_JOIN_LINK = FlagDef("convoy-join-link", false)
+
+    val all: List<FlagDef> = listOf(SELFTEST, CONVOY_JOIN_LINK)
 }
 
 /** Where a [FlagReading]'s value came from. */

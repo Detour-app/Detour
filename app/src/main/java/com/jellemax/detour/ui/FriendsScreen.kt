@@ -805,8 +805,10 @@ private fun ConvoysHeader(onNew: () -> Unit) {
         Text(stringResource(R.string.friends_convoys), style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
         Row {
-            TextButton(onClick = { joinByLinkOpen = true }) {
-                Text(stringResource(R.string.friends_convoy_join_by_link))
+            if (convoyJoinLinkOn()) {
+                TextButton(onClick = { joinByLinkOpen = true }) {
+                    Text(stringResource(R.string.friends_convoy_join_by_link))
+                }
             }
             TextButton(onClick = onNew) {
                 Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
