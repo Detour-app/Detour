@@ -14,6 +14,19 @@ data class ConvoyInvite(val token: String, val expiresAtMs: Long)
 data class ConvoyGuest(val rider: RiderRef, val joinedAtMs: Long)
 
 /**
+ * What a link opens, read before joining it (#775), for the join confirm screen. [riderCount] is
+ * the accepted members, host included. [alreadyMember] is true when the caller already rides in
+ * it, in which case a join answers the convoy even if the link has since expired.
+ */
+data class ConvoyInvitePreview(
+    val convoyName: String,
+    val hostUsername: String,
+    val riderCount: Int,
+    val expiresAtMs: Long,
+    val alreadyMember: Boolean,
+)
+
+/**
  * What the host sees of the riders who came in by link. [inviteExpiresAtMs] is null when no link
  * is usable right now (none minted, revoked, or expired), which is the host's cue to offer a new
  * one rather than a share of the old.
@@ -85,24 +98,47 @@ object ConvoyInvites {
     }
 
     /**
+     * Which convoy [token] opens and who hosts it, without joining. Refuses exactly as [join]
+     * would, with the same [ConvoyJoinException], and spends from the same per-token and
+     * per-address caps, so a screen previews once per link rather than on every recomposition.
+     */
+    @Throws(Exception::class)
+    suspend fun preview(token: String): ConvoyInvitePreview = try {
+        convoyInvitePreviewFromJson(Api.requestJson("POST", "/convoys/join/preview", tokenBody(token)))
+    } catch (e: HttpStatusException) {
+        throw joinFailure(e)
+    }
+
+    /**
      * Joins the convoy [token] opens, as an accepted member, and returns it. Throws
      * [ConvoyJoinException] for a refusal §4.1 names. The token goes in the body, never the
      * path, which keeps it out of access logs.
      */
     @Throws(Exception::class)
     suspend fun join(token: String): Group = try {
-        groupFromJson(Api.requestJson("POST", "/convoys/join", buildJsonObject { put("token", token) }), "convoy")
+        groupFromJson(Api.requestJson("POST", "/convoys/join", tokenBody(token)), "convoy")
     } catch (e: HttpStatusException) {
         throw joinFailure(e)
     }
 }
 
-/** Extracted from [ConvoyInvites.join] so the status mapping is testable without a server. */
+private fun tokenBody(token: String): JsonObject = buildJsonObject { put("token", token) }
+
+/** Extracted from [ConvoyInvites.join] and [ConvoyInvites.preview] so the status mapping is
+ *  testable without a server. */
 internal fun joinFailure(e: HttpStatusException): IOException =
     ConvoyJoinRefusal.fromStatus(e.code)?.let { ConvoyJoinException(it, e) } ?: e
 
 internal fun convoyInviteFromJson(o: JsonObject): ConvoyInvite =
     ConvoyInvite(token = o.optString("token"), expiresAtMs = o.optLong("expiresAtMs"))
+
+internal fun convoyInvitePreviewFromJson(o: JsonObject): ConvoyInvitePreview = ConvoyInvitePreview(
+    convoyName = o.optString("convoyName"),
+    hostUsername = o.optString("hostUsername"),
+    riderCount = o.optInt("riderCount"),
+    expiresAtMs = o.optLong("expiresAtMs"),
+    alreadyMember = o.optBoolean("alreadyMember"),
+)
 
 internal fun convoyGuestsFromJson(o: JsonObject): ConvoyGuests = ConvoyGuests(
     inviteExpiresAtMs = if (o.has("inviteExpiresAtMs")) o.optLong("inviteExpiresAtMs") else null,
@@ -112,7 +148,11 @@ internal fun convoyGuestsFromJson(o: JsonObject): ConvoyGuests = ConvoyGuests(
 )
 
 /** A parsed invite link: the server it belongs to, and the token to join with. */
-data class ConvoyInviteLink(val serverUrl: String, val token: String)
+data class ConvoyInviteLink(val serverUrl: String, val token: String) {
+    /** True when this link was minted on [apiBase] ([SyncClient.url]), the only server a token
+     *  means anything to. A trailing slash on either side doesn't count. */
+    fun isOn(apiBase: String?): Boolean = apiBase != null && apiBase.trimEnd('/') == serverUrl
+}
 
 /**
  * The path an invite link opens, on the API host. Not under `/route…` (§4.1's path-naming note:
