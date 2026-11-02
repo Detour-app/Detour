@@ -49,7 +49,7 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.ym
 
 `cloudflare` / `proxy` go on the end of whatever list you chose.
 
-**Breaking since app 4.6.0 (#854): announce routing or riders lose it.** The app
+**Breaking since app 4.9.0 (#854): announce routing or riders lose it.** The app
 used to send route requests to the server address a rider typed whenever the
 server announced no routing. It no longer does: once `/api/capabilities` answers,
 the app routes only through the `routing.baseUrl` it announces (or an address the

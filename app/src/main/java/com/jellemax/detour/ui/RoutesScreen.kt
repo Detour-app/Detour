@@ -200,7 +200,7 @@ fun RoutesScreen(
     // as the map reads it.
     val routingRevision by RoutingServer.revision.collectAsStateWithLifecycle()
     val serverUsable = remember(routingRevision) { RoutingServer.routingUsable(RoutingServer.load()) }
-    val cards = remember(routes) { routesStateFrom(routes, serverUsable) }
+    val cards = remember(routes, serverUsable) { routesStateFrom(routes, serverUsable) }
 
     var renaming by remember { mutableStateOf<SavedRoute?>(null) }
     var deleting by remember { mutableStateOf<SavedRoute?>(null) }
