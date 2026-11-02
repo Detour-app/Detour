@@ -17,13 +17,14 @@
 # and keycloak ports. Set PROXY_REAL_IP_FROM to that host so nginx forwards the
 # rider's address rather than cloudflared's (see nginx/detour.conf.template).
 #
-# This overlay assumes +routing and +search are also in COMPOSE_FILE: the API,
-# GraphHopper and Photon are then all in this compose project and on `edge`, so
+# With +routing and +search also in COMPOSE_FILE, the API, GraphHopper and
+# Photon are all in this compose project and on `edge`, so
 # nginx addresses them as `api:7500`, `graphhopper:8989`, `photon:2322` — no IP
 # to keep in sync. PHOTON_UPSTREAM / GRAPHHOPPER_UPSTREAM are optional and only
 # used for a deployment where GraphHopper or Photon runs outside this project
 # (set them in docker/prod/.env and uncomment the matching lines in
-# nginx/detour.conf.template).
+# nginx/detour.conf.template). Without +routing or +search nginx still boots;
+# only their paths answer 502. The caddy overlay rebinds this port to loopback.
 services:
   proxy:
     image: nginx:1.29-alpine

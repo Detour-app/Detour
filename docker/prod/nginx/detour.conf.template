@@ -13,7 +13,10 @@
 # GraphHopper and Photon are in this compose project on the shared networks
 # (docker-compose.routing.yml / docker-compose.search.yml), so they're
 # addressed by service name — `graphhopper:8989` and `photon:2322` — the same
-# way `api:7500` is. No copied-in IP to keep in sync. For a deployment where
+# way `api:7500` is. No copied-in IP to keep in sync. Unlike the API, both are
+# optional layers, so they're resolved per request through Docker's DNS (see
+# `resolver` below): a stack without +routing or +search still boots, and only
+# that service's paths answer 502. For a deployment where
 # GraphHopper or Photon runs outside this project (another LAN host), the
 # GRAPHHOPPER_UPSTREAM / PHOTON_UPSTREAM env-var forms are kept below as
 # commented alternatives (envsubst blanks the ${...} inside those comments
@@ -71,10 +74,27 @@ server {
     # anything watching the logs for 5xx shouldn't page on one.
     limit_req_status 429;
 
+    # GraphHopper and Photon by name at request time, not at startup. A static
+    # `proxy_pass http://graphhopper:8989` makes nginx refuse to boot when that
+    # name doesn't resolve, i.e. in any stack without +routing (or +search).
+    # A variable in proxy_pass is resolved through `resolver` per request
+    # instead, so a missing service is a 502 on its own paths. 127.0.0.11 is
+    # Docker's embedded DNS on user-defined networks like `edge`.
+    #
+    # Keep these proxy_pass lines in the no-URI form (`http://$photon:2322`,
+    # nothing after the port): nginx then passes the request URI as is,
+    # query string included. With a URI part and a variable
+    # (`http://$photon:2322/api/`) nginx sends that URI verbatim and drops the
+    # query string, which is the whole search. Every location below already
+    # has the upstream's own path, so no URI is needed.
+    resolver 127.0.0.11 valid=30s;
+    set $photon photon;
+    set $graphhopper graphhopper;
+
     # Photon: exact "/api/" only (its query-string search endpoint).
     location = /api/ {
         limit_req zone=search_per_ip burst=20 nodelay;
-        proxy_pass http://photon:2322/api/;
+        proxy_pass http://$photon:2322;
         # Off-box Photon: comment the line above, uncomment the next, and set
         # PHOTON_UPSTREAM in docker/prod/.env (e.g. http://192.168.x.x:2322).
         # proxy_pass ${PHOTON_UPSTREAM}/api/;
@@ -88,7 +108,7 @@ server {
     # to showing coordinates.
     location = /reverse {
         limit_req zone=search_per_ip burst=20 nodelay;
-        proxy_pass http://photon:2322/reverse;
+        proxy_pass http://$photon:2322;
         # Off-box Photon: same swap as above.
         # proxy_pass ${PHOTON_UPSTREAM}/reverse;
         proxy_set_header Host $host;
@@ -117,7 +137,7 @@ server {
     # /nearest or /health from the app, so nothing else is routed.
     location /route {
         limit_req zone=route_per_ip burst=20 nodelay;
-        proxy_pass http://graphhopper:8989/route;
+        proxy_pass http://$graphhopper:8989;
         # Off-box GraphHopper: comment the line above, uncomment the next, and
         # set GRAPHHOPPER_UPSTREAM in docker/prod/.env (e.g. http://192.168.x.x:8989).
         # proxy_pass ${GRAPHHOPPER_UPSTREAM}/route;
@@ -130,7 +150,7 @@ server {
     # avoid rule this graph would 400 on. Exact match: /info is all it reads.
     location = /info {
         limit_req zone=route_per_ip burst=20 nodelay;
-        proxy_pass http://graphhopper:8989/info;
+        proxy_pass http://$graphhopper:8989;
         # Off-box GraphHopper: same swap as /route above.
         # proxy_pass ${GRAPHHOPPER_UPSTREAM}/info;
         proxy_set_header Host $host;
