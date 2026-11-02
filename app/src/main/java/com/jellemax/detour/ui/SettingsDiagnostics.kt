@@ -25,6 +25,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.R
 import com.jellemax.detour.data.AddressSource
+import com.jellemax.detour.data.FeatureFlags
+import com.jellemax.detour.data.FlagSource
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.perf.PerfSink
@@ -123,7 +125,40 @@ fun DiagnosticsSection(onReportProblem: () -> Unit) {
         }
 
         ServerConfigurationReadout()
+        FlagsReadout()
     }
+}
+
+/**
+ * The remote feature flags as this install reads them (#815): key, value, and
+ * which layer supplied it — the one place to see whether an admin override for
+ * this account has reached the phone. Read-only; flags are switched on the
+ * server. Refreshed on start, sign-in and sign-out (`refreshQuietly`), not here.
+ */
+@Composable
+private fun FlagsReadout() {
+    val flags by FeatureFlags.readings.collectAsStateWithLifecycle()
+    Column {
+        Text(stringResource(R.string.settings_flags), style = MaterialTheme.typography.titleSmall)
+        for (flag in flags) {
+            Text(
+                stringResource(
+                    R.string.settings_flag_row,
+                    flag.key,
+                    stringResource(if (flag.enabled) R.string.settings_flag_on else R.string.settings_flag_off),
+                    stringResource(flagSourceLabel(flag.source)),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@StringRes
+private fun flagSourceLabel(source: FlagSource): Int = when (source) {
+    FlagSource.DEFAULT -> R.string.settings_flag_source_default
+    FlagSource.SERVER -> R.string.settings_flag_source_server
+    FlagSource.ACCOUNT -> R.string.settings_flag_source_account
 }
 
 /**

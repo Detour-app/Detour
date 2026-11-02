@@ -200,6 +200,13 @@
     <string name="settings_source_general">ingevuld (één adres)</string>
     <string name="settings_source_baked">ingebouwde standaard</string>
     <string name="settings_source_none">niet ingesteld</string>
+    <string name="settings_flags">Vlaggen</string>
+    <string name="settings_flag_row">%1$s · %2$s · %3$s</string>
+    <string name="settings_flag_on">aan</string>
+    <string name="settings_flag_off">uit</string>
+    <string name="settings_flag_source_default">standaard</string>
+    <string name="settings_flag_source_server">server</string>
+    <string name="settings_flag_source_account">account</string>
 
     <!-- OBD2 -->
     <string name="settings_obd2_intro">Koppel de OBD2-adapter van een voertuig (een Bluetooth ELM327-dongle in de poort) voor een nauwkeurige snelheid in plaats van gps. Geen score om na te jagen, geen nieuwe geschiedenis — gewoon een nauwkeurigere snelheid zolang hij verbonden is.</string>

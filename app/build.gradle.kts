@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     // Navigation 3 persists the back stack through kotlinx-serialization, so the
     // Destination keys need the serialization compiler plugin. The runtime
@@ -87,7 +86,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "3.99.0"
+        versionName = "4.4.0"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -212,8 +211,8 @@ android {
     // there, since the manifest entries that register them are in
     // src/debug/AndroidManifest.xml.
     sourceSets {
-        getByName("githubRelease").java.srcDir("src/release/java")
-        getByName("automotive").java.srcDir("src/debug/java")
+        getByName("githubRelease").kotlin.directories.add("src/release/java")
+        getByName("automotive").kotlin.directories.add("src/debug/java")
     }
 
     buildFeatures {
