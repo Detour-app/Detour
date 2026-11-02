@@ -7,6 +7,7 @@ import com.jellemax.detour.data.DevicePlatform
 import com.jellemax.detour.data.EventKind
 import com.jellemax.detour.data.EventLog
 import com.jellemax.detour.data.initSharedCore
+import com.jellemax.detour.diag.CrashCapture
 import com.jellemax.detour.diag.EventSink
 import com.jellemax.detour.perf.PerfSink
 
@@ -33,6 +34,8 @@ class DetourApplication : Application() {
         // Always on, unlike PerfSink: the event log is what a problem report
         // carries (#811), so it has to be running before anything goes wrong.
         ColdStartTiming.timed("EventSink.install") { EventSink.install(this) }
+        // Right after the log it writes its CRASH line to (#824).
+        CrashCapture.install(BuildConfig.VERSION_NAME)
         EventLog.record(EventKind.APP_START, BuildConfig.VERSION_NAME)
         ColdStartTiming.timed("BuildDefaults.configure") {
             BuildDefaults.configure(
