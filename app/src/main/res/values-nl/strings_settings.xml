@@ -283,4 +283,14 @@
     <string name="settings_report_sent">Melding verstuurd. Het id is %1$s.</string>
     <string name="settings_report_unsupported">Je Detour-server neemt nog geen meldingen aan.</string>
     <string name="settings_report_failed">De melding is niet aangekomen. Controleer je verbinding en probeer het opnieuw.</string>
+    <string name="settings_send_crash_reports">Crashrapporten automatisch versturen</string>
+    <string name="settings_send_crash_reports_hint">Na een crash verstuurt de volgende start het rapport zonder te vragen naar je Detour-server: appversie, telefoonmodel en recente app-gebeurtenissen. Nooit locaties.</string>
+    <string name="settings_force_crash">Crash forceren (debug)</string>
+    <string name="crash_offer_title">Detour is onverwacht gestopt</string>
+    <string name="crash_offer_body">Een rapport versturen? Je kunt eerst alles lezen wat erin staat.</string>
+    <string name="crash_offer_review">Bekijken en versturen</string>
+    <string name="crash_not_now">Niet nu</string>
+    <string name="crash_notice_title">Crashes helpen oplossen?</string>
+    <string name="crash_notice_body">Als Detour onverwacht stopt, kan het een rapport naar je Detour-server sturen: appversie, telefoonmodel en recente app-gebeurtenissen. Nooit locaties. Je kunt dit wijzigen in Instellingen → Servers &amp; sync → Diagnose.</string>
+    <string name="crash_notice_turn_on">Inschakelen</string>
 </resources>

@@ -1,0 +1,44 @@
+# The public entry for docker-compose.caddy.yml: TLS for one hostname, nothing
+# else. Every path decision past "is this Keycloak" stays in nginx
+# (nginx/detour.conf.template), so its /route and search rate limits keep
+# applying to everything a rider reaches.
+#
+# Caddy expands env placeholders over the whole file before parsing, comments
+# included, so this header names them without the brace syntax:
+#   DETOUR_HOSTNAME  the one public name; Let's Encrypt is issued for it.
+#   ACME_EMAIL       optional. Blank = an ACME account without an address.
+#                    `internal` = Caddy's own local CA, for a desk check with
+#                    no public DNS (trust it with `caddy trust` or curl -k).
+
+{$DETOUR_HOSTNAME} {
+	# The block is what lets `tls` take zero arguments when ACME_EMAIL is
+	# blank: a bare `tls` is a parse error. tls1.2 is Caddy's default minimum
+	# already, so the line changes nothing on its own.
+	tls {$ACME_EMAIL} {
+		protocols tls1.2
+	}
+
+	# Keycloak's admin console and admin REST API are not public. Reach them
+	# over an SSH tunnel to 127.0.0.1:KC_PORT instead (KC_HOSTNAME_ADMIN in
+	# .env). Caddy cleans the path before matching, so /auth//admin or
+	# /auth/realms/../admin land here too. A regexp rather than `path`, because
+	# Keycloak ignores matrix parameters: /auth/admin;x/... is the admin
+	# console to it, but its first segment is "admin;x" to a `path` glob.
+	@kc_admin path_regexp ^/auth/admin([/;]|$)
+	handle @kc_admin {
+		respond 403
+	}
+
+	# Keycloak serves under /auth (KC_HTTP_RELATIVE_PATH), so the path goes
+	# through unchanged. Caddy sets X-Forwarded-For/-Proto/-Host and drops any
+	# the client sent; Keycloak reads them (KC_PROXY_HEADERS=xforwarded).
+	@kc path /auth /auth/*
+	handle @kc {
+		reverse_proxy keycloak:8080
+	}
+
+	# Everything else: the API, GraphHopper and Photon, path-routed by nginx.
+	handle {
+		reverse_proxy proxy:80
+	}
+}

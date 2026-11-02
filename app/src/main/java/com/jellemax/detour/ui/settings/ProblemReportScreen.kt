@@ -46,26 +46,27 @@ import kotlinx.coroutines.withContext
  * a note, and nothing leaves the phone until they tap Send.
  *
  * What is shown is the [ProblemReport] that [ProblemReports.send] posts, the
- * same instance, not a description of it. With a [crash] the report is about
- * that crash (#824 opens this screen with one) and the crash is forgotten once
- * the server has it.
+ * same instance, not a description of it. [withCrash] (the after-crash offer,
+ * #824) attaches the crash waiting in [CrashStore], and the crash is forgotten
+ * once the server has it. Cancel leaves it waiting, so the next start offers it
+ * again.
  */
 @Composable
-fun ProblemReportScreen(onClose: () -> Unit, modifier: Modifier = Modifier, crash: PendingCrash? = null) {
+fun ProblemReportScreen(onClose: () -> Unit, modifier: Modifier = Modifier, withCrash: Boolean = false) {
     val scope = rememberCoroutineScope()
     var note by rememberSaveable { mutableStateOf("") }
     // Saveable so a rotation after Sent doesn't offer to send it a second time.
     var sentId by rememberSaveable { mutableStateOf<String?>(null) }
     var notSent by remember { mutableStateOf<SendResult?>(null) }
     var sending by remember { mutableStateOf(false) }
-    // Null until read: the log is a file, and the first read flushes the writer.
-    val events by produceState<List<String>?>(null) {
-        value = withContext(Dispatchers.IO) { EventSink.lines() }
+    // Null until read: the log and the crash are files, and the first log read
+    // flushes the writer. A crash already sent (a rotation after Sent) reads as
+    // none, and the report as manual; sentId keeps Send from coming back.
+    val loaded by produceState<Loaded?>(null) {
+        value = withContext(Dispatchers.IO) { Loaded.read(withCrash) }
     }
-    val kind = if (crash != null) ProblemReportKind.CRASH else ProblemReportKind.MANUAL
-    val report = remember(note, events) {
-        events?.let { ProblemReports.preview(kind, note, crash, it) }
-    }
+    val crash = loaded?.crash
+    val report = remember(note, loaded) { loaded?.preview(note) }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SettingsSection(stringResource(R.string.settings_report_what_is_sent)) {
@@ -131,6 +132,21 @@ fun ProblemReportScreen(onClose: () -> Unit, modifier: Modifier = Modifier, cras
                 }
             }
         }
+    }
+}
+
+/** What the screen reads off the disk before it can show a preview. */
+private data class Loaded(val events: List<String>, val crash: PendingCrash?) {
+
+    /** About the crash when there is one, else a manual report. */
+    fun preview(note: String): ProblemReport {
+        val kind = if (crash != null) ProblemReportKind.CRASH else ProblemReportKind.MANUAL
+        return ProblemReports.preview(kind, note, crash, events)
+    }
+
+    companion object {
+        /** Disk reads, and the log read flushes its writer: off the main thread. */
+        fun read(withCrash: Boolean) = Loaded(EventSink.lines(), if (withCrash) CrashStore.pending() else null)
     }
 }
 

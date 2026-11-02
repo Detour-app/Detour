@@ -85,6 +85,7 @@ import com.jellemax.detour.ui.InstalledNotesDialog
 import com.jellemax.detour.ui.CircleDetailScreen
 import com.jellemax.detour.ui.CirclesScreen
 import com.jellemax.detour.ui.CoverageMapScreen
+import com.jellemax.detour.ui.CrashPrompts
 import com.jellemax.detour.ui.FriendsScreen
 import com.jellemax.detour.ui.HistoryScreen
 import com.jellemax.detour.ui.HubScreen
@@ -359,6 +360,13 @@ private fun AppRoot() {
 
     // map.
     val backStack = rememberNavBackStack(Destination.Map)
+
+    // The after-crash offer and the crash-report notice (#824), after the
+    // release notes rather than stacked on top of them.
+    CrashPrompts(
+        held = installedNotes != null,
+        onReviewCrash = { backStack.push(Destination.SettingsProblemReport(withCrash = true)) },
+    )
 
     // A tapped arrival/departure notification opens straight to that circle,
     // wherever the app was.
