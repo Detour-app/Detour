@@ -331,7 +331,7 @@ class SessionSwitchTest {
         // An override is one account's; the next rider reads their own bucket's cache.
         assertFalse(FeatureFlags.loaded, "FeatureFlags kept the previous rider's cache as loaded")
         assertEquals(
-            listOf(FlagReading(Flag.SELFTEST.key, Flag.SELFTEST.default, FlagSource.DEFAULT)),
+            Flag.all.map { FlagReading(it.key, it.default, FlagSource.DEFAULT) },
             FeatureFlags.readings.value,
             "FeatureFlags kept the previous rider's account overrides",
         )

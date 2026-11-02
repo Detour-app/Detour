@@ -62,7 +62,7 @@ Check this before deciding something "can't be shared":
 
 | Concern | In `commonMain`? | What to do |
 | --- | --- | --- |
-| `Dispatchers.*` / `withContext` | **No — zero occurrences, and none possible** | make the function `suspend`; the caller picks the dispatcher |
+| `Dispatchers.*` / `withContext` | **No**, with one exception: `withContext(NonCancellable)`, which picks no dispatcher | make the function `suspend`; the caller picks the dispatcher. `NonCancellable` only shields a write that must not be lost to the caller's cancel (`Auth.refresh`, #467: the realm has already rotated the token). `ArchitectureTest` allows `withContext` with that argument and no other |
 | Wall clock | **Yes** — `internal fun nowMs()` in `data/Angles.kt:16` | prefer a `nowMs: Long` **parameter** anyway; a machine that reads the clock itself is untestable |
 | `kotlin.random.Random`, `kotlin.math` | yes | no obstacle |
 | JSON | kotlinx-serialization + the lenient shim in `data/Json.kt` | `org.json.JSONObject` (still in `app/net/`) must be ported before that code moves |
