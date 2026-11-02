@@ -22,13 +22,13 @@ Not run: the Docker image, Postgres, a reverse proxy, a phone.
 ## Commands
 
 Inside the stack, `kcadm.sh` runs in the Keycloak container against its own
-port. `$KC_ADMIN_USERNAME` / `$KC_ADMIN_PASSWORD` are the administrator from
-`.env`:
+port, signed in as the administrator you created in the master realm
+(README, "The realm is not created for you", step 7):
 
 ```sh
 docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
   --server http://localhost:8080 --realm master \
-  --user "$KC_ADMIN_USERNAME" --password "$KC_ADMIN_PASSWORD"
+  --user <your administrator>   # prompts for the password
 ```
 
 The remaining commands are written as `kcadm.sh …`; prefix them with
@@ -53,6 +53,9 @@ actions, so list users and filter:
 kcadm.sh get users -r detour --fields id,username,requiredActions \
   | jq '[.[] | select(.requiredActions | length > 0)]'
 ```
+
+The admin API returns the first 100 users by default; a server with more needs
+paging.
 
 **Revoke an invite**: `kcadm.sh delete users/<id> -r detour`.
 
