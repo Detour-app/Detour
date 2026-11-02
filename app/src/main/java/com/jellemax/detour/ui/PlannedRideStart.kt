@@ -63,7 +63,8 @@ internal class PlannedRideStart(
             }
             val route = ride.route
             if (route == null) onRide() else rideSavedRoute(
-                context, route, loopRide, RoutingServer.load().usable, onStatus = { error = it }, onRide,
+                context, route, loopRide, RoutingServer.routingUsable(RoutingServer.load()),
+                onStatus = { error = it }, onRide,
             )
         }
     }
