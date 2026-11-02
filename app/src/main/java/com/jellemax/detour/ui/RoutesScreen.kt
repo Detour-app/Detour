@@ -196,8 +196,10 @@ fun RoutesScreen(
     // once, at the initial load) still gates the loading spinner below so it
     // doesn't flash empty before that first read completes.
     val routes by RouteStore.routes.collectAsStateWithLifecycle()
-    // Read once per visit, as the map reads it: whether Ride can route in-app.
-    val serverUsable = remember { RoutingServer.routingUsable(RoutingServer.load()) }
+    // Whether Ride can route in-app, re-read when a capabilities probe lands,
+    // as the map reads it.
+    val routingRevision by RoutingServer.revision.collectAsStateWithLifecycle()
+    val serverUsable = remember(routingRevision) { RoutingServer.routingUsable(RoutingServer.load()) }
     val cards = remember(routes) { routesStateFrom(routes, serverUsable) }
 
     var renaming by remember { mutableStateOf<SavedRoute?>(null) }
