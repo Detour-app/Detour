@@ -15,7 +15,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -28,6 +27,7 @@ import com.jellemax.detour.data.ConvoyJoinStep
 import com.jellemax.detour.data.ConvoyJoinStore
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.parseConvoyInviteLink
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
@@ -84,12 +84,15 @@ internal fun JoinConvoyByLinkDialog(onDismiss: () -> Unit) {
  * re-running after the answer spends none of the link's attempts. A preview or join cut off by
  * rotation or by leaving the screen steps back in the store, so the screen that comes back asks
  * the server again (one more attempt) or offers Join again, rather than spinning forever.
+ *
+ * [scope] is the caller's, not one remembered here: a finished join clears the link, which takes
+ * this dialog out of composition while [ConvoyJoinStore.join] is still reloading the convoy list,
+ * and a scope of its own would cancel that reload and leave the new convoy off the list.
  */
 @Composable
-internal fun ConvoyJoinConfirmDialog() {
+internal fun ConvoyJoinConfirmDialog(scope: CoroutineScope) {
     val state by ConvoyJoinStore.state.collectAsStateWithLifecycle()
     val link = state.link ?: return
-    val scope = rememberCoroutineScope()
     LaunchedEffect(link) { ConvoyJoinStore.check() }
 
     val step = state.step

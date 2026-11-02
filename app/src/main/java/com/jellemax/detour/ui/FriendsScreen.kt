@@ -774,7 +774,7 @@ private fun ConvoysSection() {
     }
 
     // A link held for this rider, pasted above or opened before they signed in (#763).
-    ConvoyJoinConfirmDialog()
+    ConvoyJoinConfirmDialog(scope)
     if (createOpen) {
         CreateConvoyDialog(
             onDismiss = { createOpen = false },
