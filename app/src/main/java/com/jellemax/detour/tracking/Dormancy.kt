@@ -30,7 +30,7 @@ enum class DormancyDecision {
  * synchronously — before `ensureLocationUpdates()`'s first callback can arrive
  * — and [stationary] is still whatever activity recognition last said, which
  * for a rider who has just pulled away is `STILL`. So the service parked again
- * roughly 60 ms after waking, armed a fresh fence 150 m further on, and
+ * roughly 60 ms after waking, armed a fresh fence further on (then 150 m), and
  * repeated that the length of the ride. Measured on a 1 km mock route at
  * 45 km/h: two wake/re-park cycles, no trip and no trace recorded at all,
  * on a route that clears the auto-start gate comfortably.
