@@ -53,6 +53,8 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.AuthException
+import com.jellemax.detour.data.FeatureFlags
+import com.jellemax.detour.data.refreshQuietly
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.RoutingSupport
@@ -117,6 +119,9 @@ class MainActivity : ComponentActivity() {
         ReopenNotification.cancel(this)
         enableEdgeToEdge()
         ColdStartTiming.timed("Settings.init") { Settings.init() }
+        // After Settings.init, which the account bucket and server address read
+        // from. Off the main thread: a cache read and a network round trip.
+        FeatureFlags.refreshQuietly()
         if (Settings.externalDisplayEnabled.value) BleNavServer.start(this)
         // Cheap, synchronous no-op unless signed in with a server configured
         // (see the function's own doc) - safe to call unconditionally on
@@ -211,6 +216,9 @@ class MainActivity : ComponentActivity() {
                 PendingSignIn.succeed(Auth.username.value)
                 // Now that there is a session, register this install for push.
                 Push.refresh(this@MainActivity)
+                // And ask again for the flags: the start-up answer was the
+                // signed-out defaults, without this account's overrides.
+                FeatureFlags.refreshQuietly()
             } catch (e: Exception) {
                 // Oidc.complete's own AuthExceptions carry a sentence written
                 // for the rider; anything else (network, token endpoint) is
@@ -547,28 +555,31 @@ private fun AppRoot() {
                 // hub row is tapped (Licences did). Each renders through the same SettingsSpokeScreen,
                 // whose `when` is exhaustive over Destination.SettingsSpoke.
                 entry<Destination.SettingsAppearanceMap> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsTrackingVehicles> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsNavigation> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsFog> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsDisplaysMedia> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsServersSync> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsObd2> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsLicences> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                }
+                entry<Destination.SettingsProblemReport> { key ->
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SavedPlaces> { SavedPlacesScreen(onBack = { backStack.pop() }) }
                 entry<Destination.Routes> {

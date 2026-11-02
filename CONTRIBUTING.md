@@ -280,6 +280,91 @@ match the server's `CapabilitiesResponse` spelling exactly; renaming one side
 without the other breaks the pair silently, since unknown features are
 ignored rather than rejected.
 
+## Shipping behind a flag
+
+A merged change reaches every rider with the next release. A new user-visible
+behaviour on a riding path (navigation, trip tracking, convoy, alerts) ships
+instead behind a remote flag that defaults to **off**, gets ridden on the
+owner's account first, and is switched on for everyone from the backend with no
+second release (#810). Fixes to existing behaviour don't get a flag.
+
+Flags are not [`Features`](shared/src/commonMain/kotlin/com/jellemax/detour/data/Features.kt):
+those are compiled kill switches no server can change.
+
+### Add the flag
+
+Add a `FlagDef` to `Flag` in
+[`shared/.../data/FeatureFlags.kt`](shared/src/commonMain/kotlin/com/jellemax/detour/data/FeatureFlags.kt)
+and list it in `Flag.all`:
+
+```kotlin
+/** Ride saved routes in-app (#736). Remove once it has been on for everyone. */
+val IN_APP_ROUTES = FlagDef("in-app-routes", false)
+
+val all: List<FlagDef> = listOf(SELFTEST, IN_APP_ROUTES)
+```
+
+- The default is `false`. It is what a rider gets with no server, an
+  unreachable one, or a self-hosted server without the flags endpoint — so
+  "off" must be the old behaviour, working.
+- The key must match `^[a-z0-9-]{1,64}$` (the backend refuses anything else)
+  and is never reused for a different feature: an account's override outlives
+  the code that read it.
+- A key missing from `Flag.all` is ignored even when the server sends it.
+- A plain `val`, not `const`, for the Swift reason `Flag`'s KDoc gives.
+- Name the flag in the PR body.
+
+### Gate on it
+
+```kotlin
+if (FeatureFlags.isOn(Flag.IN_APP_ROUTES)) rideInApp(route) else handOffToMaps(route)
+```
+
+`isOn` is a plain read of the current value. The value changes when a refresh
+lands (app start, sign-in, sign-out), so a composable that must follow it
+collects `FeatureFlags.readings` instead of calling `isOn` once in a
+`remember`. Gate at the entry point of the feature — the button, the screen,
+the call that starts it — rather than at every line it touches, so removing the
+flag later is one `if`.
+
+### Switch it
+
+The owner flips flags with the requests in
+[`bruno/detour/Admin/`](bruno/detour/Admin/), signed in as an account with the
+`detour-admin` realm role ([bruno/README.md](bruno/README.md)). The `key` and
+`accountId` placeholders live in `environments/local.bru`.
+
+1. *Set a feature flag default* with `"enabled": false`. The server has no row
+   for a key until this runs, and an override needs the row.
+2. *Every account with what it holds* gives the owner's account id. *Set a
+   feature flag for one account* with that id and `"enabled": true`.
+3. On the phone, restart the app (or sign out and in) and open **Settings →
+   Servers & sync → Diagnostics → Flags**: the row reads `<key> · on · account`.
+   Every other account still reads `off`.
+4. **Ride it.** The PR adds an item to the field-test checklist (#809):
+   `- [ ] #<issue> (PR #<pr>, flag <key>): <ride check> → then switch <key> on for everyone`.
+   The flag does not go on for everyone until that item is ticked.
+5. *Set a feature flag default* with `"enabled": true`. Everyone without an
+   override gets it on their next refresh; the row reads `<key> · on · server`.
+   *Remove one account's override* tidies up the owner's.
+
+To pull a feature back, set the default to `false` again: no release needed.
+
+### Remove it
+
+Once a flag has been on for everyone for a release with no reports against it,
+remove it in a PR of its own: delete the `FlagDef` and its `Flag.all` entry,
+keep the "on" branch of every `isOn` and drop the "off" one. Leave the server
+row at its `true` default: builds that still read the flag keep the feature on
+only while it is there. Deleting it (*Delete a feature flag and its overrides*)
+sends every one of those builds back to its compiled `false` — the feature
+switching off for everyone not yet updated — so run it only once no supported
+build reads the flag, or never. A dead row costs nothing: the key is never
+reused, and a build that doesn't know a key ignores it.
+
+To try the whole path without a real feature, use `flags-selftest`: it guards
+nothing and exists for this check.
+
 ## Code style
 
 Comments in this repo explain **why**, not what — a line like
