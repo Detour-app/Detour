@@ -53,6 +53,8 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.AuthException
+import com.jellemax.detour.data.FeatureFlags
+import com.jellemax.detour.data.refreshQuietly
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.RoutingSupport
@@ -61,6 +63,7 @@ import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.diag.PermissionEvents
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.CircleSyncWorker
 import com.jellemax.detour.notif.PendingCircleOpen
@@ -116,6 +119,9 @@ class MainActivity : ComponentActivity() {
         ReopenNotification.cancel(this)
         enableEdgeToEdge()
         ColdStartTiming.timed("Settings.init") { Settings.init() }
+        // After Settings.init, which the account bucket and server address read
+        // from. Off the main thread: a cache read and a network round trip.
+        FeatureFlags.refreshQuietly()
         if (Settings.externalDisplayEnabled.value) BleNavServer.start(this)
         // Cheap, synchronous no-op unless signed in with a server configured
         // (see the function's own doc) - safe to call unconditionally on
@@ -182,6 +188,13 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { UpdateChecker.automaticCheck(this@MainActivity) }
     }
 
+    /** onResume, not onStart: coming back from the system's permission screen
+     *  or a permission dialog resumes the activity without stopping it. */
+    override fun onResume() {
+        super.onResume()
+        PermissionEvents.recordIfChanged(this)
+    }
+
     /**
      * Spends the authorization code from a `detour://auth/callback` redirect.
      *
@@ -203,6 +216,9 @@ class MainActivity : ComponentActivity() {
                 PendingSignIn.succeed(Auth.username.value)
                 // Now that there is a session, register this install for push.
                 Push.refresh(this@MainActivity)
+                // And ask again for the flags: the start-up answer was the
+                // signed-out defaults, without this account's overrides.
+                FeatureFlags.refreshQuietly()
             } catch (e: Exception) {
                 // Oidc.complete's own AuthExceptions carry a sentence written
                 // for the rider; anything else (network, token endpoint) is

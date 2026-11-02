@@ -1,118 +1,88 @@
 package com.jellemax.detour.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.jellemax.detour.data.LogbookItem
 import com.jellemax.detour.data.PlaceVisit
 
-/* The Logbook's scrapbook pieces — highlight stickers and town stamps —
+/* The Logbook's card pieces — the highlight sticker and the towns line —
  * shared by the ride cards and the trip detail screen. */
 
-/** How many towns a ride card stamps before counting the rest. */
-private const val MAX_STAMPS = 4
-private const val STICKER_TILT_DEG = 3f
-private const val STAMP_TILT_DEG = 1.5f
+/** How many towns a ride card names before counting the rest. */
+private const val MAX_PLACES = 4
 private val NEW_PLACE_DARK = Color(0xFF6CC4A8)
 private val NEW_PLACE_LIGHT = Color(0xFF1B7A62)
 
-/** A ride's one highlight ([LogbookItem.Ride.chip]), as a tilted sticker slapped
- *  on its map: the Logbook should read like a scrapbook, not a report. */
+/** A ride's one highlight ([LogbookItem.Ride.chip]), as a flat pill on its
+ *  map: one visual language with the rest of the card, no tilt, no shadow. */
 @Composable
 internal fun Sticker(text: String, modifier: Modifier = Modifier) {
     Surface(
-        modifier = modifier.rotate(STICKER_TILT_DEG),
-        shape = RoundedCornerShape(8.dp),
+        modifier = modifier,
+        shape = CircleShape,
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
-        shadowElevation = 3.dp,
     ) {
         Text(
-            text.uppercase(),
+            text,
             style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = 0.8.sp,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
     }
 }
 
-/** The towns a ride passed through, as passport stamps: towns never ridden
- *  before first, dashed and in [newPlaceColor], then the familiar ones, up to
- *  [max] with the rest counted. */
-@OptIn(ExperimentalLayoutApi::class)
+/** The towns a ride passed through, as one line of text: towns never ridden
+ *  before first and in [newPlaceColor], then the familiar ones muted, up to
+ *  [max] with the rest counted. [maxLines] 1 ellipsises a long line on the
+ *  card; the trip detail lets it wrap. */
 @Composable
-internal fun PlaceStamps(places: List<PlaceVisit>, modifier: Modifier = Modifier, max: Int = MAX_STAMPS) {
+internal fun PlaceLine(
+    places: List<PlaceVisit>,
+    modifier: Modifier = Modifier,
+    max: Int = MAX_PLACES,
+    maxLines: Int = 1,
+) {
     val ordered = places.filter { it.isNew } + places.filterNot { it.isNew }
     val shown = ordered.take(max)
     val newColor = newPlaceColor()
-    FlowRow(
-        modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
+    val text = buildAnnotatedString {
         shown.forEachIndexed { i, place ->
-            // Alternating tilt: stamps pressed by hand, not typeset.
-            val tilt = if (i % 2 == 0) -STAMP_TILT_DEG else STAMP_TILT_DEG
-            if (place.isNew) {
-                Stamp(place.name, newColor, dashed = true, Modifier.rotate(tilt))
+            if (i > 0) append(" · ")
+            if (place.isNew) withStyle(SpanStyle(color = newColor, fontWeight = FontWeight.SemiBold)) {
+                append(place.name)
             } else {
-                Stamp(place.name, MaterialTheme.colorScheme.onSurfaceVariant, dashed = false)
+                append(place.name)
             }
         }
-        if (ordered.size > shown.size) {
-            Stamp("+${ordered.size - shown.size}", MaterialTheme.colorScheme.onSurfaceVariant, dashed = false)
-        }
+        if (ordered.size > shown.size) append(" +${ordered.size - shown.size}")
     }
-}
-
-@Composable
-private fun Stamp(text: String, color: Color, dashed: Boolean, modifier: Modifier = Modifier) {
-    val outline = if (dashed) color else MaterialTheme.colorScheme.outlineVariant
     Text(
-        text.uppercase(),
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = 0.6.sp,
-        color = color,
-        modifier = modifier
-            .drawBehind {
-                val w = 1.5.dp.toPx()
-                val dash = if (dashed) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null
-                drawRoundRect(
-                    outline,
-                    topLeft = Offset(w / 2, w / 2),
-                    size = Size(size.width - w, size.height - w),
-                    cornerRadius = CornerRadius(8.dp.toPx()),
-                    style = Stroke(width = w, pathEffect = dash),
-                )
-            }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+        text,
+        modifier,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
     )
 }
 
 /** Teal for a town ridden for the first time — apart from the amber/blue
  *  primary, so "new" never reads as just another highlight. Darker on a
- *  light surface to keep the stamp text readable. */
+ *  light surface to keep the text readable. */
 @Composable
 private fun newPlaceColor(): Color =
     if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) NEW_PLACE_DARK else NEW_PLACE_LIGHT

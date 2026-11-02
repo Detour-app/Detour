@@ -8,9 +8,11 @@ data class TraceSegment(
 )
 
 /** Every trip's trace, thumbnail-sized, plus the towns it entered — one walk of
- *  the trace store for the whole Logbook. */
+ *  the trace store for the whole Logbook. [speeds] holds each thumbnail's
+ *  [RouteSpeed.buckets], one per hop; a trip without timed points has none. */
 data class MatchedTraces(
     val thumbnails: Map<Long, List<LatLon>>,
+    val speeds: Map<Long, List<Int>>,
     val visits: List<Pair<Trip, List<Municipality>>>,
 )
 
@@ -19,6 +21,7 @@ data class MatchedTraces(
 data class LogbookData(
     val trips: List<Trip>,
     val thumbnails: Map<Long, List<LatLon>>,
+    val speeds: Map<Long, List<Int>>,
     val places: Map<Long, List<PlaceVisit>>,
     val titles: Map<Long, String>,
     val milestones: List<LogbookItem.Milestone>,
@@ -115,17 +118,21 @@ object TripTraces {
      *  no matching trace has neither. */
     fun match(segments: List<TraceSegment>, trips: List<Trip>, municipalities: List<Municipality>): MatchedTraces {
         val thumbnails = HashMap<Long, List<LatLon>>()
+        val speeds = HashMap<Long, List<Int>>()
         val visits = ArrayList<Pair<Trip, List<Municipality>>>(trips.size)
         for (trip in trips) {
-            val points = matchTripPoints(segments, trip).map { it.at }
+            val points = matchTripPoints(segments, trip)
             if (points.isEmpty()) continue
-            visits += trip to TripInsights.visitedInOrder(points, municipalities)
-            thumbnails[trip.startTimeMs] = if (points.size > THUMBNAIL_MAX_POINTS) {
+            visits += trip to TripInsights.visitedInOrder(points.map { it.at }, municipalities)
+            val thumbnail = if (points.size > THUMBNAIL_MAX_POINTS) {
                 val step = points.size / THUMBNAIL_MAX_POINTS
                 points.filterIndexed { i, _ -> i % step == 0 }
             } else points
+            thumbnails[trip.startTimeMs] = thumbnail.map { it.at }
+            // From the thumbnail's own points, so each step lines up with a drawn hop.
+            RouteSpeed.buckets(thumbnail)?.let { speeds[trip.startTimeMs] = it }
         }
-        return MatchedTraces(thumbnails, visits)
+        return MatchedTraces(thumbnails, speeds, visits)
     }
 
     /** The Logbook for [trips]. The caller loads those itself: Android reads
@@ -136,6 +143,7 @@ object TripTraces {
         return LogbookData(
             trips = trips,
             thumbnails = traces.thumbnails,
+            speeds = traces.speeds,
             places = Logbook.placesByTrip(traces.visits),
             titles = TripTitleStore.load(),
             milestones = BadgeStore.earned().map { (def, at) -> LogbookItem.Milestone(def.title, at) },

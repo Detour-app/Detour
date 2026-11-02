@@ -1,0 +1,23 @@
+meta {
+  name: Every feature flag default and override
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{BASE_URL}}/api/admin/flags
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Defaults ordered by key, and every per-account override with the account's id and username. The id is the one GET /api/admin/accounts returns.
+
+  Responses:
+  - 200: OK
+  - 403: Forbidden
+}

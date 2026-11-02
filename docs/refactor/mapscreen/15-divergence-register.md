@@ -2444,7 +2444,110 @@ check 'car traffic line has no icon' 0 \
 
 ---
 
-## 30. Joining a convoy by invite link: Android only
+## 30. Convoy gap alerts on the car: a transient English toast, no voice
+
+**New with `#655`** — recorded because `app/…/car/DetourCarSession.kt` says its toast shows the
+sentence the phone speaks, and the owner's decision on #655 (2026-10-14) chose a different shape
+for the car than the phone's banner.
+
+**What.** A convoy rider falls behind, stops or loses signal.
+
+**Copies.** The rule is not duplicated: `ConvoyGapAlerts` in `app/…/convoy/` runs shared
+`convoyGapTick` once per process, and both surfaces read its output.
+
+- Phone. `ConvoyGapBanner` in `app/…/ui/MapConvoyGap.kt` keeps one line per alerted rider on
+  screen while the alert holds, worded by `map_convoy_gap_*` resources (Dutch too), and
+  `MapConvoyGapVoice` speaks `ConvoyGapAlerts.spoken` while `MapScreen` is composed.
+- Car. `DetourCarSession.toastConvoyGapAlerts` shows each `ConvoyGapAlerts.spoken` sentence as a
+  `CarToast` on whichever car screen is up, while the session is started. English only (the
+  spoken sentence), gone after a few seconds, and nothing on the car shows an alert that still
+  holds. The car does not speak: nothing in the app knows a car is connected, so a car voice
+  would say every line twice. A rider who never opened the phone's map hears nothing.
+
+**Verdict: survive — the owner's first cut.** `NavigationTemplate` has no free text slot that
+stays on screen; a persistent car banner, or Dutch on the car, is a new decision, not drift.
+
+**Fence.**
+
+```sh
+# Entry 30 — car gap alerts. A changed count means the car started speaking or stopped toasting.
+check 'car toasts the spoken gap sentence' 1 \
+    "$(grep -c 'ConvoyGapAlerts.spoken.collect' app/src/main/java/com/jellemax/detour/car/DetourCarSession.kt)"
+check 'phone speaks the gap sentence' 1 \
+    "$(grep -c 'ConvoyGapAlerts.spoken.collect' app/src/main/java/com/jellemax/detour/ui/MapConvoyGap.kt)"
+```
+
+
+---
+
+## 31. Break and regroup on the car: toasts, two pane rows, no host actions
+
+**New with `#657`** — recorded because `app/…/car/CarBreakRegroup.kt` says it reads the same
+rules as the phone's `MapBreakRegroup.kt`, and the owner's cut on #657 (2026-10-14, reusing
+#655's) gives the car a different shape.
+
+**What.** A convoy rider asks for a break, or the host drops a meeting point.
+
+**Copies.** The rules are not duplicated: both surfaces call shared
+`convoyBreakRegroupStateFrom`; the car's announce-once diff is shared `breakRequestsToAnnounce`
+and `regroupPinToAnnounce`, with `commonTest`.
+
+- Phone. `MapBreakRegroup` keeps the pills, the regroup card (distance, who is there, who is on
+  the way) and map markers on screen; Break please for everyone, Regroup and Clear for the host,
+  Route from the card at any time.
+- Car. Break please is an icon on both screens' action strips. Each new request or pin from
+  another rider is a `CarToast` on whichever screen is up. `SpinScreen` adds at most two pane
+  rows (regroup banner without the on-the-way list, then the pills) and, from car API 7 (the
+  map-backed template), a Regroup strip action that routes to the pin; below that the pane's
+  strip holds two actions, so the pin is the banner row only. No markers on the car map, no host drop or Clear, and no Route from
+  `NavScreen` (it has no destination change).
+
+**Verdict: survive — the owner's cut.** Markers, host actions on the car, or rerouting a running
+`NavScreen` to the pin are new decisions, not drift.
+
+**Fence.**
+
+```sh
+# Entry 31 — car break/regroup. A changed count means a surface stopped reading the shared state.
+check 'car reads the shared break/regroup state' 1 \
+    "$(grep -c 'convoyBreakRegroupStateFrom(' app/src/main/java/com/jellemax/detour/car/CarBreakRegroup.kt)"
+check 'phone reads the shared break/regroup state' 1 \
+    "$(grep -c 'convoyBreakRegroupStateFrom(' app/src/main/java/com/jellemax/detour/ui/MapBreakRegroup.kt)"
+```
+---
+
+## 32. Problem reports: Android says what device it is, iOS does not yet
+
+**New with `#821`** — recorded because iOS is parked (owner decision 2026-10-27) and the shared
+client is written for both.
+
+**What.** A problem report (#811) names the platform, OS release and device model. They are pushed
+into `BuildDefaults` by `configureDevice` (`shared/…/data/BuildDefaults.kt`), the way `versionName`
+is, so there is no new `expect`.
+
+**Copies.** Android calls `BuildDefaults.configureDevice(platform = DevicePlatform.ANDROID, …)` in
+`app/…/DetourApplication.kt`. iOS calls only `BuildDefaults.shared.configure(…)` in
+`iosApp/Detour/DetourApp.swift`, so its platform stays null.
+
+**32a — an iOS report is never sent.** The server takes `android` or `ios` only, so
+`ProblemReports.send` answers `Unsupported` for a null platform instead of guessing and getting a
+400 on every try. Nothing on iOS calls `send` yet (no report UI), so nobody hits it today. The fix
+is one call next to `configure` in `DetourApp.swift`: `BuildDefaults.shared.configureDevice(
+platform: .ios, osVersion: …, deviceModel: …)`, with `UIDevice` for the last two.
+
+**Fence.**
+
+```sh
+# Entry 32 — only Android tells the shared core what device it is.
+check 'android names its platform for problem reports' 1 \
+    "$(grep -c 'platform = DevicePlatform.ANDROID' app/src/main/java/com/jellemax/detour/DetourApplication.kt)"
+check 'iOS does not configure the device yet' 0 \
+    "$(grep -c 'configureDevice' iosApp/Detour/DetourApp.swift)"
+```
+
+---
+
+## 34. Joining a convoy by invite link: Android only
 
 **New with `#763`** — recorded because `shared/` now carries the joiner's side for both surfaces
 (`ConvoyInvites.preview`/`join`, `ConvoyJoinStore`, and `FeatureFlows.convoyJoin()` in
@@ -2470,7 +2573,7 @@ per-surface.
 **Fence.**
 
 ```sh
-# Entry 30 — join by link. A changed count means iOS gained the screen or Android lost it.
+# Entry 34 — join by link. A changed count means iOS gained the screen or Android lost it.
 check 'Android join by link string' 1 \
     "$(grep -c 'name="friends_convoy_join_by_link">Join by link' app/src/main/res/values/strings.xml)"
 check 'iOS binds the join store' 0 \

@@ -302,6 +302,8 @@ class SessionSwitchTest {
                 ),
             ),
         )
+        FeatureFlags.loaded = true
+        FeatureFlags._readings.value = listOf(FlagReading(Flag.SELFTEST.key, !Flag.SELFTEST.default, FlagSource.ACCOUNT))
         val traceVersionBefore = TraceStore.version.value
 
         Auth.resetAccountScopedStores()
@@ -326,6 +328,13 @@ class SessionSwitchTest {
         // read, so keeping it shows the new rider the previous rider's lifetime
         // distance, top speed and trip count. #73/#80's leak, one store later.
         assertNull(RiderTotals.memo, "RiderTotals kept the previous rider's lifetime totals")
+        // An override is one account's; the next rider reads their own bucket's cache.
+        assertFalse(FeatureFlags.loaded, "FeatureFlags kept the previous rider's cache as loaded")
+        assertEquals(
+            listOf(FlagReading(Flag.SELFTEST.key, Flag.SELFTEST.default, FlagSource.DEFAULT)),
+            FeatureFlags.readings.value,
+            "FeatureFlags kept the previous rider's account overrides",
+        )
         assertEquals(
             traceVersionBefore + 1,
             TraceStore.version.value,

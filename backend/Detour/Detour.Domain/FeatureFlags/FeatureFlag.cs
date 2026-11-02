@@ -34,10 +34,27 @@ public sealed class FeatureFlag : Entity
 
     public static Result<FeatureFlag> Create(string? key, bool enabled)
     {
-        if (string.IsNullOrEmpty(key) || !KeyPattern.IsMatch(key))
-            return Result.Error(ValidationKeys.FeatureFlag.KeyInvalid, key ?? string.Empty);
+        var valid = ValidateKey(key);
+        if (valid.IsFailure)
+            return valid;
 
-        return new FeatureFlag(key, enabled);
+        return new FeatureFlag(key!, enabled);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="key"/> could name a flag, so an admin call on a malformed key is a
+    /// 400 rather than a 404 that reads as "no such flag yet".
+    /// </summary>
+    public static Result ValidateKey(string? key) =>
+        string.IsNullOrEmpty(key) || !KeyPattern.IsMatch(key)
+            ? Result.Error(ValidationKeys.FeatureFlag.KeyInvalid, key ?? string.Empty)
+            : Result.Ok();
+
+    /// <summary>Switches the default for every account without an override.</summary>
+    public void SetEnabled(bool enabled)
+    {
+        Enabled = enabled;
+        UpdatedAt = DateTimeOffset.UtcNow;
     }
 
     /// <summary>This flag's value for one account, replacing the default for that account only.</summary>
@@ -69,6 +86,8 @@ public sealed class FeatureFlagOverride : Entity
         Enabled = enabled;
     }
 
+    public void SetEnabled(bool enabled) => Enabled = enabled;
+
     // EF materialisation.
     private FeatureFlagOverride()
     {
@@ -80,4 +99,18 @@ public interface IFeatureFlagRepository : IBaseRepository<FeatureFlag>
 {
     /// <summary>Every override one account holds, whichever flags they are for.</summary>
     Task<List<FeatureFlagOverride>> GetOverridesForUserAsync(Guid userId, CancellationToken cancellationToken);
+
+    Task<FeatureFlag?> GetByKeyAsync(string key, CancellationToken cancellationToken);
+
+    /// <summary>Every override on this server with its account's username, for the admin list.</summary>
+    Task<List<FeatureFlagOverrideListing>> GetAllOverridesNonTrackingAsync(CancellationToken cancellationToken);
+
+    Task<FeatureFlagOverride?> GetOverrideAsync(string key, Guid userId, CancellationToken cancellationToken);
+
+    void SaveOverride(FeatureFlagOverride flagOverride);
+
+    void DeleteOverride(FeatureFlagOverride flagOverride);
 }
+
+/// <summary>One override as the admin list shows it: whose it is, by id and by name.</summary>
+public sealed record FeatureFlagOverrideListing(string FlagKey, Guid UserId, string Username, bool Enabled);

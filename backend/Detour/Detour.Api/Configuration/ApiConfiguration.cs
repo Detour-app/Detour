@@ -200,4 +200,11 @@ public class ProblemReportSettings
 
     /// <summary>Reports kept at most, newest first, whatever their age.</summary>
     public int MaxRows { get; set; } = 5000;
+
+    /// <summary>
+    /// The key behind each report's <c>reporter</c> in the administrator list (#820). Blank means
+    /// the server makes one on first use and keeps it in the database, so a restart does not
+    /// change who looks like whom. Changing it makes every reporter look new.
+    /// </summary>
+    public string ReporterKeySecret { get; set; } = "";
 }

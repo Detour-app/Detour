@@ -12,6 +12,7 @@ using Detour.Domain.PlannedRides;
 using Detour.Domain.Places;
 using Detour.Domain.Pois;
 using Detour.Domain.ProblemReports;
+using Detour.Domain.ServerSecrets;
 using Detour.Domain.Roads;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
@@ -76,6 +77,7 @@ public static class DatabaseInstaller
         services.AddScoped<IPoiRepository, PoiRepository>();
         services.AddScoped<IFeatureFlagRepository, FeatureFlagRepository>();
         services.AddScoped<IProblemReportRepository, ProblemReportRepository>();
+        services.AddScoped<IServerSecretRepository, ServerSecretRepository>();
 
         return services;
     }

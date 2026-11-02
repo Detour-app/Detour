@@ -211,7 +211,7 @@ class ConvoyInvitesStateWatcher internal constructor(
 }
 
 /** Backs [ConvoyJoinStore.state] (#763). No iOS screen binds it yet: the join confirm screen
- *  is Android-only for now, divergence register entry 30. */
+ *  is Android-only for now, divergence register entry 34. */
 class ConvoyJoinStateWatcher internal constructor(
     private val flow: StateFlow<ConvoyJoinState>,
 ) : Watcher() {
@@ -236,6 +236,16 @@ class PlannedRidesStateWatcher internal constructor(
     private val flow: StateFlow<PlannedRidesState>,
 ) : Watcher() {
     var value: PlannedRidesState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class FlagReadingsWatcher internal constructor(
+    private val flow: StateFlow<List<FlagReading>>,
+) : Watcher() {
+    var value: List<FlagReading> = flow.value
         private set
 
     override suspend fun collect(onChange: () -> Unit) =
@@ -448,6 +458,14 @@ object FeatureFlows {
     fun convoyJoin() = ConvoyJoinStateWatcher(ConvoyJoinStore.state)
     fun circles() = CirclesStateWatcher(CirclesStore.state)
     fun plannedRides() = PlannedRidesStateWatcher(PlannedRidesStore.state)
+
+    /** [FeatureFlags.readings], for the Diagnostics → Flags list (#816). Reads the cache
+     *  first, so the list opens on the account's last answer instead of the compiled
+     *  defaults; `FeatureFlags.refresh()` updates it from the server. */
+    fun flags(): FlagReadingsWatcher {
+        FeatureFlags.ensureLoaded()
+        return FlagReadingsWatcher(FeatureFlags.readings)
+    }
 }
 
 /**

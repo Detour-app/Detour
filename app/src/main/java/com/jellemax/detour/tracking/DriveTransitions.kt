@@ -14,6 +14,8 @@ import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionRequest
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
+import com.jellemax.detour.data.EventKind
+import com.jellemax.detour.data.EventLog
 import com.jellemax.detour.data.Settings
 
 /**
@@ -180,6 +182,8 @@ internal class DriveTransitions(
         val result = ActivityTransitionResult.extractResult(intent) ?: return
         for (event in result.transitionEvents) {
             val entering = event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER
+            val edge = if (entering) "ENTER" else "EXIT"
+            EventLog.record(EventKind.TRANSITION, "${activityName(event.activityType)} $edge")
             when (event.activityType) {
                 DetectedActivity.STILL -> {
                     if (!tripActive()) stationary = entering
@@ -226,4 +230,13 @@ internal class DriveTransitions(
         stationary = false
         probeUntilMs = null
     }
+}
+
+/** A registered [DetectedActivity] type by name, for [EventLog]: the raw ints
+ *  (0, 3, 7) are what a problem report would otherwise carry. */
+private fun activityName(type: Int): String = when (type) {
+    DetectedActivity.IN_VEHICLE -> "IN_VEHICLE"
+    DetectedActivity.STILL -> "STILL"
+    DetectedActivity.WALKING -> "WALKING"
+    else -> "type $type"
 }

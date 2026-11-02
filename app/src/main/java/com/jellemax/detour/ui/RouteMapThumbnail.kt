@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.RouteSpeed
 import com.jellemax.detour.data.Settings
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -62,9 +63,19 @@ private val snapshots = object : LruCache<SnapshotKey, RouteSnapshot>(SNAPSHOT_C
  * [lines] drawn over a map of where they were driven — a shape alone says little
  * about a ride. Until the snapshot lands, or when it can't (offline, style
  * server down), the shape is drawn on its own, so a card is never blank.
+ *
+ * [steps] colours each line by speed (#834): its [RouteSpeed.buckets], one per
+ * hop, or null (or missing) for a line drawn in the one ink colour. [ends] puts
+ * a hollow dot at each line's start and a solid one at its end. Neither is part
+ * of the snapshot: both are drawn over it, onto the already-projected lines.
  */
 @Composable
-fun RouteMapThumbnail(lines: List<List<LatLon>>, modifier: Modifier = Modifier) {
+fun RouteMapThumbnail(
+    lines: List<List<LatLon>>,
+    modifier: Modifier = Modifier,
+    steps: List<List<Int>?> = emptyList(),
+    ends: Boolean = false,
+) {
     val theme by Settings.theme.collectAsStateWithLifecycle()
     val dark = isAppDarkTheme(theme)
     val context = LocalContext.current
@@ -122,20 +133,41 @@ fun RouteMapThumbnail(lines: List<List<LatLon>>, modifier: Modifier = Modifier) 
         } else {
             // No credit of our own: the snapshotter already draws the style's
             // "© OpenFreeMap / OpenMapTiles / OpenStreetMap" into the bitmap.
-            RouteOnMap(s, Modifier.fillMaxSize())
+            RouteOnMap(s, steps, ends, Modifier.fillMaxSize())
         }
     }
 }
 
 @Composable
-private fun RouteOnMap(snapshot: RouteSnapshot, modifier: Modifier = Modifier) {
+private fun RouteOnMap(snapshot: RouteSnapshot, steps: List<List<Int>?>, ends: Boolean, modifier: Modifier = Modifier) {
     val route = MaterialTheme.colorScheme.primary
     val casing = MaterialTheme.colorScheme.surface
+    val dot = MaterialTheme.colorScheme.onSurface
     Canvas(modifier) {
         drawImage(snapshot.image)
-        for (line in snapshot.lines) drawLine(line, casing, 6.dp.toPx())
-        for (line in snapshot.lines) drawLine(line, route, 3.dp.toPx())
+        for (line in snapshot.lines) drawLine(line, casing, 7.dp.toPx())
+        snapshot.lines.forEachIndexed { i, line ->
+            val lineSteps = steps.getOrNull(i)?.takeIf { it.size == line.size - 1 }
+            if (lineSteps == null) {
+                drawLine(line, route, 4.dp.toPx())
+            } else {
+                for (run in RouteSpeed.runs(lineSteps)) {
+                    drawLine(line.subList(run.from, run.to + 1), SPEED_STEP_COLORS[run.step], 4.dp.toPx())
+                }
+            }
+        }
+        if (ends) {
+            for (line in snapshot.lines.filter { it.size >= 2 }) {
+                drawEnd(line.first(), fill = casing, ring = dot)
+                drawEnd(line.last(), fill = dot, ring = casing)
+            }
+        }
     }
+}
+
+private fun DrawScope.drawEnd(at: Offset, fill: Color, ring: Color) {
+    drawCircle(ring, radius = 5.5.dp.toPx(), center = at)
+    drawCircle(fill, radius = 3.dp.toPx(), center = at)
 }
 
 private fun DrawScope.drawLine(points: List<Offset>, color: Color, width: Float) {

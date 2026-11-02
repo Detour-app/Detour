@@ -922,8 +922,9 @@ namespace Detour.Database.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("filed_at");
 
-                    b.Property<int?>("FiledIssue")
-                        .HasColumnType("integer")
+                    b.Property<string>("FiledIssue")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
                         .HasColumnName("filed_issue");
 
                     b.Property<string>("Kind")
@@ -1167,6 +1168,24 @@ namespace Detour.Database.Migrations
                         .HasDatabaseName("ix_shared_routes_to_user_id_from_user_id_client_route_id");
 
                     b.ToTable("shared_routes", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.ServerSecrets.ServerSecret", b =>
+                {
+                    b.Property<string>("Name")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("name");
+
+                    b.Property<byte[]>("Value")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("value");
+
+                    b.HasKey("Name")
+                        .HasName("pk_server_secrets");
+
+                    b.ToTable("server_secrets", "detour");
                 });
 
             modelBuilder.Entity("Detour.Domain.Traces.Trace", b =>

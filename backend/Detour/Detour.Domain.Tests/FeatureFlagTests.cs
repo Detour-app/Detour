@@ -47,4 +47,36 @@ public class FeatureFlagTests
         Assert.Equal(userId, over.UserId);
         Assert.True(over.Enabled);
     }
+
+    [Fact]
+    public void Switching_a_default_moves_its_updated_time()
+    {
+        var flag = FeatureFlag.Create("flags-selftest", enabled: false).Value;
+        var before = flag.UpdatedAt;
+
+        flag.SetEnabled(true);
+
+        Assert.True(flag.Enabled);
+        Assert.True(flag.UpdatedAt >= before);
+    }
+
+    [Fact]
+    public void An_override_can_be_switched()
+    {
+        var over = FeatureFlag.Create("flags-selftest", enabled: false).Value
+            .OverrideFor(Guid.NewGuid(), enabled: true);
+
+        over.SetEnabled(false);
+
+        Assert.False(over.Enabled);
+    }
+
+    [Theory]
+    [InlineData("flags-selftest", false)]
+    [InlineData("Flags-Selftest", true)]
+    [InlineData("", true)]
+    public void A_key_is_validated_without_creating_a_flag(string key, bool failure)
+    {
+        Assert.Equal(failure, FeatureFlag.ValidateKey(key).IsFailure);
+    }
 }

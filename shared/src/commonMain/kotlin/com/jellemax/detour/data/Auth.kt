@@ -477,6 +477,7 @@ object Auth {
         SpeedCameraStore.reset()
         SpeedLimitStore.reset()
         RoadTypeStore.reset()
+        FeatureFlags.reset()
     }
 
     private suspend fun refresh(): String {

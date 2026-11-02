@@ -123,6 +123,14 @@ public static class DetourLimits
     /// <summary>App version, OS version and device model, each.</summary>
     public const int ProblemReportDeviceFieldMaxLength = 128;
 
+    /// <summary>The URL of the public issue a report was filed as.</summary>
+    public const int ProblemReportFiledIssueMaxLength = 512;
+
+    /// <summary>Reports an administrator list answers with when it names no limit, and at most.</summary>
+    public const int ProblemReportPageDefault = 50;
+
+    public const int ProblemReportPageMax = 200;
+
     /// <summary>
     /// The whole request, on the wire. Answered with 413 before the body is read; the field caps
     /// above answer 400.
