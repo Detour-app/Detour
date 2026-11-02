@@ -58,7 +58,7 @@ data class ServerFlag(val enabled: Boolean, val source: FlagSource)
  * Separate from [Features], which holds compiled kill switches no server can change. A flag
  * here is for a feature that ships off and is switched on from the backend.
  *
- * Nothing reads a flag yet. Android refreshes on start, sign-in and sign-out and lists the
+ * [Flag.CONVOY_JOIN_LINK] is the first flag read (#763). Android refreshes on start, sign-in and sign-out and lists the
  * flags in Diagnostics (#815, `refreshQuietly`); iOS's half is #816.
  */
 object FeatureFlags {

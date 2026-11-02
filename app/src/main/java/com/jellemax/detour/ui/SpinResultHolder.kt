@@ -6,9 +6,11 @@ import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.data.ViaStops
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /** The last spin outcome, kept outside `remember` so it survives activity
  *  recreation (rotation, split-screen resize, a backgrounded process losing
@@ -33,6 +35,21 @@ internal data class SpinResult(
      * of this holder exists.
      */
     val navigating: Boolean = false,
+    /** A planned route's stops still to ride through on the way to
+     *  [destination] (#736); empty for everything else. */
+    val vias: List<LatLon> = emptyList(),
+    /**
+     * Where the rider is along [route]'s line through [vias], forward only
+     * ([ViaStops.Ride]); null for any other line.
+     *
+     * Here for the reason [navigating] is: kept only in the screen's
+     * `remember`, a rotation or a return to the map lost it, and the next fix
+     * started a new [ViaStops.Ride] from metre zero — re-projecting the stops
+     * left onto the line's first leg, or, with none left, handing the rider
+     * to the global snap, which on a home → store → home line never arrives
+     * (#736).
+     */
+    val ride: ViaStops.Ride? = null,
 )
 
 internal object SpinResultHolder {
@@ -43,26 +60,40 @@ internal object SpinResultHolder {
      *  a half-updated result — a destination without the route it belongs to,
      *  say — and nothing would have flagged it. Both writes now go through the
      *  two functions below, which is also the only place the invariant "route
-     *  and navigating travel together" can be stated. */
+     *  and navigating travel together" can be stated — and "a ride is on the
+     *  route it travels with", which [publish] and [keepRide] both hold. */
     val state: StateFlow<SpinResult> = _state.asStateFlow()
 
     /** The map publishing what a spin, a pick, a cancel or the end of
      *  navigation just produced. */
     fun publish(result: SpinResult) {
-        _state.value = result
+        val ride = result.ride
+        _state.value = if (ride != null && result.route?.polyline !== ride.line) result.copy(ride = null) else result
     }
 
     /** Seeds a destination with no route and no candidates. Separate from
      *  [publish] because a caller that has only a destination must not have to
      *  invent the other four fields, and the two that tried spelled the empty
      *  cases differently. */
-    fun seedDestination(destination: LatLon, name: String, route: RouteResult) {
+    fun seedDestination(destination: LatLon, name: String, route: RouteResult, vias: List<LatLon>) {
         _state.value = SpinResult(
             destination = destination,
             destinationName = name,
             route = route,
             candidates = emptyList(),
+            vias = vias,
         )
+    }
+
+    /** The map's [SpinResult.ride] after a fix moved it on. Kept only while
+     *  the published route is the line it is on: a ride for a line not
+     *  published yet (a reroute the map has not written back) would otherwise
+     *  travel with the route it does not belong to, and [publish] brings it
+     *  along with its own route anyway. */
+    fun keepRide(ride: ViaStops.Ride?) {
+        _state.update {
+            if (ride == null || it.route?.polyline === ride.line) it.copy(ride = ride) else it
+        }
     }
 
     /** Set by [seedLoop], cleared by the first [takeOpenSheet]. */
@@ -92,12 +123,10 @@ internal object SpinResultHolder {
  * with its name, its distance/ETA and a Start button. Seeding the holder alone
  * shows a line on a map and nothing to press.
  *
- * Only the destination carries over; [startNavigation] always re-fetches a
- * live two-point route from wherever the user actually is when they tap Go,
- * so a route with stops in between this one and the destination would have
- * them silently dropped. RoutesScreen.kt only calls this for two-stop routes
- * and instead hands longer routes to an external maps app, which can carry
- * real via points.
+ * The destination and the stops in between carry over ([ViaStops.of]);
+ * [startNavigation] re-fetches a live route from wherever the rider is when
+ * they tap Go, through those stops (#736). The route's own first stop is
+ * dropped, as it always was for a two-stop route.
  */
 internal fun seedRouteNavigation(route: SavedRoute) {
     Settings.setTripMode(route.mode)
@@ -112,6 +141,7 @@ internal fun seedRouteNavigation(route: SavedRoute) {
             distanceMeters = route.distanceMeters,
             timeMs = route.timeMs,
         ),
+        vias = ViaStops.of(route),
     )
 }
 
