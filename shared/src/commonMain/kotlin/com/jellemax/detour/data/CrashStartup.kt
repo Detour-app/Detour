@@ -22,8 +22,9 @@ enum class CrashOnStart {
  */
 object CrashStartup {
 
-    // One send at a time: a rotation re-runs the caller's start-up effect while
-    // the first send may still be in flight, and two would file the crash twice.
+    // One send at a time: an activity finished and relaunched in the same
+    // process can start a second send while the first is still in flight, and
+    // two would file the crash twice.
     private val sending = Mutex()
 
     /** Send when [sendCrashReports] is on, offer when it is off, and nothing
