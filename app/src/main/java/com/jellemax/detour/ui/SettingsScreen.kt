@@ -91,6 +91,7 @@ import com.jellemax.detour.data.RoutingSupport
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.presentation.formatFixed
 import com.jellemax.detour.ui.settings.LicencesScreen
+import com.jellemax.detour.ui.settings.ProblemReportScreen
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.tracking.DormancyBlocker
@@ -121,6 +122,7 @@ internal fun spokeTitle(spoke: Destination.SettingsSpoke): String = stringResour
         Destination.SettingsServersSync -> R.string.settings_spoke_servers_sync
         Destination.SettingsObd2 -> R.string.settings_spoke_obd2
         Destination.SettingsLicences -> R.string.settings_spoke_licences
+        Destination.SettingsProblemReport -> R.string.settings_spoke_problem_report
     },
 )
 
@@ -179,7 +181,11 @@ internal fun SettingsScaffold(
  * spoke fails to compile here until it is rendered.
  */
 @Composable
-fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
+fun SettingsSpokeScreen(
+    spoke: Destination.SettingsSpoke,
+    onBack: () -> Unit,
+    onNavigate: (Destination.SettingsSpoke) -> Unit,
+) {
     val context = LocalContext.current
     val theme by Settings.theme.collectAsStateWithLifecycle()
     val decimalSeparator by Settings.decimalSeparator.collectAsStateWithLifecycle()
@@ -207,10 +213,11 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
             }
             Destination.SettingsServersSync -> {
                 ServersSyncSpoke(scrollState)
-                DiagnosticsSection()
+                DiagnosticsSection(onReportProblem = { onNavigate(Destination.SettingsProblemReport) })
             }
             Destination.SettingsObd2 -> Obd2PairingScreen()
             Destination.SettingsLicences -> LicencesScreen()
+            Destination.SettingsProblemReport -> ProblemReportScreen(onClose = onBack)
         }
     }
 }
