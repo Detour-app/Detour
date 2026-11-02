@@ -1,7 +1,11 @@
 package com.jellemax.detour
 
 import android.app.Application
+import android.os.Build
 import com.jellemax.detour.data.BuildDefaults
+import com.jellemax.detour.data.DevicePlatform
+import com.jellemax.detour.data.EventKind
+import com.jellemax.detour.data.EventLog
 import com.jellemax.detour.data.initSharedCore
 import com.jellemax.detour.diag.EventSink
 import com.jellemax.detour.perf.PerfSink
@@ -29,6 +33,7 @@ class DetourApplication : Application() {
         // Always on, unlike PerfSink: the event log is what a problem report
         // carries (#811), so it has to be running before anything goes wrong.
         ColdStartTiming.timed("EventSink.install") { EventSink.install(this) }
+        EventLog.record(EventKind.APP_START, BuildConfig.VERSION_NAME)
         ColdStartTiming.timed("BuildDefaults.configure") {
             BuildDefaults.configure(
                 routingUrl = BuildConfig.ROUTING_URL,
@@ -37,6 +42,11 @@ class DetourApplication : Application() {
                 geocoderUrl = BuildConfig.GEOCODER_URL,
                 liveUrl = BuildConfig.LIVE_URL,
                 versionName = BuildConfig.VERSION_NAME,
+            )
+            BuildDefaults.configureDevice(
+                platform = DevicePlatform.ANDROID,
+                osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}",
             )
         }
     }

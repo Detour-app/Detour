@@ -10,6 +10,9 @@ package com.jellemax.detour.data
  * The file stays because the shape is worth keeping: a button that silently does
  * nothing reads as a bug, while "temporarily disabled" reads as a plan. Both apps
  * read these, so neither can quietly disagree with the other about what works.
+ *
+ * Compiled, so no server can change them; a feature switched on from the backend is a
+ * [FeatureFlags] flag instead.
  */
 object Features {
 

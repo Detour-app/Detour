@@ -122,5 +122,7 @@ class TripTracesTest {
         assertEquals(listOf(ride to listOf("Alpha", "Beta")), matched.visits.map { (t, v) -> t to v.map { it.name } })
         assertEquals(setOf(ride.startTimeMs), matched.thumbnails.keys)
         assertTrue(untraced.startTimeMs !in matched.thumbnails, "untraced trip got a thumbnail")
+        // One colour step per drawn hop of the thumbnail (#834).
+        assertEquals(matched.thumbnails.getValue(ride.startTimeMs).size - 1, matched.speeds.getValue(ride.startTimeMs).size)
     }
 }

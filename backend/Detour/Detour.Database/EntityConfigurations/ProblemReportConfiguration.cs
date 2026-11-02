@@ -27,7 +27,7 @@ public class ProblemReportConfiguration : IEntityTypeConfiguration<ProblemReport
         builder.Property(r => r.StackTrace);
         builder.Property(r => r.Events).HasColumnType(ColumnTypes.Jsonb);
         builder.Property(r => r.FiledAt);
-        builder.Property(r => r.FiledIssue);
+        builder.Property(r => r.FiledIssue).HasMaxLength(DetourLimits.ProblemReportFiledIssueMaxLength);
 
         // Deleting an account takes its reports with it (BACKEND_SPEC §13). An anonymous report
         // has no account to go with, and leaves by retention alone.
@@ -37,7 +37,7 @@ public class ProblemReportConfiguration : IEntityTypeConfiguration<ProblemReport
             .IsRequired(false)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // Retention reads it on every insert, and the admin list (#820) is newest first.
+        // Retention reads it on every insert, and the admin list (#820) pages by it, oldest first.
         builder.HasIndex(r => r.ReceivedAt);
     }
 }

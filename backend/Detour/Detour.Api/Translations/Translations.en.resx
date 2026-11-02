@@ -68,6 +68,9 @@
   <data name="Badge.EarnedAtInvalid" xml:space="preserve">
     <value>A badge needs the instant it was earned.</value>
   </data>
+  <data name="FeatureFlag.KeyInvalid" xml:space="preserve">
+    <value>{0} is not a feature flag key: lowercase letters, digits and hyphens, at most 64.</value>
+  </data>
   <data name="ProblemReport.KindInvalid" xml:space="preserve">
     <value>A report's kind is crash or manual.</value>
   </data>
@@ -91,6 +94,12 @@
   </data>
   <data name="ProblemReport.EventsTooLarge" xml:space="preserve">
     <value>The event log is at most {0} bytes in total.</value>
+  </data>
+  <data name="ProblemReport.FiledIssueInvalid" xml:space="preserve">
+    <value>A filed issue is an https URL of at most 512 characters.</value>
+  </data>
+  <data name="ProblemReport.CursorUnknown" xml:space="preserve">
+    <value>No report has that id any more; list again from the start.</value>
   </data>
   <data name="Trip.StartTimeRequired" xml:space="preserve">
     <value>A trip needs a start time.</value>

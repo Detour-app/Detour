@@ -203,6 +203,13 @@
     <string name="settings_source_general">typed (one address)</string>
     <string name="settings_source_baked">built-in default</string>
     <string name="settings_source_none">not configured</string>
+    <string name="settings_flags">Flags</string>
+    <string name="settings_flag_row">%1$s · %2$s · %3$s</string>
+    <string name="settings_flag_on">on</string>
+    <string name="settings_flag_off">off</string>
+    <string name="settings_flag_source_default">default</string>
+    <string name="settings_flag_source_server">server</string>
+    <string name="settings_flag_source_account">account</string>
 
     <!-- OBD2 -->
     <string name="settings_obd2_intro">Pair a vehicle\'s OBD2 adapter (a Bluetooth ELM327 dongle plugged into the port) for accurate speed instead of GPS. Not a score to chase, not new history — just a more accurate speed reading while it\'s connected.</string>

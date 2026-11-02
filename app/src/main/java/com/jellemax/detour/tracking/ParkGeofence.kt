@@ -9,6 +9,8 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.BuildConfig
+import com.jellemax.detour.data.EventKind
+import com.jellemax.detour.data.EventLog
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
@@ -42,7 +44,10 @@ object ParkGeofence {
     private const val ACTION = "com.jellemax.detour.GEOFENCE_EXIT"
 
     fun arm(context: Context, lat: Double, lon: Double) {
-        if (!hasLocationPermission(context)) return
+        if (!hasLocationPermission(context)) {
+            EventLog.record(EventKind.GEOFENCE, "arm skipped: no location permission")
+            return
+        }
         val geofence = Geofence.Builder()
             .setRequestId(ID)
             .setCircularRegion(lat, lon, RADIUS_M)
@@ -65,19 +70,25 @@ object ParkGeofence {
                     // this line a parked service is indistinguishable from one that
                     // stopped and armed nothing. Pairs with GeofenceWakeReceiver's
                     // delivery log to give #140 its wake latency.
+                    EventLog.record(EventKind.GEOFENCE, "armed r=${RADIUS_M.toInt()}m")
                     Log.i(
                         TAG,
                         "armed r=${RADIUS_M}m ert=${SystemClock.elapsedRealtime()}" +
                             if (BuildConfig.DEBUG) " at $lat,$lon" else "",
                     )
                 }
-                .addOnFailureListener { Log.w(TAG, "arm failed", it) }
+                .addOnFailureListener {
+                    EventLog.record(EventKind.GEOFENCE, "arm failed: ${it.javaClass.simpleName}")
+                    Log.w(TAG, "arm failed", it)
+                }
         } catch (e: SecurityException) {
+            EventLog.record(EventKind.GEOFENCE, "arm denied")
             Log.w(TAG, "arm denied", e)
         }
     }
 
     fun disarm(context: Context) {
+        EventLog.record(EventKind.GEOFENCE, "remove")
         LocationServices.getGeofencingClient(context)
             .removeGeofences(listOf(ID))
     }

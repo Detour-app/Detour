@@ -2,6 +2,7 @@ using Detour.Domain.ApiKeys;
 using Detour.Domain.Boundaries;
 using Detour.Domain.Cameras;
 using Detour.Domain.Circles;
+using Detour.Domain.FeatureFlags;
 using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
 using Detour.Domain.Notifications;
@@ -9,6 +10,7 @@ using Detour.Domain.PlannedRides;
 using Detour.Domain.Places;
 using Detour.Domain.Pois;
 using Detour.Domain.ProblemReports;
+using Detour.Domain.ServerSecrets;
 using Detour.Domain.Roads;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
@@ -46,7 +48,10 @@ public class DetourDbContext(DbContextOptions<DetourDbContext> options) : DbCont
     public DbSet<RoadWay> Roads => Set<RoadWay>();
     public DbSet<MunicipalityBoundary> MunicipalityBoundaries => Set<MunicipalityBoundary>();
     public DbSet<Poi> Pois => Set<Poi>();
+    public DbSet<FeatureFlag> FeatureFlags => Set<FeatureFlag>();
+    public DbSet<FeatureFlagOverride> FeatureFlagOverrides => Set<FeatureFlagOverride>();
     public DbSet<ProblemReport> ProblemReports => Set<ProblemReport>();
+    public DbSet<ServerSecret> ServerSecrets => Set<ServerSecret>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
