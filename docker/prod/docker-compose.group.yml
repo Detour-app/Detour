@@ -9,6 +9,10 @@
 # throwaway username + temporary password) from an administrator and choose their
 # own handle and password on first sign-in. See config/keycloak/GROUP-REALM.md.
 #
+# The mount target must be named <realm>-realm.json: Keycloak 26.7 refuses to
+# start ("File name / realm name mismatch") when the file in data/import/ is
+# named anything else.
+#
 # Keycloak skips an import whose realm already exists, so restarts are safe and
 # edits to the JSON after the first start do nothing; change a live realm in the
 # admin console instead.
@@ -16,5 +20,5 @@
 services:
   keycloak:
     volumes:
-      - ./config/keycloak/group-realm.json:/opt/keycloak/data/import/group-realm.json:ro
+      - ./config/keycloak/group-realm.json:/opt/keycloak/data/import/detour-realm.json:ro
     command: start --import-realm
