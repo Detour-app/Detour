@@ -86,7 +86,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "4.3.1"
+        versionName = "4.5.1"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
