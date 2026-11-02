@@ -152,8 +152,8 @@ class TripTrackingService : Service() {
          *  and 120 m above [FAST_SPEED_MPS] to confirm a drive, and a service
          *  starting cold can wait 10-20 s for its first usable fix, so this has
          *  to cover both with margin. Bounded so a false wake — the rider walked
-         *  the dog past 150 m — costs one grace window of foreground service and
-         *  then parks again, rather than staying up indefinitely. */
+         *  the dog out of [ParkGeofence.RADIUS_M] — costs one grace window of
+         *  foreground service, then parks again instead of staying up. */
         private const val GEOFENCE_WAKE_GRACE_MS = 90_000L
         /** Retry delay after a failed [DriveTransitions.register] request
          *  (#144). Short: the failure this guards against is a transient

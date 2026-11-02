@@ -66,8 +66,8 @@ class DormancyTest {
         // service, onStartCommand reaches the dormancy check before the first
         // fix arrives, and activity recognition still says STILL because the
         // rider only just pulled away. Without this branch the service parked
-        // ~60 ms after waking and re-armed 150 m on, the whole ride, recording
-        // nothing.
+        // ~60 ms after waking and re-armed a fence further on (then 150 m),
+        // the whole ride, recording nothing.
         assertEquals(
             DormancyDecision.STAY_ALIVE,
             dormancyDecision(
@@ -91,8 +91,8 @@ class DormancyTest {
     }
 
     @Test fun `once the wake grace lapses a still-stationary phone parks again`() {
-        // A false wake — walked past 150 m and came back — costs one grace
-        // window, not an always-on service.
+        // A false wake — walked past the fence radius and came back — costs
+        // one grace window, not an always-on service.
         assertEquals(
             DormancyDecision.STOP_WITH_GEOFENCE,
             dormancyDecision(

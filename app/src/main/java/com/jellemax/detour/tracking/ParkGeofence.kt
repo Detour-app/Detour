@@ -27,15 +27,23 @@ import com.google.android.gms.location.LocationServices
  * on-device against fixes that already arrive (`GeofenceEvaluator` in
  * `shared/`) and goes nowhere near this API.
  *
- * [RADIUS_M] is the landing default. Bigger = the service wakes earlier into
- * the drive (less leading trace lost to geofence-callback latency) but fires
- * on a rider who just walks 200 m and back. Tune from a measured wake latency
- * — see the spec's "Radius & wake latency" and the follow-up issue.
+ * [RADIUS_M] trades leading trace against false wakes. The EXIT can only fire
+ * once the rider is outside the circle, so a geofence-woken trip loses the
+ * radius plus however far the rider gets before recording starts:
+ * smaller = less trace lost, but more parks where walking away from the
+ * vehicle wakes the service. Measured for #140 over ~105 real departures
+ * after this fence shipped: 17% looked geofence-woken (first trace point past
+ * the fence; the rest were already awake), and those ran a median ~100 m past
+ * the edge (about 10 s at 37 km/h). That overrun — callback latency, first
+ * fix and start confirmation — does not shrink with the radius. Going from
+ * 150 m to 100 m moved only about 2–3% of parks into "walked far enough to
+ * wake it"; about a quarter of parks already walk past 200 m.
+ * 100 m is also the smallest radius Google's geofencing guidance recommends.
  */
 object ParkGeofence {
 
     const val ID = "park"
-    const val RADIUS_M = 150f
+    const val RADIUS_M = 100f
 
     /** Shared with [GeofenceWakeReceiver] so one `adb logcat -s ParkGeofence`
      *  carries the whole arm → wake story. */
