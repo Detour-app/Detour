@@ -42,6 +42,7 @@ class NavPolicyTest {
     ) = NavPolicy.decide(
         progress = progress(remainingMeters, offRouteMeters),
         hasDestination = hasDestination,
+        stopsAhead = false,
         rerouting = rerouting,
         lastRerouteMs = lastRerouteMs,
         nowMs = nowMs,
@@ -50,6 +51,36 @@ class NavPolicyTest {
     @Test
     fun arrivesWhenCloseToTheEndAndStillOnTheLine() {
         assertEquals(NavPolicy.Decision.Arrived, decide(remainingMeters = 10.0, offRouteMeters = 5.0))
+    }
+
+    /** #736: a planned route that ends where it starts snaps the first fix onto
+     *  its last segment, a few metres from the end. With a stop still ahead
+     *  that is not an arrival. */
+    @Test
+    fun doesNotArriveWithAStopStillAhead() {
+        assertEquals(
+            NavPolicy.Decision.Continue,
+            decideWithStopAhead(remainingMeters = 10.0, offRouteMeters = 5.0),
+        )
+    }
+
+    /** The helper's other defaults, with a planned stop still ahead (#736). */
+    private fun decideWithStopAhead(remainingMeters: Double, offRouteMeters: Double) = NavPolicy.decide(
+        progress = progress(remainingMeters, offRouteMeters),
+        hasDestination = true,
+        stopsAhead = true,
+        rerouting = false,
+        lastRerouteMs = 0L,
+        nowMs = 1_000_000L,
+    )
+
+    /** A stop ahead holds arrival only; leaving the line still reroutes. */
+    @Test
+    fun reroutesWithAStopStillAhead() {
+        assertEquals(
+            NavPolicy.Decision.Reroute,
+            decideWithStopAhead(remainingMeters = 10.0, offRouteMeters = 200.0),
+        )
     }
 
     /** Arrival needs *both* bounds. Ten metres of route left while 200 m off the
