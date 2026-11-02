@@ -2553,8 +2553,9 @@ check 'iOS does not configure the device yet' 0 \
 falls back to the general or baked address (`RoutingServer.routingResolved`). Whether routing can
 be tried is now `RoutingServer.routingUsable(config)`, re-read when `RoutingServer.revision` moves.
 
-**Copies.** Android gates on `routingUsable` in `MapBottom.kt`, `RouteEditorScreen.kt`, and in
-`LoopSpin` and `SpinPicker` in shared. iOS still gates on `ServerConfig.usable` in
+**Copies.** Android gates on `routingUsable` in `MapBottom.kt`, `RouteEditorScreen.kt`,
+`RoutesScreen.kt` (saved-route Ride), `PlannedRideStart.kt` (planned-ride start), and in `LoopSpin`
+and `SpinPicker` in shared. iOS still gates on `ServerConfig.usable` in
 `iosApp/Detour/RouteEditorScreen.swift` (`serverUsable`) and `iosApp/Detour/SpinModel.swift`
 (two `guard server.usable`).
 
