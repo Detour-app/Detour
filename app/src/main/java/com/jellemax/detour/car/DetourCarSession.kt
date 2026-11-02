@@ -46,6 +46,7 @@ class DetourCarSession : Session() {
             }
         })
         toastConvoyGapAlerts()
+        CarBreakRegroup.announce(this, carContext)
         return SpinScreen(carContext, map)
     }
 

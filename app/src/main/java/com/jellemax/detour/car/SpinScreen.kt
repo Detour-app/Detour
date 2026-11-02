@@ -37,6 +37,7 @@ import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.map.startHeading
+import com.jellemax.detour.presentation.ConvoyBreakRegroupState
 import com.jellemax.detour.presentation.spinFailureText
 import com.jellemax.detour.tracking.MapSurface
 import com.jellemax.detour.tracking.TripTrackingService
@@ -146,6 +147,7 @@ class SpinScreen(
                 }
             }
         }
+        CarBreakRegroup.watch(this) { invalidate() }
     }
 
     override fun onGetTemplate(): Template {
@@ -204,6 +206,9 @@ class SpinScreen(
             }
         }
 
+        val convoy = CarBreakRegroup.state()
+        CarBreakRegroup.rows(carContext, convoy).forEach { pane.addRow(it) }
+
         val content = PaneTemplate.Builder(pane.build())
             .setTitle(carContext.getString(R.string.app_name))
             .setHeaderAction(Action.APP_ICON)
@@ -212,20 +217,23 @@ class SpinScreen(
         // unit the pane is still the whole screen — the strip has to go on it
         // then, whereas the wrapper owns it when there is a map behind it.
         if (carContext.carAppApiLevel < CarAppApiLevels.LEVEL_7) {
-            return content.setActionStrip(actionStrip()).build()
+            return content.setActionStrip(actionStrip(convoy, withRegroup = false)).build()
         }
         return MapWithContentTemplate.Builder()
             .setContentTemplate(content.build())
-            .setActionStrip(actionStrip())
+            .setActionStrip(actionStrip(convoy, withRegroup = true))
             .build()
     }
 
-    // Just the search icon: Spin used to sit here too, but a title action next
+    // The search icon: Spin used to sit here too, but a title action next
     // to the map read as clutter and reviewers missed it as the way to start
     // turn-by-turn (Google's Auto App Quality review flagged exactly that).
     // It now lives inside the search screen instead, as the first thing you
     // see there — one obvious door into "pick a destination", typed or spun.
-    private fun actionStrip(): ActionStrip = ActionStrip.Builder()
+    // In a convoy, Break please and, with a meeting point set, Regroup (#657).
+    // A pane's own strip (below car API 7) takes two actions at most, so there
+    // [withRegroup] is false and the meeting point is only the banner row.
+    private fun actionStrip(convoy: ConvoyBreakRegroupState?, withRegroup: Boolean): ActionStrip = ActionStrip.Builder()
         .addAction(
             Action.Builder()
                 .setIcon(
@@ -238,6 +246,13 @@ class SpinScreen(
                 }
                 .build(),
         )
+        .apply {
+            CarBreakRegroup.breakAction(carContext)?.let { addAction(it) }
+            if (withRegroup) {
+                CarBreakRegroup.routeAction(carContext, convoy?.regroup) { at, name -> navigateTo(at, name) }
+                    ?.let { addAction(it) }
+            }
+        }
         .build()
 
     /**
@@ -373,6 +388,43 @@ class SpinScreen(
                 NavScreen(carContext, renderer, from, c.destination, fresh, config, c.name)
             else NavScreen.forCandidate(carContext, renderer, from, c, config)
             if (nav != null) screenManager.push(nav) else navigate(c.destination)
+        }
+    }
+
+    /**
+     * Turn-by-turn to [dest] from here — the regroup pin's Route (#657). A
+     * fresh line steered by [startHeading], as Start and the search screen
+     * fetch; with no turn data or no route, the external handoff.
+     */
+    private fun navigateTo(dest: LatLon, name: String) {
+        if (starting) return
+        val from = myLocation ?: run {
+            errorText = carContext.getString(R.string.car_waiting_for_location)
+            fetchLocation()
+            invalidate()
+            return
+        }
+        starting = true
+        lifecycleScope.launch {
+            val started = try {
+                val config = withContext(Dispatchers.IO) { RoutingServer.load() }
+                val heading = startHeading()
+                val route = withContext(Dispatchers.IO) {
+                    RoutingClient.route(config, from, dest, TravelMode.CAR.ghProfile,
+                        Settings.routePreferences(), heading)
+                }
+                route.instructions.isNotEmpty().also { hasTurns ->
+                    if (hasTurns) screenManager.push(NavScreen(carContext, renderer, from, dest, route, config, name))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "regroup route failed, handing off", e)
+                false
+            } finally {
+                starting = false
+            }
+            if (!started) navigate(dest)
         }
     }
 
