@@ -21,8 +21,10 @@
 	# Keycloak's admin console and admin REST API are not public. Reach them
 	# over an SSH tunnel to 127.0.0.1:KC_PORT instead (KC_HOSTNAME_ADMIN in
 	# .env). Caddy cleans the path before matching, so /auth//admin or
-	# /auth/realms/../admin land here too.
-	@kc_admin path /auth/admin /auth/admin/*
+	# /auth/realms/../admin land here too. A regexp rather than `path`, because
+	# Keycloak ignores matrix parameters: /auth/admin;x/... is the admin
+	# console to it, but its first segment is "admin;x" to a `path` glob.
+	@kc_admin path_regexp ^/auth/admin([/;]|$)
 	handle @kc_admin {
 		respond 403
 	}
