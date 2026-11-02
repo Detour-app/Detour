@@ -475,6 +475,7 @@ object Auth {
         SpeedCameraStore.reset()
         SpeedLimitStore.reset()
         RoadTypeStore.reset()
+        FeatureFlags.reset()
     }
 
     /**

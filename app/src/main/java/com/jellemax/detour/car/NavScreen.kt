@@ -252,6 +252,9 @@ class NavScreen(
                 voice.shutdown()
             }
         })
+        // Break please appears on joining a convoy mid-route; templateKey is
+        // about the turn card, so this redraws on its own.
+        CarBreakRegroup.watchBreakAction(this) { invalidate() }
         lifecycleScope.launch {
             TripTrackingService.lastFix.collect { fix ->
                 fix ?: return@collect
@@ -342,6 +345,7 @@ class NavScreen(
         when (NavPolicy.decide(
             progress = p,
             hasDestination = true, // a constructor parameter on this screen
+            stopsAhead = false, // the car doesn't ride via stops (#736)
             rerouting = rerouting,
             lastRerouteMs = lastRerouteMs,
             nowMs = now,
@@ -651,6 +655,7 @@ class NavScreen(
                 Action.Builder().setTitle(carContext.getString(R.string.car_nav_exit))
                     .setOnClickListener { screenManager.pop() }.build(),
             )
+            .apply { CarBreakRegroup.breakAction(carContext)?.let { addAction(it) } }
             .build()
     }
 

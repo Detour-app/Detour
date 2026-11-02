@@ -230,6 +230,16 @@ class PlannedRidesStateWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+class FlagReadingsWatcher internal constructor(
+    private val flow: StateFlow<List<FlagReading>>,
+) : Watcher() {
+    var value: List<FlagReading> = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 // --- ConvoyRelay's own flows ---------------------------------------------
 //
 // One subclass per element type, same rule as everything above - added for
@@ -435,6 +445,14 @@ object FeatureFlows {
     fun convoyInvites() = ConvoyInvitesStateWatcher(ConvoyInvitesStore.state)
     fun circles() = CirclesStateWatcher(CirclesStore.state)
     fun plannedRides() = PlannedRidesStateWatcher(PlannedRidesStore.state)
+
+    /** [FeatureFlags.readings], for the Diagnostics → Flags list (#816). Reads the cache
+     *  first, so the list opens on the account's last answer instead of the compiled
+     *  defaults; `FeatureFlags.refresh()` updates it from the server. */
+    fun flags(): FlagReadingsWatcher {
+        FeatureFlags.ensureLoaded()
+        return FlagReadingsWatcher(FeatureFlags.readings)
+    }
 }
 
 /**

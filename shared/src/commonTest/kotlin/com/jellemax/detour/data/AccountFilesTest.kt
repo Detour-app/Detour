@@ -133,7 +133,7 @@ class AccountFilesTest {
     }
 
     @Test
-    fun theScopedListIsExactlyTheEightRiderFilesAndNotTheSearchCache() {
+    fun theScopedListIsExactlyTheNineRiderFilesAndNotTheSearchCache() {
         // A literal list, deliberately, rather than deriving the expectation
         // from SCOPED_NAMES — which would assert the list equals itself.
         // Nothing else here would notice a name going missing: the migration
@@ -150,6 +150,7 @@ class AccountFilesTest {
                 "saved_places.json",
                 "routes.json",
                 "municipalities.json",
+                "flags.json",
             ),
             AccountFiles.SCOPED_NAMES,
         )
