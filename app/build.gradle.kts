@@ -1,3 +1,4 @@
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -86,7 +87,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "4.5.0"
+        versionName = "4.8.0"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -112,6 +113,17 @@ android {
         // fills it in. A local build is signed with a different key and could
         // never install a CI APK anyway.
         buildConfigField("String", "UPDATE_REPO", "\"\"")
+
+        // Where convoy invite links open (#764): `<api.url>/convoy-invite`, the
+        // link shared/'s convoyInviteLink builds for the baked server. Android
+        // verifies the App Link against /.well-known/assetlinks.json on that
+        // host, which only the deployment can publish. A build with no api.url
+        // gets a reserved .invalid host that never verifies, so the filter
+        // claims nothing. A server typed in Settings isn't covered either: a
+        // manifest can't follow a runtime setting, and pasting still works.
+        val appLink = URI(apiUrl.ifBlank { "https://detour.invalid" })
+        manifestPlaceholders["appLinkHost"] = appLink.host
+        manifestPlaceholders["appLinkPath"] = appLink.path.trimEnd('/') + "/convoy-invite"
     }
 
     // Release signing reads from the environment rather than local.properties:
