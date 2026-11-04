@@ -148,7 +148,9 @@ expect_no_docker "an unknown command"
 : > "$STUB_PAGES/0"
 sh "$CLI" invites >/dev/null
 expect_call '^compose exec -T keycloak sh -c'
-expect_call 'KC_BOOTSTRAP_ADMIN_PASSWORD'
+# shellcheck disable=SC2016
+expect_call 'export KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD"'
+expect_no_call ' --password'
 # shellcheck disable=SC2016
 expect_call 'http://localhost:8080${KC_HTTP_RELATIVE_PATH%/}'
 expect_no_call "$(key KC_ADMIN_PASSWORD)"

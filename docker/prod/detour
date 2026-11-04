@@ -141,16 +141,17 @@ cmd_setup() {
 
 kc() { docker compose exec -T keycloak "$KCADM" "$@" </dev/null; }
 
-# Single-quoted: the container fills in its own env, so the password never reaches
-# this host's process list.
+# Single-quoted: the container fills in its own env. kcadm reads the password from
+# KC_CLI_PASSWORD, because an argument would show in ps on this host: a container's
+# processes are the host's.
 kc_login() {
     # kcadm says "Logging into..." on success, and why it couldn't on failure.
     # shellcheck disable=SC2016
     login_output="$(docker compose exec -T keycloak sh -c '
+        export KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD"
         exec "$0" config credentials --realm master \
             --server "http://localhost:8080${KC_HTTP_RELATIVE_PATH%/}" \
-            --user "$KC_BOOTSTRAP_ADMIN_USERNAME" \
-            --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"
+            --user "$KC_BOOTSTRAP_ADMIN_USERNAME"
     ' "$KCADM" </dev/null 2>&1)" || {
         printf '%s\n' "$login_output" >&2
         die "can't sign in to Keycloak; is the stack up? (docker compose ps)"
