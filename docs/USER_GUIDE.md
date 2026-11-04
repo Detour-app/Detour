@@ -4,7 +4,7 @@ Everything the app does, from the outside. Nothing here needs a server unless a
 section says so.
 
 Building it or changing it is [DEVELOPERS.md](DEVELOPERS.md); the shape of the
-system is the [README](../README.md).
+system is [ARCHITECTURE.md](ARCHITECTURE.md).
 
 <sub>Every screenshot below was taken on a phone running a throwaway profile:
 synthetic trips, invented saved places and a mocked GPS position. Nothing in
@@ -538,7 +538,7 @@ The APKs published on the releases page are built by CI with **no** server
 configuration baked in, deliberately: a public release should not ship someone
 else's server address. That does not disable sign-in, only preconfigure it.
 
-Standing those services up is [../README.md](../README.md) and
+Standing those services up is [../docker/prod/README.md](../docker/prod/README.md) and
 [../backend/INSTALL.md](../backend/INSTALL.md).
 
 ## On the car screen

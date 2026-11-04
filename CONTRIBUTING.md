@@ -3,7 +3,7 @@
 How to *land* a change: branches, pull requests, versioning, documentation and
 style. How to **build and run** any of it — prerequisites, repository layout,
 the local stack, tests — is [docs/DEVELOPERS.md](docs/DEVELOPERS.md), and the
-shape of the system is the [README](README.md).
+shape of the system is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Branches
 
