@@ -99,6 +99,32 @@ internal fun FileSystem.writeAtomically(target: Path, text: String) {
     }
 }
 
+/**
+ * If [file] exists but [parses] throws on its text, rename it to
+ * `<name>.unreadable-<[atMs]>` and return that path; otherwise null (#694).
+ *
+ * A store that reads a bad file as empty and then writes over it destroys
+ * bytes that may still be recoverable. Setting it aside first keeps them, and
+ * never throws on bad content, so a caller in a scope with no exception
+ * handler cannot be crashed by it.
+ */
+internal fun FileSystem.setAsideIfUnreadable(file: Path, atMs: Long, parse: (String) -> Unit): Path? {
+    if (!exists(file)) return null
+    val ok = try {
+        parse(read(file) { readUtf8() })
+        true
+    } catch (e: Exception) {
+        false
+    }
+    if (ok) return null
+    val aside = file.parent?.div("${file.name}.unreadable-$atMs") ?: "${file.name}.unreadable-$atMs".toPath()
+    atomicMove(file, aside)
+    return aside
+}
+
+internal fun Path.setAsideIfUnreadable(atMs: Long, parse: (String) -> Unit): Path? =
+    fileSystem.setAsideIfUnreadable(this, atMs, parse)
+
 internal fun Path.appendText(text: String) {
     parent?.let { fileSystem.createDirectories(it) }
     fileSystem.appendingSink(this).buffer().use { it.writeUtf8(text) }

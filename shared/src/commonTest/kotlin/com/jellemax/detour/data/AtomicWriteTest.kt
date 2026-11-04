@@ -58,4 +58,23 @@ class AtomicWriteTest {
         assertEquals(old, fake.textAt(trips))
         assertEquals(listOf(trips), fake.list(dir))
     }
+
+    @Test
+    fun anUnreadableFileIsRenamedAsideWithItsBytesIntact() {
+        val fs = FakeFileSystem()
+        fs.writeAtomically(trips, "[{\"startTimeMs\":1")
+        val aside = fs.setAsideIfUnreadable(trips, 42L) { TripStore.decodeAll(it) }
+        assertEquals(dir / "trips.json.unreadable-42", aside)
+        assertEquals("[{\"startTimeMs\":1", fs.textAt(aside!!))
+        assertEquals(false, fs.exists(trips))
+    }
+
+    @Test
+    fun aReadableOrMissingFileIsLeftAlone() {
+        val fs = FakeFileSystem()
+        assertEquals(null, fs.setAsideIfUnreadable(trips, 1L) { TripStore.decodeAll(it) })
+        fs.writeAtomically(trips, "[]")
+        assertEquals(null, fs.setAsideIfUnreadable(trips, 1L) { TripStore.decodeAll(it) })
+        assertEquals("[]", fs.textAt(trips))
+    }
 }
