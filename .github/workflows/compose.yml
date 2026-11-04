@@ -26,6 +26,9 @@ jobs:
       - name: fetch-extract.sh
         run: sh docker/prod/scripts/fetch-extract.test.sh
 
+      - name: group-realm
+        run: sh docker/prod/scripts/group-realm.test.sh
+
       - name: compose config — every COMPOSE_FILE combination
         working-directory: docker/prod
         run: |
@@ -41,17 +44,21 @@ jobs:
           IDP_ISSUER=https://idp.ci.invalid/realms/detour
           PHOTON_REGION=be
           CLOUDFLARE_TUNNEL_TOKEN=ci
+          DETOUR_HOSTNAME=ci.invalid
           EOF
           fail=0
           for combo in \
             "docker-compose.yml" \
             "docker-compose.yml:docker-compose.idp.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.group.yml" \
             "docker-compose.yml:docker-compose.routing.yml" \
             "docker-compose.yml:docker-compose.search.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml:docker-compose.proxy.yml" \
-            "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml:docker-compose.cloudflare.yml" ; do
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml:docker-compose.cloudflare.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.proxy.yml:docker-compose.caddy.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.proxy.yml:docker-compose.caddy.yml" ; do
             echo "::group::$combo"
             if COMPOSE_FILE="$combo" docker compose config -q ; then
               echo "OK   $combo"

@@ -2595,6 +2595,11 @@ has no way in by link, so an iPhone rider sent a link cannot join with it. On An
 flag `convoy-join-link` (default off) until it has been ridden. #763 is the phone's
 slice of #634; the iPhone's is not filed.
 
+Since `#764` a tapped link opens Android's confirm screen too (an App Link verified against the
+API host's `/.well-known/assetlinks.json`, `app/…/convoy/PendingConvoyInvite.kt`). iOS has no
+Universal Link (no `applinks:` entitlement, no `apple-app-site-association`), so on an iPhone the
+link opens the API's `/convoy-invite` page in Safari. Platform wiring, no shared rule to copy.
+
 **Verdict: survive — Android's flow, and iOS follows.** Not a product question: the iOS row binds
 `FeatureFlows.convoyJoin()` and calls the same `ConvoyJoinStore` actions; only the wording is
 per-surface.

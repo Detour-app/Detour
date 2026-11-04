@@ -208,3 +208,35 @@ public class ProblemReportSettings
     /// </summary>
     public string ReporterKeySecret { get; set; } = "";
 }
+
+/// <summary>
+/// The Android apps allowed to open this deployment's convoy invite links (#764), published as
+/// <c>/.well-known/assetlinks.json</c> so Android verifies the app's App Link for this host, and
+/// where the invite page sends someone who opens a link without the app.
+///
+/// The fingerprints are per deployment: they are the SHA-256 of the certificate the APK riders
+/// install was signed with, which is the self-hoster's own key for a build they made. Empty by
+/// default — the file answers <c>[]</c>, nothing is verified, and Android opens invite links in
+/// the browser, on the invite page.
+/// </summary>
+public class AppLinkSettings
+{
+    public const string SectionName = "AppLinks";
+
+    /// <summary>One entry per applicationId. An entry without fingerprints is left out.</summary>
+    public List<AndroidAppLink> Android { get; set; } = [];
+
+    /// <summary>Where the invite page's install button goes: a store listing, or a self-hoster's
+    /// own install notes.</summary>
+    public string InstallUrl { get; set; } = "https://github.com/Detour-app/Detour/releases/latest";
+}
+
+/// <summary>An applicationId and the signing-certificate fingerprints that may claim its links.</summary>
+public class AndroidAppLink
+{
+    public string Package { get; set; } = "";
+
+    /// <summary>Colon-separated hex SHA-256 fingerprints (<c>keytool -list -v</c>'s form); several
+    /// may be given separated by commas, for a signing-key rotation.</summary>
+    public string Sha256 { get; set; } = "";
+}
