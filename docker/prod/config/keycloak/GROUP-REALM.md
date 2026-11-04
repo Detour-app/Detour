@@ -31,6 +31,10 @@ docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
   --user <your administrator>   # prompts for the password
 ```
 
+With the Caddy layer Keycloak serves under `/auth`, so use
+`--server http://localhost:8080/auth`; without `/auth` this login returns
+`404 Not Found` (run on Keycloak 26.7.5 with `--http-relative-path=/auth`).
+
 The remaining commands are written as `kcadm.sh …`; prefix them with
 `docker compose exec keycloak /opt/keycloak/bin/`.
 
