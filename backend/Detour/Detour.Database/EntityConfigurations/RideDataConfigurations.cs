@@ -133,6 +133,29 @@ public class SavedRouteConfiguration : IEntityTypeConfiguration<SavedRoute>
     }
 }
 
+public class TraceTombstoneConfiguration : IEntityTypeConfiguration<TraceTombstone>
+{
+    public void Configure(EntityTypeBuilder<TraceTombstone> builder)
+    {
+        builder.ToTable("trace_tombstones");
+
+        builder.HasKey(t => t.Id);
+        builder.Property(t => t.Id).ValueGeneratedNever();
+
+        // Hex SHA-256.
+        builder.Property(t => t.LineHash).HasMaxLength(64);
+        builder.Property(t => t.DeletedAt);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Also the lookup every sync makes for the lines it was sent.
+        builder.HasIndex(t => new { t.UserId, t.LineHash }).IsUnique();
+    }
+}
+
 public class TripTombstoneConfiguration : IEntityTypeConfiguration<TripTombstone>
 {
     public void Configure(EntityTypeBuilder<TripTombstone> builder)
