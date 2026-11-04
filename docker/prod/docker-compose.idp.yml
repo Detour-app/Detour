@@ -44,6 +44,16 @@ services:
       # The public URL, and it must agree with IDP_ISSUER in .env. Changing the
       # scheme or host invalidates every issued token and every stored redirect URI.
       KC_HOSTNAME: ${KC_HOSTNAME:?Set KC_HOSTNAME, e.g. https://idp.example.com}
+      # Where Keycloak serves, and its admin console's own URL. The defaults are
+      # Keycloak's (root path, admin console on KC_HOSTNAME), so an install that
+      # sets neither is unchanged. The caddy layer serves Keycloak under /auth;
+      # see docker-compose.caddy.yml.
+      KC_HTTP_RELATIVE_PATH: ${KC_HTTP_RELATIVE_PATH:-/}
+      KC_HOSTNAME_ADMIN: ${KC_HOSTNAME_ADMIN:-}
+      # Pinned to the root: from Keycloak 25 the management port follows
+      # KC_HTTP_RELATIVE_PATH, which would move health to :9000/auth/health/ready
+      # and break the healthcheck below.
+      KC_HTTP_MANAGEMENT_RELATIVE_PATH: /
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"

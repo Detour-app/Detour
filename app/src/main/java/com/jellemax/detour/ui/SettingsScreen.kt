@@ -122,7 +122,7 @@ internal fun spokeTitle(spoke: Destination.SettingsSpoke): String = stringResour
         Destination.SettingsServersSync -> R.string.settings_spoke_servers_sync
         Destination.SettingsObd2 -> R.string.settings_spoke_obd2
         Destination.SettingsLicences -> R.string.settings_spoke_licences
-        Destination.SettingsProblemReport -> R.string.settings_spoke_problem_report
+        is Destination.SettingsProblemReport -> R.string.settings_spoke_problem_report
     },
 )
 
@@ -213,11 +213,11 @@ fun SettingsSpokeScreen(
             }
             Destination.SettingsServersSync -> {
                 ServersSyncSpoke(scrollState)
-                DiagnosticsSection(onReportProblem = { onNavigate(Destination.SettingsProblemReport) })
+                DiagnosticsSection(onReportProblem = { onNavigate(Destination.SettingsProblemReport()) })
             }
             Destination.SettingsObd2 -> Obd2PairingScreen()
             Destination.SettingsLicences -> LicencesScreen()
-            Destination.SettingsProblemReport -> ProblemReportScreen(onClose = onBack)
+            is Destination.SettingsProblemReport -> ProblemReportScreen(onClose = onBack, withCrash = spoke.withCrash)
         }
     }
 }
