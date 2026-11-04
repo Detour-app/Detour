@@ -21,12 +21,14 @@ public record SyncRequest
     /// Start instants the device has deleted. Each is kept as a tombstone (#778): a trip in both
     /// lists, or uploaded later by a device that still holds it, is not stored again, and the
     /// tombstone goes back to every device in <see cref="SyncResponse.DeletedTripStartTimes"/>.
+    /// The ride's stored track points and trace lines go with it (#780).
     /// </summary>
     public IReadOnlyList<long>? DeletedTripStartTimes { get; init; }
 
     /// <summary>
     /// Fog-of-war lines, each a serialised array of <c>[lat, lon, tMs, speedKmh, leanDeg]</c>
-    /// points. Deduplicated by content, because every sync re-sends the whole history.
+    /// points. Deduplicated by content, because every sync re-sends the whole history. A line
+    /// removed with a deleted ride is ignored, and absent from the response (#780).
     /// </summary>
     public IReadOnlyList<string>? Traces { get; init; }
 

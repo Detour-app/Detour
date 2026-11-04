@@ -20,7 +20,8 @@ public class SyncController(ICurrentUser currentUser, ISyncService sync) : Contr
         "Bidirectional and idempotent. Every field is optional and absent never means 'clear'. "
         + "Trips key on their start instant, so a re-upload replaces an edited ride rather than "
         + "being ignored; deletions are applied after the upserts so they propagate to every "
-        + "other device. Traces deduplicate on content. Badges keep the earliest instant seen. "
+        + "other device, along with the ride's trace. Traces deduplicate on content, and a line "
+        + "removed with a deleted ride is not taken back. Badges keep the earliest instant seen. "
         + "Ride titles keep the newest edit, and an empty title is a kept tombstone. "
         + "Returns the merged union, which is what restores a device after a reinstall.")]
     [ProducesResponseType<SyncResponse>(StatusCodes.Status200OK)]
