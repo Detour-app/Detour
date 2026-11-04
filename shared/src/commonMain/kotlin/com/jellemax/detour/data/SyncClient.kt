@@ -168,10 +168,7 @@ object SyncClient {
         val uploadedRoutes = RouteStore.forUpload()
         val payload = buildJsonObject {
             put("trips", uploadedTrips)
-            // Deletions the server has not seen yet. Without them its copy comes
-            // back in the merge and only this device's own tombstone filter
-            // hides it — every other device would resurrect the trip.
-            put("deletedTripStartTimes", buildJsonArrayOfLongs(TripStore.deletedStartTimes()))
+            putTripDeletions()
             put("traces", buildJsonArrayOfStrings(uploadedLines))
             put("badges", jsonObjectOf(BadgeStore.rawJson()))
             put("tripTitles", TripTitleStore.toUpload(TripTitleStore.loadEntries()))
@@ -268,6 +265,14 @@ object SyncClient {
             ?.let(Settings::adoptServerShareFog)
     }
 
+    /** Deletions the server has not seen yet. Without them its copy comes back
+     *  in the merge and only this device's own tombstone filter hides it — every
+     *  other device would resurrect the trip. */
+    private fun JsonObjectBuilder.putTripDeletions() {
+        put("deletedTripStartTimes", buildJsonArrayOfLongs(TripStore.deletedStartTimes()))
+        put("deletedTripWindows", deletedTripWindows(TripStore.deletedWindows()))
+    }
+
     /** The shortcuts and saved routes, and the ones removed here — the latter
      *  for the same reason as `deletedTripStartTimes`: without it the server's
      *  copy of a removed shortcut (#695) or route (#592) comes back in the
@@ -297,6 +302,17 @@ object SyncClient {
      */
     internal fun shareFogFromServer(server: Boolean?, editsAtUpload: Int, editsNow: Int): Boolean? =
         server.takeIf { editsAtUpload == editsNow }
+
+    /** The `deletedTripWindows` upload: how the server finds the trace of a
+     *  deleted ride it holds no row for (#877). */
+    internal fun deletedTripWindows(windows: Map<Long, Long>) = buildJsonArray {
+        for ((start, end) in windows) {
+            add(buildJsonObject {
+                put("startTimeMs", start)
+                put("endTimeMs", end)
+            })
+        }
+    }
 
     /** The rides this rider deleted on any device, from the server's answer
      *  (#778). Empty from an older server that omits the field. */

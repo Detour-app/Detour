@@ -26,6 +26,14 @@ public record SyncRequest
     public IReadOnlyList<long>? DeletedTripStartTimes { get; init; }
 
     /// <summary>
+    /// The time span of each deleted ride the device knows one for, re-sent on every sync like
+    /// <see cref="DeletedTripStartTimes"/> (#877). A ride's stored row gives its window too, but
+    /// a ride the server has no row for has only this. Each entry also counts as a deletion of
+    /// its start instant. An end before the start says nothing about where the ride went.
+    /// </summary>
+    public IReadOnlyList<DeletedTripWindow>? DeletedTripWindows { get; init; }
+
+    /// <summary>
     /// Fog-of-war lines, each a serialised array of <c>[lat, lon, tMs, speedKmh, leanDeg]</c>
     /// points. Deduplicated by content, because every sync re-sends the whole history. A line
     /// removed with a deleted ride is ignored, and absent from the response (#780).
@@ -67,6 +75,10 @@ public record SyncRequest
     /// <summary>Absent leaves the setting alone; it is never read as "off".</summary>
     public bool? ShareFog { get; init; }
 }
+
+public record DeletedTripWindow(
+    [Required] long StartTimeMs,
+    [Required] long EndTimeMs);
 
 public record TripPayload
 {

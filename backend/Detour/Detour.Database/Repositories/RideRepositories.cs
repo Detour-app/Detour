@@ -212,6 +212,15 @@ public class TrackPointRepository(ICustomDbContextFactory<DetourDbContext> facto
         return values.Count == 0 ? null : values.Max();
     }
 
+    public Task<bool> AnyInWindowAsync(
+        Guid userId,
+        long fromMs,
+        long toMs,
+        CancellationToken cancellationToken) =>
+        Context.TrackPoints.AsNoTracking()
+            .TagWith("TrackPointRepository.AnyInWindowAsync")
+            .AnyAsync(p => p.UserId == userId && p.TimestampMs >= fromMs && p.TimestampMs <= toMs, cancellationToken);
+
     public Task<int> DeleteInWindowAsync(
         Guid userId,
         long fromMs,

@@ -582,6 +582,128 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_deleted_ride_with_no_row_loses_its_location_by_the_window_the_device_sent()
+    {
+        // A mid-ride sync uploaded a line, the sync at the end failed, and the rider deleted the
+        // ride offline: the server never had a row, so the device's window is all it has.
+        var client = NewRider();
+        var line = Line(5_000);
+        var other = Line(90_000);
+        await Sync(client, new { traces = new[] { line, other } });
+
+        var merged = await Sync(client, new
+        {
+            deletedTripStartTimes = new[] { 5_000L },
+            deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } },
+            traces = new[] { other },
+        });
+
+        merged.Traces.Should().Equal(other);
+        merged.DeletedTripStartTimes.Should().Equal(5_000L);
+        (await StoredInstants(client)).Should().Equal(90_000L, 91_000L);
+
+        // Another device still holding the line can't bring it back.
+        (await Sync(client, new { traces = new[] { line, other } })).Traces.Should().Equal(other);
+    }
+
+    [Fact]
+    public async Task A_window_with_no_row_keeps_the_points_either_side_of_it()
+    {
+        var client = NewRider();
+        var straddling = Points(1_000, 2_000, 5_000, 6_000, 9_000, 10_000);
+        await Sync(client, new { traces = new[] { straddling } });
+
+        var merged = await Sync(client, new
+        {
+            deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 6_000L } },
+            traces = new[] { Points(1_000, 2_000), Points(9_000, 10_000) },
+        });
+
+        merged.DeletedTripStartTimes.Should().Equal(5_000L);
+        merged.Traces.Should().HaveCount(2);
+        merged.Traces.Should().BeEquivalentTo(Points(1_000, 2_000), Points(9_000, 10_000));
+        (await StoredInstants(client)).Should().Equal(1_000L, 2_000L, 9_000L, 10_000L);
+    }
+
+    [Fact]
+    public async Task A_re_sent_window_takes_a_line_that_arrived_after_the_deletion()
+    {
+        var client = NewRider();
+        var windows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } };
+        await Sync(client, new { deletedTripWindows = windows });
+
+        // Device B flushed this line mid-ride and only uploads it now.
+        await Sync(client, new { traces = new[] { Line(5_000) } });
+        var merged = await Sync(client, new { deletedTripWindows = windows });
+
+        merged.Traces.Should().BeEmpty();
+        (await StoredInstants(client)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_window_covers_a_deletion_an_older_server_already_tombstoned()
+    {
+        // The app can update first: the server buried the start and ignored the window it didn't
+        // know, and the line stayed. Once upgraded, the device's next sync still sends it.
+        var client = NewRider();
+        await Sync(client, new { traces = new[] { Line(5_000) } });
+        await Sync(client, new { deletedTripStartTimes = new[] { 5_000L } });
+        (await Sync(client, new { })).Traces.Should().ContainSingle("a start alone says nothing about where the ride went");
+
+        var merged = await Sync(client, new
+        {
+            deletedTripStartTimes = new[] { 5_000L },
+            deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } },
+        });
+
+        merged.Traces.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_re_sent_window_leaves_everything_outside_it_alone()
+    {
+        var client = NewRider();
+        var windows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } };
+        var other = Line(90_000);
+        await Sync(client, new { deletedTripWindows = windows });
+
+        var again = await Sync(client, new { deletedTripWindows = windows, traces = new[] { other } });
+        var third = await Sync(client, new { deletedTripWindows = windows, traces = new[] { other } });
+
+        again.Traces.Should().Equal(other);
+        third.Traces.Should().Equal(other);
+        third.DeletedTripStartTimes.Should().Equal(5_000L);
+        (await StoredInstants(client)).Should().Equal(90_000L, 91_000L);
+    }
+
+    [Fact]
+    public async Task A_window_ending_before_it_starts_removes_no_location()
+    {
+        var client = NewRider();
+        var line = Line(5_000);
+        await Sync(client, new { traces = new[] { line } });
+
+        var merged = await Sync(client, new { deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 0L } } });
+
+        merged.Traces.Should().Equal(line);
+        merged.DeletedTripStartTimes.Should().Equal(5_000L);
+    }
+
+    [Fact]
+    public async Task A_window_leaves_another_riders_points_alone()
+    {
+        var rider = NewRider();
+        var other = NewRider();
+        await Sync(other, new { traces = new[] { Line(5_000) } });
+        await Sync(rider, new { traces = new[] { Line(5_000) } });
+
+        await Sync(rider, new { deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } } });
+
+        (await Sync(other, new { })).Traces.Should().Equal(Line(5_000));
+        (await StoredInstants(other)).Should().Equal(5_000L, 6_000L);
+    }
+
+    [Fact]
     public async Task A_point_with_no_instant_draws_fog_but_stores_no_sample()
     {
         // Two-element points predate timestamps. They are skipped rather than stored with a

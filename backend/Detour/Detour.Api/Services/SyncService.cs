@@ -49,9 +49,9 @@ public class SyncService(
         if (validation.IsFailure)
             return validation;
 
-        var deletedWindows = await MergeTripsAsync(user.Id, request, cancellationToken);
+        var rowWindows = await MergeTripsAsync(user.Id, request, cancellationToken);
         await MergeTracesAsync(user.Id, request.Traces, cancellationToken);
-        await RemoveDeletedRidesTracesAsync(user.Id, deletedWindows, cancellationToken);
+        await RemoveDeletedRidesTracesAsync(user.Id, rowWindows, ReportedWindows(request), cancellationToken);
         await MergeSavedPlacesAsync(user.Id, request, cancellationToken);
         await MergeSavedRoutesAsync(user.Id, request, cancellationToken);
         await MergeBadgesAsync(user.Id, request.Badges, cancellationToken);
@@ -106,7 +106,13 @@ public class SyncService(
         return messages.Count > 0 ? Result.Create(messages) : Result.Ok();
     }
 
-    /// <summary>Returns the time window of each ride this request deleted, for its trace to go too.</summary>
+    private static IReadOnlyList<TimeWindow> ReportedWindows(SyncRequest request) =>
+        [.. (request.DeletedTripWindows ?? [])
+            .Where(w => w.StartTimeMs > 0 && w.EndTimeMs >= w.StartTimeMs)
+            .Select(w => new TimeWindow(w.StartTimeMs, w.EndTimeMs))
+            .Distinct()];
+
+    /// <summary>Returns the time window of each stored ride this request deleted, for its trace to go too.</summary>
     private async Task<IReadOnlyList<TimeWindow>> MergeTripsAsync(
         Guid userId,
         SyncRequest request,
@@ -116,7 +122,11 @@ public class SyncService(
         // from an upload. The device uploading it has not heard of the deletion yet; it hears of
         // it in the response instead (#778).
         var tombstoned = (await tripTombstones.GetStartsForUserAsync(userId, cancellationToken)).ToHashSet();
-        var deleted = (request.DeletedTripStartTimes ?? []).Where(s => s > 0).Distinct().ToArray();
+        var deleted = (request.DeletedTripStartTimes ?? [])
+            .Concat((request.DeletedTripWindows ?? []).Select(w => w.StartTimeMs))
+            .Where(s => s > 0)
+            .Distinct()
+            .ToArray();
 
         var incoming = (request.Trips ?? [])
             .Where(t => !tombstoned.Contains(t.StartTimeMs) && !deleted.Contains(t.StartTimeMs))
@@ -202,17 +212,35 @@ public class SyncService(
     ///
     /// Runs after <see cref="MergeTracesAsync"/> so this request's own lines are covered too: an
     /// older client deletes a ride without cutting its trace, and uploads the line alongside.
+    ///
+    /// <paramref name="rowWindows"/> come from rows this request deleted, so they apply once.
+    /// <paramref name="reportedWindows"/> come back on every sync (#877), so each only applies
+    /// while a stored sample sits inside it: an indexed lookup rather than re-parsing the whole
+    /// history per sync. Looking at the data rather than at the trip tombstone also covers a line
+    /// that reaches the server after the deletion, and a deletion an older server already buried
+    /// without its window.
     /// </summary>
     private async Task RemoveDeletedRidesTracesAsync(
         Guid userId,
-        IReadOnlyList<TimeWindow> windows,
+        IReadOnlyList<TimeWindow> rowWindows,
+        IReadOnlyList<TimeWindow> reportedWindows,
         CancellationToken cancellationToken)
     {
-        if (windows.Count == 0)
+        if (rowWindows.Count == 0 && reportedWindows.Count == 0)
             return;
 
-        // The bulk deletes below go straight to the database, past anything still pending.
+        // The lookups and bulk deletes below go straight to the database, past anything still pending.
         await traces.FlushChangesAsync(cancellationToken);
+
+        var windows = rowWindows.ToList();
+        foreach (var window in reportedWindows)
+        {
+            if (await trackPoints.AnyInWindowAsync(userId, window.FromMs, window.ToMs, cancellationToken))
+                windows.Add(window);
+        }
+
+        if (windows.Count == 0)
+            return;
 
         foreach (var window in windows)
             await trackPoints.DeleteInWindowAsync(userId, window.FromMs, window.ToMs, cancellationToken);
