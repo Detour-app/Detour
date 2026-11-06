@@ -11,7 +11,7 @@
     <PackageVersion Include="JV.ResultUtilities" Version="10.4.0" />
     <PackageVersion Include="Cronos" Version="0.8.4" />
     <!-- FCM v1 bearer minting only (drops the FirebaseAdmin dependency); the send is a plain HttpClient POST. -->
-    <PackageVersion Include="Google.Apis.Auth" Version="1.77.0" />
+    <PackageVersion Include="Google.Apis.Auth" Version="1.78.0" />
   </ItemGroup>
 
   <!-- ASP.NET Core -->
