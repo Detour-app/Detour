@@ -1223,6 +1223,36 @@ namespace Detour.Database.Migrations
                     b.ToTable("traces", "detour");
                 });
 
+            modelBuilder.Entity("Detour.Domain.Traces.TraceTombstone", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("LineHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("line_hash");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_trace_tombstones");
+
+                    b.HasIndex("UserId", "LineHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_trace_tombstones_user_id_line_hash");
+
+                    b.ToTable("trace_tombstones", "detour");
+                });
+
             modelBuilder.Entity("Detour.Domain.Traces.TrackPoint", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -1713,6 +1743,16 @@ namespace Detour.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_traces_users_user_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Traces.TraceTombstone", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_trace_tombstones_users_user_id");
                 });
 
             modelBuilder.Entity("Detour.Domain.Traces.TrackPoint", b =>

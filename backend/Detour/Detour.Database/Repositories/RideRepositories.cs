@@ -124,6 +124,18 @@ public class TraceRepository(ICustomDbContextFactory<DetourDbContext> factory)
     public Task<int> CountForUserAsync(Guid userId, CancellationToken cancellationToken) =>
         Set.TagWith(Tag(nameof(CountForUserAsync)))
             .CountAsync(t => t.UserId == userId, cancellationToken);
+
+    public Task<int> DeleteByHashesAsync(
+        Guid userId,
+        IReadOnlyCollection<string> hashes,
+        CancellationToken cancellationToken)
+    {
+        if (hashes.Count == 0)
+            return Task.FromResult(0);
+
+        return Set.Where(t => t.UserId == userId && hashes.Contains(t.LineHash))
+            .ExecuteDeleteAsync(cancellationToken);
+    }
 }
 
 public class TrackPointRepository(ICustomDbContextFactory<DetourDbContext> factory) : ITrackPointRepository
@@ -199,6 +211,15 @@ public class TrackPointRepository(ICustomDbContextFactory<DetourDbContext> facto
 
         return values.Count == 0 ? null : values.Max();
     }
+
+    public Task<int> DeleteInWindowAsync(
+        Guid userId,
+        long fromMs,
+        long toMs,
+        CancellationToken cancellationToken) =>
+        Context.TrackPoints
+            .Where(p => p.UserId == userId && p.TimestampMs >= fromMs && p.TimestampMs <= toMs)
+            .ExecuteDeleteAsync(cancellationToken);
 
     public Task<int> DeleteForUserAsync(Guid userId, CancellationToken cancellationToken) =>
         Context.TrackPoints.Where(p => p.UserId == userId).ExecuteDeleteAsync(cancellationToken);
@@ -286,6 +307,27 @@ public class TripTombstoneRepository(ICustomDbContextFactory<DetourDbContext> fa
             .OrderBy(t => t.TripStartTimeMs)
             .Select(t => t.TripStartTimeMs)
             .ToListAsync(cancellationToken);
+}
+
+public class TraceTombstoneRepository(ICustomDbContextFactory<DetourDbContext> factory)
+    : BaseRepository<TraceTombstone, DetourDbContext>(factory), ITraceTombstoneRepository
+{
+    public async Task<HashSet<string>> GetExistingHashesAsync(
+        Guid userId,
+        IReadOnlyCollection<string> hashes,
+        CancellationToken cancellationToken)
+    {
+        if (hashes.Count == 0)
+            return [];
+
+        var found = await Set.AsNoTracking()
+            .TagWith(Tag(nameof(GetExistingHashesAsync)))
+            .Where(t => t.UserId == userId && hashes.Contains(t.LineHash))
+            .Select(t => t.LineHash)
+            .ToListAsync(cancellationToken);
+
+        return [.. found];
+    }
 }
 
 public class TripTitleRepository(ICustomDbContextFactory<DetourDbContext> factory)

@@ -26,6 +26,11 @@ public interface ITraceRepository : IBaseRepository<Trace>
         CancellationToken cancellationToken);
 
     Task<int> CountForUserAsync(Guid userId, CancellationToken cancellationToken);
+
+    Task<int> DeleteByHashesAsync(
+        Guid userId,
+        IReadOnlyCollection<string> hashes,
+        CancellationToken cancellationToken);
 }
 
 public interface ITrackPointRepository
@@ -66,6 +71,13 @@ public interface ITrackPointRepository
     /// Null and zero are different answers: "never measured" is not "rode upright".
     /// </summary>
     Task<double?> GetMaxLeanAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>Removes this user's samples in <paramref name="fromMs"/>..<paramref name="toMs"/>, inclusive.</summary>
+    Task<int> DeleteInWindowAsync(
+        Guid userId,
+        long fromMs,
+        long toMs,
+        CancellationToken cancellationToken);
 
     Task<int> DeleteForUserAsync(Guid userId, CancellationToken cancellationToken);
 }
