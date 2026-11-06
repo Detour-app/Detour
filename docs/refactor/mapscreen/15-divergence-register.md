@@ -2565,6 +2565,14 @@ the spin taking the crow-flies path. The fix is to swap those three reads for
 `RoutingServer.shared.routingUsable(config:)`, observing `revision` through the existing
 `IntWatcher` (`FlowWatcher.kt`).
 
+**33b. On iOS, routing can vanish on a server that does announce it.** iOS never calls
+`probeCapabilities`; its only probe is `Oidc.resolveIssuer` at sign-in (`SignIn.swift:53`). A rider
+who signed in on a build before `#854` holds a feature list with no routing state, which now reads
+as "probed, no routing", so after updating they have no routing until they sign in again, on any
+server. For the same reason a server's routing address only updates on iOS at the next sign-in.
+The fix is to run `probeCapabilities` at app start, as Android does. Not checked: whether any iOS
+build is live; if none is, this waits for the unpark.
+
 **Fence.**
 
 ```sh
