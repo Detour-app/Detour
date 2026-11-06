@@ -3,6 +3,7 @@ package com.jellemax.detour.data
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonArray
@@ -24,22 +25,21 @@ class TripStoreTest {
     )
 
     @Test
-    fun aDeletedRidesWindowIsKeptUpToTheCap() {
+    fun aRideUpToTheCapIsPlausible() {
         val start = 1_700_000_000_000L
-        val end = start + TripStore.MAX_DELETED_WINDOW_MS
 
-        assertEquals(mapOf(start to end), TripStore.withDeletedWindow(emptyMap(), start, end))
+        assertTrue(TripStore.isPlausibleRide(start, start))
+        assertTrue(TripStore.isPlausibleRide(start, start + TripStore.MAX_DELETED_WINDOW_MS))
     }
 
     @Test
-    fun anImplausibleDeletedRideRecordsNoWindowAndKeepsTheOthers() {
+    fun aRidePastTheCapOrEndingBeforeItStartedIsImplausible() {
         // A clock correction mid-ride: the span would take later rides with it (#877).
         val start = 1_700_000_000_000L
-        val kept = mapOf(1_000L to 2_000L)
 
-        assertEquals(kept, TripStore.withDeletedWindow(kept, start, start + TripStore.MAX_DELETED_WINDOW_MS + 1))
-        assertEquals(kept, TripStore.withDeletedWindow(kept, start, Long.MAX_VALUE))
-        assertEquals(kept, TripStore.withDeletedWindow(kept, start, start - 1))
+        assertFalse(TripStore.isPlausibleRide(start, start + TripStore.MAX_DELETED_WINDOW_MS + 1))
+        assertFalse(TripStore.isPlausibleRide(start, Long.MAX_VALUE))
+        assertFalse(TripStore.isPlausibleRide(start, start - 1))
     }
 
     @Test

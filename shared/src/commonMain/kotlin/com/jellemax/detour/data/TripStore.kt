@@ -109,8 +109,8 @@ object TripStore {
     private const val DELETED_WINDOWS_FILE_NAME = "deleted_trip_windows.json"
     private const val EDITED_FILE_NAME = "edited_modes.json"
 
-    /** Longest ride whose window goes to the server, the same cap it applies
-     *  itself (`DetourLimits.MaxDeletedRideWindow`). The times are wall clock,
+    /** Longest ride whose window is removed, here and on the server, the same cap
+     *  it applies itself (`DetourLimits.MaxDeletedRideWindow`). The times are wall clock,
      *  so a clock correction mid-ride can make one look years long, and that
      *  span would take later rides' location with it on every sync (#877). */
     internal const val MAX_DELETED_WINDOW_MS = 48L * 60 * 60 * 1000
@@ -174,16 +174,20 @@ object TripStore {
      * fog and the coverage percentages it fed. The window is kept for the server,
      * which has nothing else to find the trace by if it never got the ride's row
      * (#877), so it is written before the trip that knows it goes.
+     *
+     * A ride with an implausible span ([isPlausibleRide]) keeps its trace and
+     * records no window: that span would cut every later ride out of the file.
      */
     fun delete(startTimeMs: Long) {
         val trips = load()
         val trip = trips.firstOrNull { it.startTimeMs == startTimeMs }
-        if (trip != null) writeDeletedWindows(withDeletedWindow(deletedWindows(), trip.startTimeMs, trip.endTimeMs))
+        val window = trip?.takeIf { isPlausibleRide(it.startTimeMs, it.endTimeMs) }
+        if (window != null) writeDeletedWindows(deletedWindows() + (window.startTimeMs to window.endTimeMs))
         val tombstones = tombstones()
         tombstones.add(startTimeMs)
         writeTombstones(tombstones)
         writeAll(trips.filterNot { it.startTimeMs == startTimeMs })
-        trip?.let { TraceStore.removeWindow(it.startTimeMs, it.endTimeMs) }
+        window?.let { TraceStore.removeWindow(it.startTimeMs, it.endTimeMs) }
         // The removed trip may have held the top speed, the longest ride or
         // the deepest lean, and a maximum cannot be walked backwards from the
         // record alone. A recompute is the only correct answer.
@@ -478,14 +482,10 @@ object TripStore {
         accountFile(DELETED_WINDOWS_FILE_NAME).writeText(encodeDeletedWindows(windows))
     }
 
-    /** [windows] with this ride's added, unless its span is implausible: then
-     *  the start tombstone alone records the deletion. */
-    internal fun withDeletedWindow(windows: Map<Long, Long>, startTimeMs: Long, endTimeMs: Long): Map<Long, Long> =
-        if (endTimeMs >= startTimeMs && endTimeMs - startTimeMs <= MAX_DELETED_WINDOW_MS) {
-            windows + (startTimeMs to endTimeMs)
-        } else {
-            windows
-        }
+    /** Whether a deleted ride's span may be removed, here and on the server. When
+     *  it may not, the start tombstone alone records the deletion. */
+    internal fun isPlausibleRide(startTimeMs: Long, endTimeMs: Long): Boolean =
+        endTimeMs >= startTimeMs && endTimeMs - startTimeMs <= MAX_DELETED_WINDOW_MS
 
     /** deleted_trip_windows.json: an object of startTimeMs (as a string key) → endTimeMs. */
     internal fun decodeDeletedWindows(text: String): Map<Long, Long> {

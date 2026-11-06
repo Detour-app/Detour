@@ -57,7 +57,12 @@ actual fun securePrefs(): Prefs =
  *  keeps this store out of a backup — never being listed is. */
 internal const val SECURE_STORE = "secure"
 
-actual fun appFilesDir(): Path = requireContext().filesDir.absolutePath.toPath()
+/** The files dir for a host test, which has no Context to ask: lets it drive a store
+ *  through real files. `internal` and unused by the app, like
+ *  [AccountFiles.resetMigratedForTest]. */
+internal var filesDirForTest: Path? = null
+
+actual fun appFilesDir(): Path = filesDirForTest ?: requireContext().filesDir.absolutePath.toPath()
 
 actual val fileSystem: FileSystem get() = FileSystem.SYSTEM
 
