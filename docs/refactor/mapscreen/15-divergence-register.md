@@ -2566,12 +2566,21 @@ the spin taking the crow-flies path. The fix is to swap those three reads for
 `IntWatcher` (`FlowWatcher.kt`).
 
 **33b. On iOS, routing can vanish on a server that does announce it.** iOS never calls
-`probeCapabilities`; its only probe is `Oidc.resolveIssuer` at sign-in (`SignIn.swift:53`). A rider
-who signed in on a build before `#854` holds a feature list with no routing state, which now reads
-as "probed, no routing", so after updating they have no routing until they sign in again, on any
-server. For the same reason a server's routing address only updates on iOS at the next sign-in.
-The fix is to run `probeCapabilities` at app start, as Android does. Not checked: whether any iOS
-build is live; if none is, this waits for the unpark.
+`probeCapabilities`; its only probe is `Oidc.resolveIssuer` at sign-in (`SignIn.swift:53`). How far
+that goes depends on where the routing address is:
+
+- **Same host as the API.** A rider who signed in on a build before `#854` holds a feature list with
+  no routing state, which now reads as "probed, no routing", so after updating they have no routing
+  until they sign in again. For the same reason a server's routing address only updates on iOS at the
+  next sign-in.
+- **Another host.** `nextAnnouncedServiceState` stores the announcement as pending with `discovered`
+  blank, and only `acceptRoutingAnnouncement` promotes it. iOS has no consent prompt, so an iOS rider,
+  including one signing in fresh, has no routing unless they type an address
+  (`SettingsScreen.swift:297`, `:306`). Signing in again and a startup probe don't cure it.
+
+The fix is both: run `probeCapabilities` at app start, as Android does, and add the prompt that
+accepts or declines an announcement (`SettingsServers.kt:331` is Android's). Not checked: whether any
+iOS build is live; if none is, this waits for the unpark.
 
 **Fence.**
 
