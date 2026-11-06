@@ -13,6 +13,48 @@ IDE attached. For what each configuration key means, see
 > correct. Upgrading an existing install: dump `keycloak-db` first — see
 > [Upgrading](#upgrading).
 
+## Before you start
+
+Be honest about the shape first: this is **five processes minimum** — the API,
+its Postgres, Keycloak, Keycloak's Postgres, and a reverse proxy — plus routing
+(GraphHopper) and search (Photon), which `docker/prod/` now ships as opt-in
+layers rather than leaving to you. Accounts, passwords and resets stop being this
+project's job, which is the point, but it is not a smaller thing to run than the
+single-file Python server it replaced. There is no importer for an old
+`detour.db`, and passwords cannot be carried across at all.
+
+**A development machine** — working passwords on purpose, Keycloak in dev mode,
+the realm imported, and GraphHopper included. From the repo root:
+
+```bash
+docker compose -f docker/dev/docker-compose.yml up -d
+```
+
+**Anywhere real** — no default passwords anywhere; compose refuses to start until
+every secret is set, and no realm is imported, because the dev realm ships a user
+whose password is in this repository. `.env` carries a `COMPOSE_FILE` line that
+picks which layers run (API only, `+idp`, `+routing`, `+search`); every command
+after that needs no `-f` flags:
+
+```bash
+cp docker/prod/.env.example docker/prod/.env
+docker compose up -d          # from docker/prod/
+```
+
+The rest of what you may need:
+
+| Document | Covers |
+| --- | --- |
+| [backend/INSTALL.md](../../backend/INSTALL.md) | Every configuration key, the container, the reverse-proxy trap, what is still missing |
+| [CLOUDFLARE.md](CLOUDFLARE.md) | Exposing it through a tunnel — and why nothing may sit behind Access |
+| [docker/dev/README.md](../../docker/dev/README.md) | The local stack: canonical ports, the realm, dev credentials |
+| [docker/dev/config/keycloak/REALM.md](../../docker/dev/config/keycloak/REALM.md) | Why the realm is configured the way it is |
+| [backend/README.md](../../backend/README.md) | The service itself: layout, conventions, what is deliberately absent |
+| [bruno/README.md](../../bruno/README.md) | Poking at every endpoint by hand |
+
+How the services fit together, and what breaks without each, is
+[docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+
 ## Quick start
 
 ```bash
