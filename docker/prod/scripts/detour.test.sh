@@ -65,6 +65,11 @@ expect_refused setup --host a.example.com --tag 'x y'
 expect_refused setup --host a.example.com --routing nowhere
 expect_refused setup --host a.example.com --routing ben
 expect_refused setup --host a.example.com --bogus
+# The next option is not a value: this used to write ACME_EMAIL=--force.
+for o in --email --routing --tag; do
+    expect_refused setup --host a.example.com "$o" --force
+done
+expect_refused setup --host --force
 [ ! -e "$ENV" ] || fail "a refused setup wrote .env"
 
 # --- setup: the keys.
@@ -106,6 +111,31 @@ expect_key DETOUR_HOSTNAME a.example.com
 sh "$CLI" setup --host b.example.com --force >/dev/null
 expect_key DETOUR_HOSTNAME b.example.com
 [ "$(key KC_ADMIN_PASSWORD)" != "$BEFORE" ] || fail "--force kept the old password"
+
+# --- setup --force: openssl failing on any of its three calls leaves .env alone.
+# Without this, a failure inside a set_key argument wrote blank database passwords
+# over a good .env, and exited 0.
+OPENSSL_BIN="$WORK/openssl-bin"
+mkdir -p "$OPENSSL_BIN"
+cat > "$OPENSSL_BIN/openssl" <<'STUB'
+#!/bin/sh
+n=$(($(cat "$OPENSSL_CALLS") + 1))
+echo "$n" > "$OPENSSL_CALLS"
+[ "$n" -ne "$OPENSSL_FAIL_AT" ] || exit 1
+echo 00112233445566778899aabbccddeeff0011223344556677
+STUB
+chmod +x "$OPENSSL_BIN/openssl"
+OPENSSL_CALLS="$WORK/openssl-calls"
+export OPENSSL_CALLS
+GOOD_ENV="$(cat "$ENV")"
+for n in 1 2 3; do
+    echo 0 > "$OPENSSL_CALLS"
+    if PATH="$OPENSSL_BIN:$PATH" OPENSSL_FAIL_AT="$n" sh "$CLI" setup --host d.example.com --force >/dev/null 2>&1; then
+        fail "setup --force exited 0 with openssl failing on call $n"
+    fi
+    [ "$(cat "$ENV")" = "$GOOD_ENV" ] || fail "openssl failing on call $n changed .env"
+done
+[ -z "$(find "$KIT" -maxdepth 1 -name '.env.*' ! -name .env.example)" ] || fail "failed setup left a temp file"
 
 # --- setup: --routing, --email, --tag.
 sh "$CLI" setup --host c.example.com --routing france --email me@c.example.com --tag abc123 --force >/dev/null

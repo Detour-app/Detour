@@ -52,7 +52,13 @@ set_key() {
     mv "$ENV_TMP.new" "$ENV_TMP"
 }
 
-need_value() { [ "$#" -ge 2 ] || die "$1 needs a value"; }
+# A value starting with a dash is the next option, not a value: --email --force.
+need_value() {
+    [ "$#" -ge 2 ] || die "$1 needs a value"
+    case "$2" in
+        -*) die "$1 needs a value, got $2" ;;
+    esac
+}
 
 cmd_setup() {
     host='' email='' region='' tag=latest force=''
@@ -99,6 +105,11 @@ cmd_setup() {
     fi
     layers="$layers:docker-compose.proxy.yml:docker-compose.caddy.yml"
 
+    # Plain assignments, before anything is written: set -e stops here if openssl
+    # fails, where a failure inside a set_key argument would go unnoticed and --force
+    # would replace a good .env with blank passwords.
+    postgres_password="$(openssl rand -hex 24)"
+    kc_db_password="$(openssl rand -hex 24)"
     admin_password="$(openssl rand -hex 24)"
 
     # Secrets from the first byte: built privately, then moved into place whole.
@@ -108,8 +119,8 @@ cmd_setup() {
     cat .env.example > "$ENV_TMP"
     set_key COMPOSE_FILE "$layers"
     set_key DETOUR_IMAGE_TAG "$tag"
-    set_key POSTGRES_PASSWORD "$(openssl rand -hex 24)"
-    set_key KC_DB_PASSWORD "$(openssl rand -hex 24)"
+    set_key POSTGRES_PASSWORD "$postgres_password"
+    set_key KC_DB_PASSWORD "$kc_db_password"
     set_key KC_ADMIN_PASSWORD "$admin_password"
     set_key DETOUR_HOSTNAME "$host"
     set_key KC_HTTP_RELATIVE_PATH /auth
