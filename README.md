@@ -260,6 +260,27 @@ synced as records only their owner can read.
 is the plain-language version of every network call the app makes;
 [docs/privacy.html](docs/privacy.html) is the published policy.
 
+## Support
+
+Detour is free, MIT-licensed and unlocked. Nothing is behind a paywall and
+supporting it buys no perks. If you want to help it keep going, that is welcome.
+
+The current goal is **bringing Detour to iPhone**. The iOS app does not exist
+as a usable build yet: I develop on Linux and can only verify iOS through CI,
+which is too slow to build it properly. Funding goes to, in order:
+
+1. A secondhand Mac and iPhone to build and test on, roughly €600–900.
+2. The Apple Developer Program, $99 a year, needed for TestFlight and the App
+   Store.
+3. Anything beyond that goes to a **public test server**, so you can try sync,
+   friends and convoys without self-hosting. It would be best-effort: no uptime
+   promise, and data may be wiped.
+
+If the goal is not reached, the money still goes to the same list. There is no
+date for iOS. Progress notes will be posted in the repo as each step lands.
+
+**[Sponsor Detour on GitHub](https://github.com/sponsors/Detour-app)**
+
 ## Attribution
 
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright)
