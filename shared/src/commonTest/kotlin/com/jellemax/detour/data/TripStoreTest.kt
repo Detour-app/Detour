@@ -24,6 +24,25 @@ class TripStoreTest {
     )
 
     @Test
+    fun aDeletedRidesWindowIsKeptUpToTheCap() {
+        val start = 1_700_000_000_000L
+        val end = start + TripStore.MAX_DELETED_WINDOW_MS
+
+        assertEquals(mapOf(start to end), TripStore.withDeletedWindow(emptyMap(), start, end))
+    }
+
+    @Test
+    fun anImplausibleDeletedRideRecordsNoWindowAndKeepsTheOthers() {
+        // A clock correction mid-ride: the span would take later rides with it (#877).
+        val start = 1_700_000_000_000L
+        val kept = mapOf(1_000L to 2_000L)
+
+        assertEquals(kept, TripStore.withDeletedWindow(kept, start, start + TripStore.MAX_DELETED_WINDOW_MS + 1))
+        assertEquals(kept, TripStore.withDeletedWindow(kept, start, Long.MAX_VALUE))
+        assertEquals(kept, TripStore.withDeletedWindow(kept, start, start - 1))
+    }
+
+    @Test
     fun drivingStatsRoundTripsThroughEncodeAndDecode() {
         val stats = DrivingStats(
             hardBrakeCount = 2, hardAccelCount = 1, hardCornerCount = 3,

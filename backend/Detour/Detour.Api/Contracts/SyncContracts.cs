@@ -29,7 +29,9 @@ public record SyncRequest
     /// The time span of each deleted ride the device knows one for, re-sent on every sync like
     /// <see cref="DeletedTripStartTimes"/> (#877). A ride's stored row gives its window too, but
     /// a ride the server has no row for has only this. Each entry also counts as a deletion of
-    /// its start instant. An end before the start says nothing about where the ride went.
+    /// its start instant. An end before the start, or a span past
+    /// <see cref="Detour.Domain.DetourLimits.MaxDeletedRideWindow"/>, says nothing about where the
+    /// ride went: the ride counts as deleted and no location is removed.
     /// </summary>
     public IReadOnlyList<DeletedTripWindow>? DeletedTripWindows { get; init; }
 

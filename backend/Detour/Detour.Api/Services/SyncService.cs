@@ -108,9 +108,13 @@ public class SyncService(
 
     private static IReadOnlyList<TimeWindow> ReportedWindows(SyncRequest request) =>
         [.. (request.DeletedTripWindows ?? [])
-            .Where(w => w.StartTimeMs > 0 && w.EndTimeMs >= w.StartTimeMs)
+            .Where(w => w.StartTimeMs > 0 && IsPlausibleRide(w.StartTimeMs, w.EndTimeMs))
             .Select(w => new TimeWindow(w.StartTimeMs, w.EndTimeMs))
             .Distinct()];
+
+    /// <summary>Whether a deleted ride's span may be removed: see <see cref="DetourLimits.MaxDeletedRideWindow"/>.</summary>
+    private static bool IsPlausibleRide(long startMs, long endMs) =>
+        endMs >= startMs && endMs - startMs <= (long)DetourLimits.MaxDeletedRideWindow.TotalMilliseconds;
 
     /// <summary>Returns the time window of each stored ride this request deleted, for its trace to go too.</summary>
     private async Task<IReadOnlyList<TimeWindow>> MergeTripsAsync(
@@ -182,10 +186,10 @@ public class SyncService(
 
         // Read before the row goes: a trace line carries no trip reference, so the row's window
         // is the only thing that says which points were this ride's. A ride with no recorded end
-        // has no window, and keeps its points.
+        // or an implausible span has no window, and keeps its points.
         var removed = await trips.GetByStartsAsync(userId, deleted, cancellationToken);
         var windows = removed
-            .Where(t => t.EndTimeMs is { } end && end >= t.StartTimeMs)
+            .Where(t => t.EndTimeMs is { } end && IsPlausibleRide(t.StartTimeMs, end))
             .Select(t => new TimeWindow(t.StartTimeMs, t.EndTimeMs!.Value))
             .ToList();
 

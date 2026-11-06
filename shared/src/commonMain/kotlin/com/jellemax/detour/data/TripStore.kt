@@ -109,6 +109,12 @@ object TripStore {
     private const val DELETED_WINDOWS_FILE_NAME = "deleted_trip_windows.json"
     private const val EDITED_FILE_NAME = "edited_modes.json"
 
+    /** Longest ride whose window goes to the server, the same cap it applies
+     *  itself (`DetourLimits.MaxDeletedRideWindow`). The times are wall clock,
+     *  so a clock correction mid-ride can make one look years long, and that
+     *  span would take later rides' location with it on every sync (#877). */
+    internal const val MAX_DELETED_WINDOW_MS = 48L * 60 * 60 * 1000
+
     fun save(trip: Trip) {
         val t = Perf.start()
         val existing = load()
@@ -172,7 +178,7 @@ object TripStore {
     fun delete(startTimeMs: Long) {
         val trips = load()
         val trip = trips.firstOrNull { it.startTimeMs == startTimeMs }
-        if (trip != null) writeDeletedWindows(deletedWindows() + (trip.startTimeMs to trip.endTimeMs))
+        if (trip != null) writeDeletedWindows(withDeletedWindow(deletedWindows(), trip.startTimeMs, trip.endTimeMs))
         val tombstones = tombstones()
         tombstones.add(startTimeMs)
         writeTombstones(tombstones)
@@ -471,6 +477,15 @@ object TripStore {
     private fun writeDeletedWindows(windows: Map<Long, Long>) {
         accountFile(DELETED_WINDOWS_FILE_NAME).writeText(encodeDeletedWindows(windows))
     }
+
+    /** [windows] with this ride's added, unless its span is implausible: then
+     *  the start tombstone alone records the deletion. */
+    internal fun withDeletedWindow(windows: Map<Long, Long>, startTimeMs: Long, endTimeMs: Long): Map<Long, Long> =
+        if (endTimeMs >= startTimeMs && endTimeMs - startTimeMs <= MAX_DELETED_WINDOW_MS) {
+            windows + (startTimeMs to endTimeMs)
+        } else {
+            windows
+        }
 
     /** deleted_trip_windows.json: an object of startTimeMs (as a string key) → endTimeMs. */
     internal fun decodeDeletedWindows(text: String): Map<Long, Long> {

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Detour.Domain;
 using Detour.InfraTests.Database;
 using Microsoft.EntityFrameworkCore;
 
@@ -687,6 +688,69 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
 
         merged.Traces.Should().Equal(line);
         merged.DeletedTripStartTimes.Should().Equal(5_000L);
+    }
+
+    [Theory]
+    [InlineData(9_000_000_000_000L)]
+    [InlineData(long.MaxValue)]
+    public async Task An_implausible_window_never_takes_a_later_rides_location(long end)
+    {
+        // A clock correction mid-ride makes the deleted ride look years long, and the device
+        // re-sends that window on every sync. The start still counts as deleted.
+        var client = NewRider();
+        var windows = new[] { new { startTimeMs = 5_000L, endTimeMs = end } };
+        var stored = Line(90_000);
+        await Sync(client, new { trips = new[] { Ride(90_000, 91_000) }, traces = new[] { stored } });
+
+        var merged = await Sync(client, new { deletedTripWindows = windows });
+
+        merged.DeletedTripStartTimes.Should().Equal(5_000L);
+        merged.Traces.Should().Equal(stored);
+
+        var later = Line(200_000);
+        var after = await Sync(client, new
+        {
+            deletedTripWindows = windows,
+            trips = new[] { Ride(200_000, 201_000) },
+            traces = new[] { later },
+        });
+
+        after.Traces.Should().BeEquivalentTo(stored, later);
+        (await StoredInstants(client)).Should().Equal(90_000L, 91_000L, 200_000L, 201_000L);
+    }
+
+    [Fact]
+    public async Task A_window_at_the_span_cap_applies_and_one_past_it_does_not()
+    {
+        var cap = (long)DetourLimits.MaxDeletedRideWindow.TotalMilliseconds;
+        var client = NewRider();
+        var atCap = Line(5_000);
+        var pastCap = Line(5_000 + cap + 10_000);
+        await Sync(client, new { traces = new[] { atCap, pastCap } });
+
+        var merged = await Sync(client, new
+        {
+            deletedTripWindows = new[]
+            {
+                new { startTimeMs = 5_000L, endTimeMs = 5_000 + cap },
+                new { startTimeMs = 5_000 + cap + 10_000, endTimeMs = 5_000 + cap + 10_000 + cap + 1 },
+            },
+        });
+
+        merged.Traces.Should().Equal(pastCap);
+    }
+
+    [Fact]
+    public async Task A_deleted_row_with_an_implausible_span_keeps_later_rides_location()
+    {
+        var client = NewRider();
+        var later = Line(90_000);
+        await Sync(client, new { trips = new[] { Ride(5_000, 9_000_000_000_000) }, traces = new[] { Line(5_000), later } });
+
+        var merged = await Sync(client, new { deletedTripStartTimes = new[] { 5_000L } });
+
+        merged.Trips.Should().BeEmpty();
+        merged.Traces.Should().BeEquivalentTo(Line(5_000), later);
     }
 
     [Fact]
