@@ -35,7 +35,7 @@ class ServerResolutionTest {
         noBakedDefaults()
         val c = split()
         assertEquals("https://api.example", RoutingServer.apiBase(c))
-        assertEquals("https://route.example", RoutingServer.routingBase(c, discoveredRouting = ""))
+        assertEquals("https://route.example", RoutingServer.routingBase(c, discoveredRouting = "", probed = false))
         assertEquals("https://search.example", RoutingServer.geocoderBase(c, discoveredGeocoder = ""))
     }
 
@@ -46,7 +46,7 @@ class ServerResolutionTest {
         noBakedDefaults()
         val c = ServerConfig(url = "https://all.example", enabled = true)
         assertEquals("https://all.example", RoutingServer.apiBase(c))
-        assertEquals("https://all.example", RoutingServer.routingBase(c, discoveredRouting = ""))
+        assertEquals("https://all.example", RoutingServer.routingBase(c, discoveredRouting = "", probed = false))
         assertEquals("https://all.example", RoutingServer.geocoderBase(c, discoveredGeocoder = ""))
     }
 
@@ -60,7 +60,7 @@ class ServerResolutionTest {
         assertEquals("https://baked-api.example", RoutingServer.apiBase(null))
         assertEquals(
             "https://baked-route.example",
-            RoutingServer.routingBase(null, discoveredRouting = ""),
+            RoutingServer.routingBase(null, discoveredRouting = "", probed = false),
         )
         assertEquals(
             "https://baked-search.example",
@@ -83,7 +83,7 @@ class ServerResolutionTest {
         BuildDefaults.configure(routingUrl = "https://baked-route.example")
         assertEquals(
             "https://discovered-route.example",
-            RoutingServer.routingBase(null, discoveredRouting = "https://discovered-route.example"),
+            RoutingServer.routingBase(null, discoveredRouting = "https://discovered-route.example", probed = false),
         )
     }
 
@@ -93,7 +93,7 @@ class ServerResolutionTest {
         val c = split()
         assertEquals(
             "https://route.example",
-            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example"),
+            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example", probed = false),
         )
     }
 
@@ -126,7 +126,7 @@ class ServerResolutionTest {
         val c = ServerConfig(url = "https://all.example", enabled = true)
         assertEquals(
             "https://discovered-route.example",
-            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example"),
+            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example", probed = false),
             "an accepted routing announcement must outrank the general server address (#355)",
         )
     }
@@ -151,7 +151,7 @@ class ServerResolutionTest {
     fun theGeneralAddressStillServesWhenNothingWasAnnounced() {
         noBakedDefaults()
         val c = ServerConfig(url = "https://all.example", enabled = true)
-        assertEquals("https://all.example", RoutingServer.routingBase(c, discoveredRouting = ""))
+        assertEquals("https://all.example", RoutingServer.routingBase(c, discoveredRouting = "", probed = false))
         assertEquals("https://all.example", RoutingServer.geocoderBase(c, discoveredGeocoder = ""))
     }
 
@@ -163,7 +163,7 @@ class ServerResolutionTest {
         val c = split()
         assertEquals(
             "https://route.example",
-            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example"),
+            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example", probed = false),
         )
         assertEquals(
             "https://search.example",
@@ -365,7 +365,7 @@ class ServerResolutionTest {
     fun nothingConfiguredAnywhereResolvesToBlank() {
         noBakedDefaults()
         assertEquals("", RoutingServer.apiBase(null))
-        assertEquals("", RoutingServer.routingBase(null, discoveredRouting = ""))
+        assertEquals("", RoutingServer.routingBase(null, discoveredRouting = "", probed = false))
         assertEquals("", RoutingServer.geocoderBase(null, discoveredGeocoder = ""))
         assertEquals("", RoutingServer.issuer(null, discovered = ""))
     }
@@ -530,19 +530,23 @@ class ServerResolutionTest {
         val announced = "https://announced-route.example"
         assertEquals(
             ResolvedAddress("https://route.example", AddressSource.TYPED),
-            RoutingServer.routingResolved(split(), announced),
+            RoutingServer.routingResolved(split(), announced, probed = false),
         )
         assertEquals(
             ResolvedAddress(announced, AddressSource.ANNOUNCED),
-            RoutingServer.routingResolved(ServerConfig(url = "https://all.example", enabled = true), announced),
+            RoutingServer.routingResolved(
+                ServerConfig(url = "https://all.example", enabled = true), announced, probed = false,
+            ),
         )
         assertEquals(
             ResolvedAddress("https://all.example", AddressSource.GENERAL),
-            RoutingServer.routingResolved(ServerConfig(url = "https://all.example/", enabled = true), ""),
+            RoutingServer.routingResolved(
+                ServerConfig(url = "https://all.example/", enabled = true), "", probed = false,
+            ),
         )
         assertEquals(
             ResolvedAddress("https://baked-route.example", AddressSource.BAKED),
-            RoutingServer.routingResolved(null, ""),
+            RoutingServer.routingResolved(null, "", probed = false),
         )
         // No baked camera host exists, so nothing configured is a real state
         // the screen has to name rather than render as an empty string.
@@ -559,10 +563,10 @@ class ServerResolutionTest {
         // or the announcement the diagnostics readout shows as winning loses.
         BuildDefaults.configure(routingUrl = "https://baked-route.example")
         val announced = "https://announced-route.example"
-        assertEquals(announced, RoutingServer.routingBase(RoutingServer.bakedDefaults(), announced))
+        assertEquals(announced, RoutingServer.routingBase(RoutingServer.bakedDefaults(), announced, probed = false))
         assertEquals(
             "https://baked-route.example",
-            RoutingServer.routingBase(RoutingServer.bakedDefaults(), discoveredRouting = ""),
+            RoutingServer.routingBase(RoutingServer.bakedDefaults(), discoveredRouting = "", probed = false),
         )
         assertTrue(RoutingServer.bakedDefaults().usable)
     }

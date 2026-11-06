@@ -172,6 +172,10 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     }
 
     val serverConfig = remember { RoutingServer.load() }
+    // Read again when the capability probe lands: a server that announced no
+    // routing must not offer a fill that RoutingClient then refuses (#854).
+    val routingRevision by RoutingServer.revision.collectAsStateWithLifecycle()
+    val routingUsable = remember(serverConfig, routingRevision) { RoutingServer.routingUsable(serverConfig) }
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
     val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
     val avoidTolls by Settings.avoidTolls.collectAsStateWithLifecycle()
@@ -557,7 +561,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                 // removes stops.
                 item(key = "fill") {
                     RouteFillControls(
-                        canFill = RouteFill.mandatory(stops).isNotEmpty() && serverConfig.usable,
+                        canFill = RouteFill.mandatory(stops).isNotEmpty() && routingUsable,
                         filling = filling,
                         error = fillError,
                         onFill = { fill(it) },

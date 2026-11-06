@@ -116,12 +116,14 @@ object Oidc {
         if (typed.isNotBlank()) return RoutingServer.issuer(custom)
 
         val headers = RoutingServer.userAgentHeaders()
-        val caps = Capabilities.fetch(RoutingServer.apiBase(custom), headers)
-        // The same document answers both questions, so the feature list is
-        // recorded here rather than left to RoutingServer.probeCapabilities'
-        // own round trip — a sign-in is the one moment a client is guaranteed
-        // to have just asked.
-        RoutingServer.rememberServerFeatures(caps?.features)
+        val api = RoutingServer.apiBase(custom)
+        val caps = Capabilities.fetch(api, headers)
+        // The same document answers both questions, so it is recorded here
+        // rather than left to RoutingServer.probeCapabilities' own round trip —
+        // a sign-in is the one moment a client is guaranteed to have just
+        // asked. Through rememberProbe, not just the feature list: features
+        // alone would read as "probed, no routing" (#854).
+        RoutingServer.rememberProbe(caps, api)
         val fetched = caps?.idpIssuer.orEmpty()
         val stored = RoutingServer.discoveredIssuer()
         // The extra round trip only when a new realm would replace the stored

@@ -39,7 +39,7 @@ again.
 | `:docker-compose.routing.yml` | `osm-extract` (one-shot), `graphhopper` | you want in-app turn-by-turn and routed spin distances/ETAs. Without it, "Navigate in app" is absent and spins fall back to crow-flies |
 | `:docker-compose.search.yml` | `photon` | you want address search on your own hardware. Without it, the app uses the public `photon.komoot.io` (Settings can forbid that) |
 | `:docker-compose.cloudflare.yml` | `cloudflared` | you expose the stack through a Cloudflare tunnel — see [CLOUDFLARE.md](CLOUDFLARE.md) |
-| `:docker-compose.proxy.yml` | `proxy` (nginx) | you want one public hostname path-routed to API + GraphHopper + Photon instead of one address per service. Without `+routing` or `+search` in the list, nginx still boots and only `/route` or `/api/` answers 502 |
+| `:docker-compose.proxy.yml` | `proxy` (nginx) | you want one public hostname path-routed to API + GraphHopper + Photon instead of one address per service. Without `+routing` or `+search` in the list, nginx still boots and only `/route` or `/api/` answers 502. With `+routing`, needs `ROUTING_BASE_URL` set to that hostname, or riders get no in-app navigation (see below) |
 | `:docker-compose.caddy.yml` | `caddy` | you want TLS on one public hostname with an automatic Let's Encrypt certificate: Keycloak under `/auth` (`/auth/admin` is 403, use an SSH tunnel), everything else through `proxy`. Needs `+idp` and `+proxy` before it, ports 80/443 open, and Docker Compose 2.24.4+. Binds `proxy` to loopback. Not with `cloudflare` — see the [file header](docker-compose.caddy.yml) and `.env.example` |
 
 The order is the colon-separated list in `.env`, e.g.
@@ -50,6 +50,17 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.ym
 
 `cloudflare` / `proxy` / `caddy` go on the end of whatever list you chose
 (`caddy` after `proxy`).
+
+**Breaking since app 4.9.0 (#854): announce routing or riders lose it.** The app
+used to send route requests to the server address a rider typed whenever the
+server announced no routing. It no longer does: once `/api/capabilities` answers,
+the app routes only through the `routing.baseUrl` it announces (or an address the
+rider typed under Routing). Any deployment that serves `/route` on the API's own
+address without announcing it (the `proxy` layer, `caddy` in front of it, your
+own reverse proxy, Cloudflare path rules) must set `ROUTING_BASE_URL` in `.env`,
+or its riders lose "Navigate in app" and routed spins once they update. A routing
+address announced on another host waits for the rider to accept it in Settings;
+declined, it means no in-app navigation either.
 
 ## First boot
 
