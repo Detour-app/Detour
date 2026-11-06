@@ -41,6 +41,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.nav.circleNotificationStack
+import com.jellemax.detour.nav.convoyInviteStack
 import com.jellemax.detour.nav.plannedRideNotificationStack
 import com.jellemax.detour.nav.pop
 import com.jellemax.detour.nav.push
@@ -53,7 +54,9 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.AuthException
+import com.jellemax.detour.data.ConvoyJoinStore
 import com.jellemax.detour.data.FeatureFlags
+import com.jellemax.detour.data.Flag
 import com.jellemax.detour.data.refreshQuietly
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.RoutingServer
@@ -64,6 +67,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.diag.PermissionEvents
+import com.jellemax.detour.convoy.PendingConvoyInvite
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.CircleSyncWorker
 import com.jellemax.detour.notif.PendingCircleOpen
@@ -81,6 +85,7 @@ import com.jellemax.detour.ui.InstalledNotesDialog
 import com.jellemax.detour.ui.CircleDetailScreen
 import com.jellemax.detour.ui.CirclesScreen
 import com.jellemax.detour.ui.CoverageMapScreen
+import com.jellemax.detour.ui.CrashPrompts
 import com.jellemax.detour.ui.FriendsScreen
 import com.jellemax.detour.ui.HistoryScreen
 import com.jellemax.detour.ui.HubScreen
@@ -114,6 +119,8 @@ class MainActivity : ComponentActivity() {
         PendingTripOpen.take(intent)
         PendingRideOpen.take(intent)
         PendingUpdateOpen.take(intent)
+        // A fresh launch only: a recreated activity holds the same intent (see take()).
+        if (savedInstanceState == null) PendingConvoyInvite.take(intent)
         // The app is open, so an offer to reopen it is stale — whether it was
         // tapped, swiped, or ignored until the rider came back another way.
         ReopenNotification.cancel(this)
@@ -175,6 +182,7 @@ class MainActivity : ComponentActivity() {
         PendingTripOpen.take(intent)
         PendingRideOpen.take(intent)
         PendingUpdateOpen.take(intent)
+        PendingConvoyInvite.take(intent)
     }
 
     /**
@@ -353,6 +361,13 @@ private fun AppRoot() {
     // map.
     val backStack = rememberNavBackStack(Destination.Map)
 
+    // The after-crash offer and the crash-report notice (#824), after the
+    // release notes rather than stacked on top of them.
+    CrashPrompts(
+        held = installedNotes != null,
+        onReviewCrash = { backStack.push(Destination.SettingsProblemReport(withCrash = true)) },
+    )
+
     // A tapped arrival/departure notification opens straight to that circle,
     // wherever the app was.
     //
@@ -410,6 +425,9 @@ private fun AppRoot() {
         // Clearing is what lets a second tap navigate again.
         PendingUpdateOpen.clear()
     }
+
+    // A tapped convoy invite link (#764) opens the join confirm screen.
+    ConvoyInviteOpener(backStack)
 
     // Sub-screens slide in over the map from the right and slide back out the
     // same way, so opening and closing feel like a push and a pop.
@@ -555,28 +573,31 @@ private fun AppRoot() {
                 // hub row is tapped (Licences did). Each renders through the same SettingsSpokeScreen,
                 // whose `when` is exhaustive over Destination.SettingsSpoke.
                 entry<Destination.SettingsAppearanceMap> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsTrackingVehicles> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsNavigation> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsFog> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsDisplaysMedia> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsServersSync> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsObd2> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SettingsLicences> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                }
+                entry<Destination.SettingsProblemReport> { key ->
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
                 }
                 entry<Destination.SavedPlaces> { SavedPlacesScreen(onBack = { backStack.pop() }) }
                 entry<Destination.Routes> {
@@ -653,6 +674,26 @@ private fun NavBackStack<NavKey>.resetTo(entries: List<Destination>) {
     Snapshot.withMutableSnapshot {
         clear()
         addAll(entries)
+    }
+}
+
+/**
+ * Opens the link [PendingConvoyInvite] holds (#764): hands it to the join confirm screen and
+ * goes to Friends. Behind the same flag as pasting a link; off, the app just opens. Cleared
+ * last, as AppRoot's notification links are: clearing changes the key and would cancel the
+ * effect before the flag read came back.
+ */
+@Composable
+private fun ConvoyInviteOpener(backStack: NavBackStack<NavKey>) {
+    val inviteLink by PendingConvoyInvite.link.collectAsStateWithLifecycle()
+    LaunchedEffect(inviteLink) {
+        val link = inviteLink ?: return@LaunchedEffect
+        // isOn can read the flags cache from disk on the first call of a session.
+        if (withContext(Dispatchers.IO) { FeatureFlags.isOn(Flag.CONVOY_JOIN_LINK) }) {
+            ConvoyJoinStore.open(link)
+            backStack.resetTo(convoyInviteStack())
+        }
+        PendingConvoyInvite.clear()
     }
 }
 

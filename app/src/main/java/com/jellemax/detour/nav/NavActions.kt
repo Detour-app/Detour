@@ -144,3 +144,14 @@ fun updateNotificationStack(): List<Destination> = buildList {
     add(Destination.Hub)
     add(Destination.Settings)
 }
+
+/**
+ * The stack a tapped convoy invite link (#764) lands on: Friends, where the join confirm screen
+ * opens for the held link (and a signed-out rider is asked to sign in first). Back walks out
+ * through the Hub, the way Friends is reached by hand. Same reasoning as [tripNotificationStack].
+ */
+fun convoyInviteStack(): List<Destination> = listOf(
+    Destination.Map,
+    Destination.Hub,
+    Destination.Friends,
+)

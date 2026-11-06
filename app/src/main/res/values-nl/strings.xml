@@ -67,6 +67,26 @@
     <string name="convoy_link_no_guests">Nog niemand doet mee via een link.</string>
     <string name="convoy_link_joined">Kwam %1$s erbij</string>
     <string name="convoy_link_remove_guest">%1$s verwijderen</string>
+    <string name="friends_convoy_join_by_link">Deelnemen via link</string>
+    <string name="friends_convoy_join_link_title">Deelnemen aan een konvooi via link</string>
+    <string name="friends_convoy_join_link_label">Uitnodigingslink</string>
+    <string name="friends_convoy_join_link_open">Openen</string>
+    <string name="friends_convoy_join_link_invalid">Dat is geen uitnodigingslink voor een konvooi.</string>
+    <string name="friends_convoy_join_link_other_server">Deze link hoort bij %1$s, en Detour staat op een andere server. Wijzig dat bij Instellingen → Servers &amp; sync om deel te nemen.</string>
+    <string name="friends_convoy_join_signin_first">Meld je aan om deel te nemen aan het konvooi uit de link die je opende.</string>
+    <string name="friends_convoy_join_title">Deelnemen aan %1$s?</string>
+    <string name="friends_convoy_join_title_link">Uitnodiging voor konvooi</string>
+    <string name="friends_convoy_join_checking">Link controleren…</string>
+    <string name="friends_convoy_join_host">Organisator: %1$s · Rijders: %2$d</string>
+    <string name="friends_convoy_join_sharing">Als je live gaat in dit konvooi, ziet iedereen erin je live positie. Die wordt alleen met dit konvooi gedeeld, en stopt als je live stopt, het konvooi verlaat of het konvooi afloopt.</string>
+    <string name="friends_convoy_join_already">Je zit al in dit konvooi.</string>
+    <string name="friends_convoy_join">Deelnemen</string>
+    <string name="friends_convoy_join_retry">Opnieuw proberen</string>
+    <string name="friends_convoy_join_unknown">Deze link opent geen konvooi. Vraag de organisator om een nieuwe.</string>
+    <string name="friends_convoy_join_expired">Deze link is verlopen of ingetrokken door de organisator. Vraag om een nieuwe.</string>
+    <string name="friends_convoy_join_removed">De organisator heeft je uit dit konvooi verwijderd, dus de links ervan laten je niet meer binnen.</string>
+    <string name="friends_convoy_join_full">Dit konvooi is vol: er zijn al 8 rijders via een link bijgekomen.</string>
+    <string name="friends_convoy_join_too_many">Te veel pogingen met deze link. Wacht 10 minuten en probeer het opnieuw.</string>
     <string name="friends_friend_username">Gebruikersnaam van je vriend</string>
 
     <!-- CirclesScreen.kt -->

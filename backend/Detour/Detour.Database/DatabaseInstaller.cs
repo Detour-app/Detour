@@ -55,6 +55,7 @@ public static class DatabaseInstaller
         services.AddScoped<IBadgeAwardRepository, BadgeAwardRepository>();
         services.AddScoped<ITripRepository, TripRepository>();
         services.AddScoped<ITraceRepository, TraceRepository>();
+        services.AddScoped<ITraceTombstoneRepository, TraceTombstoneRepository>();
         services.AddScoped<ITrackPointRepository, TrackPointRepository>();
         services.AddScoped<ISavedPlaceRepository, SavedPlaceRepository>();
         services.AddScoped<ISavedRouteRepository, SavedRouteRepository>();

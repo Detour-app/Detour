@@ -23,8 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.R
 import com.jellemax.detour.data.AddressSource
+import com.jellemax.detour.data.CrashConsent
 import com.jellemax.detour.data.FeatureFlags
 import com.jellemax.detour.data.FlagSource
 import com.jellemax.detour.data.RoutingServer
@@ -49,13 +51,15 @@ import kotlinx.coroutines.withContext
  * worth having.
  */
 @Composable
-fun DiagnosticsSection() {
+fun DiagnosticsSection(onReportProblem: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val tracing by Settings.perfTracing.collectAsStateWithLifecycle()
     var status by remember { mutableStateOf<String?>(null) }
 
     SettingsSection(stringResource(R.string.settings_diagnostics)) {
+        TextButton(onClick = onReportProblem) { Text(stringResource(R.string.settings_spoke_problem_report)) }
+        CrashReportsRow()
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -125,6 +129,35 @@ fun DiagnosticsSection() {
 
         ServerConfigurationReadout()
         FlagsReadout()
+    }
+}
+
+/** The #824 consent toggle, and in a debug build the crash that tests it. */
+@Composable
+private fun CrashReportsRow() {
+    val sendCrashReports by CrashConsent.sendCrashReports.collectAsStateWithLifecycle()
+    Column {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.settings_send_crash_reports), style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    stringResource(R.string.settings_send_crash_reports_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = sendCrashReports, onCheckedChange = CrashConsent::setSendCrashReports)
+        }
+        if (BuildConfig.DEBUG) {
+            // Thrown on the main thread, so it reaches CrashCapture like a real one.
+            TextButton(onClick = { error("Forced crash from Diagnostics") }) {
+                Text(stringResource(R.string.settings_force_crash))
+            }
+        }
     }
 }
 

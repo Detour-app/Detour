@@ -2547,6 +2547,47 @@ check 'iOS does not configure the device yet' 0 \
 
 ---
 
+## 34. Joining a convoy by invite link: Android only
+
+**New with `#763`** — recorded because `shared/` now carries the joiner's side for both surfaces
+(`ConvoyInvites.preview`/`join`, `ConvoyJoinStore`, and `FeatureFlows.convoyJoin()` in
+`shared/src/iosMain/…/data/FlowWatcher.kt`), and only Android draws it. Checklist §5.3 asks for the
+watcher with the store; this entry is why nothing on iOS binds it yet.
+
+**What.** A rider pastes an invite link, sees which convoy it opens and who hosts it, and confirms
+before joining. A link pasted signed out waits for sign-in.
+
+**Copies.** The rules are not duplicated: link parsing and the same-server check
+(`parseConvoyInviteLink`, `ConvoyInviteLink.isOn`), the refusals (`ConvoyJoinRefusal`), preview
+once per link, and stepping back on a cancel are all in `shared/`. Android draws them in
+`app/…/ui/ConvoyJoinDialogs.kt`, from the Convoys header and the signed-out Friends screen, with
+`friends_convoy_join_*` strings in English and Dutch. iOS's Convoys section
+(`iosApp/Detour/FriendsScreen.swift` `convoysSection`) lists convoys and answers invitations but
+has no way in by link, so an iPhone rider sent a link cannot join with it. On Android both ways in are behind the remote
+flag `convoy-join-link` (default off) until it has been ridden. #763 is the phone's
+slice of #634; the iPhone's is not filed.
+
+Since `#764` a tapped link opens Android's confirm screen too (an App Link verified against the
+API host's `/.well-known/assetlinks.json`, `app/…/convoy/PendingConvoyInvite.kt`). iOS has no
+Universal Link (no `applinks:` entitlement, no `apple-app-site-association`), so on an iPhone the
+link opens the API's `/convoy-invite` page in Safari. Platform wiring, no shared rule to copy.
+
+**Verdict: survive — Android's flow, and iOS follows.** Not a product question: the iOS row binds
+`FeatureFlows.convoyJoin()` and calls the same `ConvoyJoinStore` actions; only the wording is
+per-surface.
+
+**Fence.**
+
+```sh
+# Entry 34 — join by link. A changed count means iOS gained the screen or Android lost it.
+check 'Android join by link string' 1 \
+    "$(grep -c 'name="friends_convoy_join_by_link">Join by link' app/src/main/res/values/strings.xml)"
+check 'iOS binds the join store' 0 \
+    "$(grep -rc 'convoyJoin()' iosApp/Detour | awk -F: '{s+=$2} END {print s+0}')"
+```
+
+---
+
 ## §A — Summary, ranked by how user-visible the decision is
 
 **22 divergences.** By kind:

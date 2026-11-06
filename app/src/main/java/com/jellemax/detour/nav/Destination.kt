@@ -165,4 +165,10 @@ sealed interface Destination : NavKey {
      *  basemap attribution button (#371). */
     @Serializable
     data object SettingsLicences : SettingsSpoke
+
+    /** "Something's wrong" (#823), from Diagnostics: preview a problem report and send it.
+     *  [withCrash] when the after-crash offer (#824) opened it: the screen reads the
+     *  crash from `CrashStore` itself, since a stack trace is no thing to keep in a key. */
+    @Serializable
+    data class SettingsProblemReport(val withCrash: Boolean = false) : SettingsSpoke
 }

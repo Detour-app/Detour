@@ -94,6 +94,21 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="detour" android:host="auth" android:path="/callback" />
             </intent-filter>
+            <!-- A tapped convoy invite link (#764) opens the join confirm screen
+                 (MainActivity -> PendingConvoyInvite). autoVerify: Android checks
+                 the host's /.well-known/assetlinks.json, which the API serves from
+                 the deployment's configured fingerprints; unverified, the link
+                 opens in the browser on the API's invite page instead. Host and
+                 path come from api.url (app/build.gradle.kts). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="${appLinkHost}"
+                    android:path="${appLinkPath}" />
+            </intent-filter>
         </activity>
 
         <service

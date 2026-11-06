@@ -1,12 +1,14 @@
 package com.jellemax.detour.data
 
 import com.jellemax.detour.drive.RoadTypeStore
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import io.ktor.http.parametersOf
 import io.ktor.http.formUrlEncode
 import okio.ByteString.Companion.decodeBase64
@@ -430,6 +432,9 @@ object Auth {
      *  Note [Api] is deliberately *not* on that list: a 401 there used to clear
      *  and no longer does, for the reason its own comment gives. */
     fun clear() {
+        // Read before the session is blanked below. A link held for joining a convoy is only the
+        // ended session's to drop; with no session it is waiting for this sign-in (#763).
+        val endsSession = signedIn
         // Bumped before the write, the same discipline [store] uses for the
         // establish side of this same guard (see its own doc) — kept
         // consistent rather than opposite disciplines on the two sides of
@@ -446,6 +451,7 @@ object Auth {
         FriendsStore.reset()
         ConvoysStore.reset()
         ConvoyInvitesStore.reset()
+        if (endsSession) ConvoyJoinStore.reset()
         CirclesStore.reset()
         PlannedRidesStore.reset()
         FriendFog.clear()
@@ -476,7 +482,30 @@ object Auth {
         FeatureFlags.reset()
     }
 
+    /**
+     * Spends the stored refresh token on a new pair.
+     *
+     * The request and the [store] that follows it run [NonCancellable] (#467).
+     * The realm rotates the refresh token on every use, so the moment it answers
+     * the token on disk is dead. A caller cancelled between the answer and the
+     * write — a screen closing, a sync job stopped — used to drop the new token
+     * on the floor, and the next refresh presented the dead one, got
+     * `invalid_grant`, and signed the rider out. Both halves have to be inside:
+     * cancelling the request itself is just as bad, since the realm may already
+     * have rotated by the time the client gives up on the reply. [resolveRiderId]
+     * stays outside: it is a separate request with nothing to lose to a cancel.
+     *
+     * This is the one `withContext` in `commonMain` (architecture.md §2.1): it
+     * picks no dispatcher, only shields the block from its caller's cancellation,
+     * and the caller's dispatcher still runs it.
+     */
     private suspend fun refresh(): String {
+        withContext(NonCancellable) { postRefreshAndStore() }
+        resolveRiderId()
+        return Settings.accessToken.value
+    }
+
+    private suspend fun postRefreshAndStore() {
         val response = try {
             post("token", mapOf(
                 "grant_type" to "refresh_token",
@@ -500,8 +529,6 @@ object Auth {
             throw AuthException(tokenFailureMessage(e.code, e.body))
         }
         store(response, establishesSession = false)
-        resolveRiderId()
-        return Settings.accessToken.value
     }
 
     /**

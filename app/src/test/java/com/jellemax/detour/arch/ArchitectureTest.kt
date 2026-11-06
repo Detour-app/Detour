@@ -45,8 +45,13 @@ class ArchitectureTest {
 
     @Test
     fun `commonMain has no Dispatchers or withContext - section 2_1`() {
-        val banned = setOf("kotlinx.coroutines.Dispatchers", "kotlinx.coroutines.withContext", "kotlinx.coroutines.*")
-        val offenders = commonMain.filter { f -> f.imports.any { it.name in banned } }.map { it.rel }
+        val banned = setOf("kotlinx.coroutines.Dispatchers", "kotlinx.coroutines.*")
+        // withContext(NonCancellable) is §2.1's one exception: it picks no dispatcher.
+        val dispatching = Regex("""withContext\((?!NonCancellable\))""")
+        val offenders = commonMain.filter { f ->
+            f.imports.any { it.name in banned } ||
+                (f.imports.any { it.name == "kotlinx.coroutines.withContext" } && dispatching.containsMatchIn(f.text))
+        }.map { it.rel }
         assertTrue(
             "commonMain APIs are `suspend`; the caller picks the dispatcher (architecture.md §2.1):\n" +
                 offenders.joinToString("\n"),
@@ -118,7 +123,9 @@ class ArchitectureTest {
             "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1463,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1278,
+            // +7: #823 problem-report spoke's title, dispatch and the onNavigate the Diagnostics row needs
+            // (the screen is ui/settings/ProblemReportScreen.kt)
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1285,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             // +10: #653 traffic layers held and refilled on a replacement surface, as cameras are

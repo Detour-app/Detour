@@ -67,6 +67,15 @@ services:
       # public Overpass API. Same host as the API itself — /api/cameras is served by Detour.Api
       # directly, not a separate container — so this is typically your API's own public URL.
       Camera__BaseUrl: ${CAMERA_BASE_URL:-}
+      # Convoy invite links open the app (#764): the APKs whose signing certificates may claim
+      # /convoy-invite on this host, published at /.well-known/assetlinks.json. Blank fingerprints
+      # are a correct deployment — links open the invite page in a browser instead. See
+      # docs/CIRCLES_AND_CONVOYS.md §4.1.
+      AppLinks__Android__0__Package: ${APP_LINKS_PACKAGE:-io.github.maxke24.detour}
+      AppLinks__Android__0__Sha256: ${APP_LINKS_SHA256:-}
+      AppLinks__Android__1__Package: ${APP_LINKS_DEBUG_PACKAGE:-io.github.maxke24.detour.debug}
+      AppLinks__Android__1__Sha256: ${APP_LINKS_DEBUG_SHA256:-}
+      AppLinks__InstallUrl: ${APP_LINKS_INSTALL_URL:-https://github.com/Detour-app/Detour/releases/latest}
       # Empty is a correct single-instance deployment: Redis is an L2 cache and a
       # miss is a slower request, not a broken one. Set it when you run more than
       # one API container. Enable the service with `--profile cache`.

@@ -1,0 +1,61 @@
+# TLS on one public hostname, as an overlay on the production stack.
+#
+# Requires +idp and +proxy, after them in COMPOSE_FILE:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml:docker-compose.proxy.yml:docker-compose.caddy.yml
+#
+# (+routing / +search are optional; without them nginx answers 502 on /route
+# and /api/ only.) Not with +cloudflare: both are a public entry, use one.
+#
+# Caddy gets a Let's Encrypt certificate for DETOUR_HOSTNAME, sends /auth/* to
+# Keycloak (except /auth/admin/*, which answers 403) and everything else to the
+# nginx proxy. See caddy/Caddyfile. The host needs ports 80 and 443 open and one
+# DNS record pointing DETOUR_HOSTNAME at it.
+#
+# Keycloak then lives under /auth, so set in .env:
+#
+#   KC_HTTP_RELATIVE_PATH=/auth
+#   KC_HOSTNAME=https://<DETOUR_HOSTNAME>/auth
+#   IDP_ISSUER=https://<DETOUR_HOSTNAME>/auth/realms/detour
+#   KC_HOSTNAME_ADMIN=http://127.0.0.1:<KC_PORT>/auth   (the SSH tunnel's end)
+#
+# `ports: !override` needs Docker Compose 2.24.4 or newer.
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    networks:
+      - edge
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    environment:
+      DETOUR_HOSTNAME: ${DETOUR_HOSTNAME:?Set DETOUR_HOSTNAME in docker/prod/.env, e.g. detour.example.com}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and the ACME account. Without these every restart asks
+      # Let's Encrypt again and soon hits its rate limit.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - proxy
+      - keycloak
+
+  proxy:
+    # Loopback only: the proxy overlay publishes on the LAN for a cloudflared on
+    # another host, which here would be plain HTTP beside Caddy, and Docker's
+    # port publishing bypasses ufw. Only 80 and 443 stay public.
+    ports: !override
+      - 127.0.0.1:${PROXY_PORT:-8088}:80
+    environment:
+      # Caddy reaches nginx from the edge network's Docker-assigned subnet, so
+      # trust X-Forwarded-For from Docker's bridge range. Same range as the API's
+      # FORWARDED_KNOWN_NETWORKS default in .env.example.
+      PROXY_REAL_IP_FROM: ${PROXY_REAL_IP_FROM:-172.16.0.0/12}
+
+volumes:
+  caddy-data:
+  caddy-config:
