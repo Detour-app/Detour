@@ -23,9 +23,10 @@ updates:
       # (see build.gradle.kts). It moves together with the detekt 2 upgrade.
       - dependency-name: io.nlopez.compose.rules:detekt
         versions: [">= 0.5.0"]
-      # 1.12.0 doesn't resolve for the iOS targets yet (#807). Only that
-      # version, so the next release is tried again.
-      - dependency-name: org.jetbrains.kotlinx:kotlinx-coroutines-core
+      # 1.12.0 doesn't resolve for the iOS targets yet (#807). All coroutines
+      # artifacts, so play-services can't pull core 1.12.0 onto Android alone.
+      # Only that version, so the next release is tried again.
+      - dependency-name: org.jetbrains.kotlinx:kotlinx-coroutines-*
         versions: ["1.12.0"]
 
   - package-ecosystem: nuget
