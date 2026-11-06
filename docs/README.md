@@ -4,7 +4,7 @@
 
 | Document | Read it when |
 | --- | --- |
-| [../README.md](../README.md) | You want the shape of the whole system — every service, and how they connect. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | You want the shape of the whole system — every service, and how they connect. |
 | [USER_GUIDE.md](USER_GUIDE.md) | You are riding with the app: install, every screen, every setting. |
 | [DEVELOPERS.md](DEVELOPERS.md) | You are building or changing it: prerequisites, layout, build commands, the local stack. |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | You are landing a change: branches, PRs, versioning, review, style. |
