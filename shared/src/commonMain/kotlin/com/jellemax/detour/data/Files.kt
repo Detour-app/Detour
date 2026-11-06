@@ -100,18 +100,23 @@ internal fun FileSystem.writeAtomically(target: Path, text: String) {
 }
 
 /**
- * If [file] exists but [parses] throws on its text, rename it to
+ * If [file] exists but [parse] throws on its text, rename it to
  * `<name>.unreadable-<[atMs]>` and return that path; otherwise null (#694).
  *
  * A store that reads a bad file as empty and then writes over it destroys
  * bytes that may still be recoverable. Setting it aside first keeps them, and
  * never throws on bad content, so a caller in a scope with no exception
  * handler cannot be crashed by it.
+ *
+ * Only a parse failure sets the file aside. A failed read says nothing about
+ * the content, so it propagates and the file stays where it is: a passing
+ * `EIO` or `EMFILE` must not hide a healthy history.
  */
 internal fun FileSystem.setAsideIfUnreadable(file: Path, atMs: Long, parse: (String) -> Unit): Path? {
     if (!exists(file)) return null
+    val text = read(file) { readUtf8() }
     val ok = try {
-        parse(read(file) { readUtf8() })
+        parse(text)
         true
     } catch (e: Exception) {
         false

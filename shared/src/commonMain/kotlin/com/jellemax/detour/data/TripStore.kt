@@ -190,7 +190,8 @@ object TripStore {
      * replace it with a list built from [load]'s empty fallback (#694). The
      * bytes land in `trips.json.unreadable-<ms>` for manual recovery; sync
      * refills a signed-in rider's file from the server as before. Never throws
-     * on bad content: the callers run in a service scope with no handler.
+     * on bad content: the callers run in a service scope with no handler. A
+     * failed read does throw and leaves the file alone, as [load] does anyway.
      */
     private fun setAsideIfUnreadable() {
         val f = accountFile(FILE_NAME)
