@@ -27,6 +27,7 @@ public class SyncService(
     ITripRepository trips,
     ITripTombstoneRepository tripTombstones,
     ITraceRepository traces,
+    ITraceTombstoneRepository traceTombstones,
     ITrackPointRepository trackPoints,
     ISavedPlaceRepository savedPlaces,
     ISavedRouteRepository savedRoutes,
@@ -48,8 +49,9 @@ public class SyncService(
         if (validation.IsFailure)
             return validation;
 
-        await MergeTripsAsync(user.Id, request, cancellationToken);
+        var deletedWindows = await MergeTripsAsync(user.Id, request, cancellationToken);
         await MergeTracesAsync(user.Id, request.Traces, cancellationToken);
+        await RemoveDeletedRidesTracesAsync(user.Id, deletedWindows, cancellationToken);
         await MergeSavedPlacesAsync(user.Id, request, cancellationToken);
         await MergeSavedRoutesAsync(user.Id, request, cancellationToken);
         await MergeBadgesAsync(user.Id, request.Badges, cancellationToken);
@@ -104,7 +106,11 @@ public class SyncService(
         return messages.Count > 0 ? Result.Create(messages) : Result.Ok();
     }
 
-    private async Task MergeTripsAsync(Guid userId, SyncRequest request, CancellationToken cancellationToken)
+    /// <summary>Returns the time window of each ride this request deleted, for its trace to go too.</summary>
+    private async Task<IReadOnlyList<TimeWindow>> MergeTripsAsync(
+        Guid userId,
+        SyncRequest request,
+        CancellationToken cancellationToken)
     {
         // A ride deleted on any device — earlier, or in this very request — is never taken back
         // from an upload. The device uploading it has not heard of the deletion yet; it hears of
@@ -162,7 +168,16 @@ public class SyncService(
         }
 
         if (deleted.Length == 0)
-            return;
+            return [];
+
+        // Read before the row goes: a trace line carries no trip reference, so the row's window
+        // is the only thing that says which points were this ride's. A ride with no recorded end
+        // has no window, and keeps its points.
+        var removed = await trips.GetByStartsAsync(userId, deleted, cancellationToken);
+        var windows = removed
+            .Where(t => t.EndTimeMs is { } end && end >= t.StartTimeMs)
+            .Select(t => new TimeWindow(t.StartTimeMs, t.EndTimeMs!.Value))
+            .ToList();
 
         // The row goes, and a tombstone stays in its place. A hard delete alone let the next
         // device still holding the ride upload it again, so the server copy flipped between
@@ -175,6 +190,74 @@ public class SyncService(
                 continue; // filtered above; a non-positive start has no ride to bury
 
             await tripTombstones.SaveAsync(tombstone, cancellationToken);
+        }
+
+        return windows;
+    }
+
+    /// <summary>
+    /// Takes a deleted ride's location off the server (#780): its samples, and every line with a
+    /// point in its window. A line is a flush of the tracker's buffer rather than a ride, so one
+    /// can straddle the window; the points either side stay, as new lines.
+    ///
+    /// Runs after <see cref="MergeTracesAsync"/> so this request's own lines are covered too: an
+    /// older client deletes a ride without cutting its trace, and uploads the line alongside.
+    /// </summary>
+    private async Task RemoveDeletedRidesTracesAsync(
+        Guid userId,
+        IReadOnlyList<TimeWindow> windows,
+        CancellationToken cancellationToken)
+    {
+        if (windows.Count == 0)
+            return;
+
+        // The bulk deletes below go straight to the database, past anything still pending.
+        await traces.FlushChangesAsync(cancellationToken);
+
+        foreach (var window in windows)
+            await trackPoints.DeleteInWindowAsync(userId, window.FromMs, window.ToMs, cancellationToken);
+
+        var stored = await traces.GetForUserAsync(userId, cancellationToken);
+        var cutHashes = new List<string>();
+        var survivors = new Dictionary<string, string>();
+        foreach (var trace in stored)
+        {
+            if (TraceLineReader.WithoutWindows(trace.Line, windows) is not { } runs)
+                continue;
+
+            cutHashes.Add(trace.LineHash);
+            foreach (var run in runs)
+                survivors[Trace.HashOf(run)] = run;
+        }
+
+        if (cutHashes.Count == 0)
+            return;
+
+        await traces.DeleteByHashesAsync(userId, cutHashes, cancellationToken);
+
+        foreach (var hash in cutHashes)
+        {
+            var (result, tombstone) = TraceTombstone.Create(userId, hash);
+            if (result.IsFailure)
+                continue; // a stored line always has a hash
+
+            await traceTombstones.SaveAsync(tombstone, cancellationToken);
+        }
+
+        // The deleting device's own cut lines arrived in this request, so most survivors are
+        // already held. Their samples are too: they sit outside the window, so none were removed.
+        var held = stored.Select(t => t.LineHash).ToHashSet();
+        var buried = await traceTombstones.GetExistingHashesAsync(userId, survivors.Keys, cancellationToken);
+        foreach (var (hash, run) in survivors)
+        {
+            if (held.Contains(hash) || buried.Contains(hash))
+                continue;
+
+            var (result, trace) = Trace.Create(userId, run);
+            if (result.IsFailure)
+                continue; // a run holds at least two points, so it is never blank
+
+            await traces.SaveAsync(trace, cancellationToken);
         }
     }
 
@@ -196,6 +279,9 @@ public class SyncService(
         // One round trip to find out which lines are already held. Every sync re-sends the whole
         // history, so asking per line would make the hot path O(history) queries.
         var known = await traces.GetExistingHashesAsync(userId, [.. byHash.Keys], cancellationToken);
+
+        // A line removed with a deleted ride is not new, however many devices still hold it (#780).
+        known.UnionWith(await traceTombstones.GetExistingHashesAsync(userId, [.. byHash.Keys], cancellationToken));
 
         // Points are gathered across every new line and added once, rather than per line.
         // Consecutive lines deliberately share their boundary sample: the device flushes its

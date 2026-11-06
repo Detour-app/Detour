@@ -26,6 +26,9 @@ jobs:
       - name: fetch-extract.sh
         run: sh docker/prod/scripts/fetch-extract.test.sh
 
+      - name: group-realm
+        run: sh docker/prod/scripts/group-realm.test.sh
+
       - name: compose config — every COMPOSE_FILE combination
         working-directory: docker/prod
         run: |
@@ -47,6 +50,7 @@ jobs:
           for combo in \
             "docker-compose.yml" \
             "docker-compose.yml:docker-compose.idp.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.group.yml" \
             "docker-compose.yml:docker-compose.routing.yml" \
             "docker-compose.yml:docker-compose.search.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml" \
