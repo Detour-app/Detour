@@ -31,8 +31,8 @@ services:
       - keycloak-data:/opt/keycloak/data
     environment:
       KC_LOG_LEVEL: ${KC_LOG_LEVEL:-info}
-      # Bootstrap only: Keycloak ignores these once an admin exists. Create a real
-      # administrator on first login and clear these from .env.
+      # Keycloak only uses these to create the first admin, but keep them in .env:
+      # Compose won't start without them, and ./detour signs in with them.
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:?Set KC_ADMIN_USERNAME in docker/prod/.env}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?Set KC_ADMIN_PASSWORD in docker/prod/.env}
       KC_DB: postgres
