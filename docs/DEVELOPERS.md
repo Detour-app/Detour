@@ -4,7 +4,7 @@ How to build every piece, run the whole thing locally, and find the document
 that covers whatever you're about to change.
 
 What the app does is [USER_GUIDE.md](USER_GUIDE.md). What the system looks like
-— every service and how they connect — is the [README](../README.md). The rules
+— every service and how they connect — is [ARCHITECTURE.md](ARCHITECTURE.md). The rules
 for landing a change (branches, PRs, versioning, review, style) are
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
