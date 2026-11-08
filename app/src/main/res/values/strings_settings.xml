@@ -150,7 +150,7 @@
     <string name="settings_import_text">It replaces the server addresses on this device with the file\'s. What is there now is not recoverable.</string>
     <string name="settings_import">Import</string>
     <string name="settings_server_summary">Optional: your own address for routing, search, sync and live.</string>
-    <string name="settings_server_detail">Optional: one self-hosted address for routing, search, sync and the convoy live relay (see the one-hostname layout in one-hostname layout). Leave empty to use the built-in routing/search servers, with sync and live off.</string>
+    <string name="settings_server_detail">Optional: one self-hosted address for search, sync and the convoy live relay, and for routing if the server announces it (see the one-hostname layout). Leave empty to use the built-in routing/search servers, with sync and live off.</string>
     <string name="settings_announced_routing">Your server suggests a routing address: %1$s</string>
     <string name="settings_announced_search">Your server suggests a search address: %1$s</string>
     <string name="settings_use_it">Use it</string>

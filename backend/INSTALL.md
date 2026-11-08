@@ -62,8 +62,11 @@ Two things still bite regardless of who runs them:
 Point the app at them under Settings → Servers & sync → *Routing server* /
 *Search server*, or bake `routing.url` / `geocoder.url` into `local.properties`
 (see [docs/DEVELOPERS.md](../docs/DEVELOPERS.md#baking-addresses-into-a-build)).
-One `url` covers the API, routing and search together only when a single host
-fronts all three; each has its own
+One `url` covers the API and search together only when a single host fronts
+both. Routing is different: once the server has answered `/api/capabilities`,
+the app routes only through the address it announces (`Routing:BaseUrl`) or one
+typed under *Routing server*, never through `url`, even when one host fronts
+everything. Each has its own
 override field for the common case of a split deployment (`RoutingServer.kt`'s
 `ServerConfig` KDoc has the full reasoning). The sign-in realm (`idp.issuer`) is
 separate again and deliberately never falls back to `url` — see

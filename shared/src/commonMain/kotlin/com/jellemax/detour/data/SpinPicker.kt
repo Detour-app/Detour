@@ -100,7 +100,7 @@ suspend fun pickThreeCandidates(
     poiKind: PoiKind,
     bearing: Double?,
     explored: ExploredArea,
-): List<RouteCandidate> = pickThreeCandidates(serverUsable = config.usable) {
+): List<RouteCandidate> = pickThreeCandidates(serverUsable = RoutingServer.routingUsable(config)) {
     pickCandidate(config, loc, radiusMeters, minRadiusMeters, mode, poiKind, bearing, explored)
 }
 
@@ -174,7 +174,7 @@ suspend fun pickCandidate(
     } else {
         // Own server snaps a random point to a road reachable in this mode's
         // profile; Overpass fallback below.
-        val server = if (config.usable) {
+        val server = if (RoutingServer.routingUsable(config)) {
             try {
                 RoutingClient.randomRoadDestination(
                     config, loc, radiusMeters, bearing, explored, mode.ghProfile, minRadiusMeters)
