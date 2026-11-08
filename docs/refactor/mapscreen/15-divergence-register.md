@@ -2554,15 +2554,19 @@ falls back to the general or baked address (`RoutingServer.routingResolved`). Wh
 be tried is now `RoutingServer.routingUsable(config)`, re-read when `RoutingServer.revision` moves.
 
 **Copies.** Android gates on `routingUsable` in `MapBottom.kt`, `RouteEditorScreen.kt`,
-`RoutesScreen.kt` (saved-route Ride), `PlannedRideStart.kt` (planned-ride start), and in `LoopSpin`
-and `SpinPicker` in shared. iOS still gates on `ServerConfig.usable` in
-`iosApp/Detour/RouteEditorScreen.swift` (`serverUsable`) and `iosApp/Detour/SpinModel.swift`
-(two `guard server.usable`).
+`RoutesScreen.kt` (saved-route Ride) and `PlannedRideStart.kt` (planned-ride start). `LoopSpin` and
+`SpinPicker` are shared and gate on `routingUsable` for both platforms, so iOS spins already get it
+(`SpinModel.swift:220` calls `pickThreeCandidates`, `:243` calls `LoopSpin.spin`). iOS still gates on
+`ServerConfig.usable` in `iosApp/Detour/RouteEditorScreen.swift` (`serverUsable`) and
+`iosApp/Detour/SpinModel.swift` (two `guard server.usable`).
 
-**33a. On iOS, a server that announced no routing still offers routing.** The editor's fill and
-the spin's road path go ahead, and `RoutingClient` throws `NoRoutingServerException` instead of
-the spin taking the crow-flies path. The fix is to swap those three reads for
-`RoutingServer.shared.routingUsable(config:)`, observing `revision` through the existing
+**33a. On iOS, a server that announced no routing still tries to route.** The editor's fill goes
+ahead and `RoutingClient` throws `NoRoutingServerException`, which the rider sees as `fillError`.
+The two `guard server.usable` in `SpinModel.swift` route a destination that arrived without a route:
+`:102` (`setDestinationRouting`, a convoy's committed pick or the regroup point) and `:157`
+(`fetchSearched`, a searched place). Both call `RoutingClient` under `try?`, so the throw is
+swallowed and the rider silently gets a destination with no route. The fix is to swap those three
+reads for `RoutingServer.shared.routingUsable(config:)`, observing `revision` through the existing
 `IntWatcher` (`FlowWatcher.kt`).
 
 **33b. On iOS, routing can vanish on a server that does announce it.** iOS never calls
@@ -2574,13 +2578,17 @@ that goes depends on where the routing address is:
   until they sign in again. For the same reason a server's routing address only updates on iOS at the
   next sign-in.
 - **Another host.** `nextAnnouncedServiceState` stores the announcement as pending with `discovered`
-  blank, and only `acceptRoutingAnnouncement` promotes it. iOS has no consent prompt, so an iOS rider,
-  including one signing in fresh, has no routing unless they type an address
-  (`SettingsScreen.swift:297`, `:306`). Signing in again and a startup probe don't cure it.
+  blank, and only `acceptRoutingAnnouncement` promotes it. iOS has no consent prompt and no field to
+  type a routing address (the only `TextField` is the server address, `SettingsScreen.swift:236`;
+  `routingURL` is only loaded and re-saved, `:297`, `:306`), so an iOS rider whose sign-in stored a
+  feature list (any without a typed issuer, which skips the probe, `Oidc.kt:116`), including one
+  signing in fresh, has no routing and no way to set one. Signing in again and a startup probe
+  don't cure it.
 
-The fix is both: run `probeCapabilities` at app start, as Android does, and add the prompt that
-accepts or declines an announcement (`SettingsServers.kt:331` is Android's). Not checked: whether any
-iOS build is live; if none is, this waits for the unpark.
+The fix is all three: run `probeCapabilities` at app start, as Android does; add the prompt that
+accepts or declines an announcement (`SettingsServers.kt:331` is Android's); and add a field to type
+the routing address, since a plain-HTTP or non-announcing server produces no announcement a prompt
+could accept. Not checked: whether any iOS build is live; if none is, this waits for the unpark.
 
 **Fence.**
 
