@@ -2581,7 +2581,7 @@ that goes depends on where the routing address is:
   blank, and only `acceptRoutingAnnouncement` promotes it. iOS has no consent prompt and no field to
   type a routing address (the only `TextField` is the server address, `SettingsScreen.swift:236`;
   `routingURL` is only loaded and re-saved, `:297`, `:306`), so an iOS rider whose sign-in stored a
-  feature list (any without a typed issuer, which skips the probe, `Oidc.kt:116`), including one
+  feature list (a typed issuer skips the probe, `Oidc.kt:116`), including one
   signing in fresh, has no routing and no way to set one. Signing in again and a startup probe
   don't cure it.
 
