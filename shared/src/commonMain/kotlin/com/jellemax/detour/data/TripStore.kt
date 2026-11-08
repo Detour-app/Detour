@@ -110,6 +110,7 @@ object TripStore {
 
     fun save(trip: Trip) {
         val t = Perf.start()
+        setAsideIfUnreadable()
         val existing = load()
         writeAll(listOf(trip) + existing)
         // Before recordSaved, so the number is this function's own cost — a full
@@ -128,6 +129,7 @@ object TripStore {
      * server echoes the same mode back, the override clears itself.
      */
     fun updateMode(startTimeMs: Long, mode: TravelMode) {
+        setAsideIfUnreadable()
         val trips = load()
         if (trips.none { it.startTimeMs == startTimeMs }) return
         val overrides = modeOverrides()
@@ -152,6 +154,7 @@ object TripStore {
      * one.
      */
     fun updateDrivingStats(startTimeMs: Long, drivingStats: DrivingStats) {
+        setAsideIfUnreadable()
         val trips = load()
         if (trips.none { it.startTimeMs == startTimeMs }) return
         writeAll(trips.map { if (it.startTimeMs == startTimeMs) it.copy(drivingStats = drivingStats) else it })
@@ -167,6 +170,7 @@ object TripStore {
      * fog and the coverage percentages it fed.
      */
     fun delete(startTimeMs: Long) {
+        setAsideIfUnreadable()
         val tombstones = tombstones()
         tombstones.add(startTimeMs)
         writeTombstones(tombstones)
@@ -179,6 +183,19 @@ object TripStore {
         // the deepest lean, and a maximum cannot be walked backwards from the
         // record alone. A recompute is the only correct answer.
         RiderTotals.invalidate()
+    }
+
+    /**
+     * Keep a trips.json that does not parse instead of letting the next write
+     * replace it with a list built from [load]'s empty fallback (#694). The
+     * bytes land in `trips.json.unreadable-<ms>` for manual recovery; sync
+     * refills a signed-in rider's file from the server as before. Never throws
+     * on bad content: the callers run in a service scope with no handler. A
+     * failed read does throw and leaves the file alone, as [load] does anyway.
+     */
+    private fun setAsideIfUnreadable() {
+        val f = accountFile(FILE_NAME)
+        f.setAsideIfUnreadable(nowMs()) { decodeAll(it) }
     }
 
     private fun writeAll(trips: List<Trip>) {
