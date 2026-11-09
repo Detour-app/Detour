@@ -1,0 +1,92 @@
+name: Dev build
+
+# The developer version: the debug variant of whatever is on main, published as
+# a rolling `dev` pre-release. It installs as io.github.maxke24.detour.debug,
+# next to the real app, with its own data. Never marked latest, and not a
+# tagged version, so the in-app update check (which follows the latest
+# release) and the Play upload in build.yml never see it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  dev:
+    name: dev apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      # Same release key as build.yml, so each dev build updates in place over
+      # the last one instead of failing with a signature conflict. Without the
+      # secret (a fork) the build falls back to the debug key and still works.
+      - name: Decode release keystore
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_B64" ]; then
+            echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "RELEASE_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          fi
+
+      # Must carry io.github.maxke24.detour.debug, as for build.yml's unit tests.
+      - name: Provide Firebase client config (optional; enables push)
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
+            echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > app/google-services.json
+          fi
+
+      # No detekt or tests: build.yml runs them on the same commit. This job
+      # only has to produce an installable APK quickly.
+      - name: Build debug APK
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleDebug
+
+      - name: Name the APK
+        id: apk
+        run: |
+          name=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          sha=$(git rev-parse --short HEAD)
+          cp app/build/outputs/apk/debug/app-debug.apk detour-dev.apk
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # Move the `dev` tag to this commit; the release below follows the tag.
+      - name: Move dev tag
+        run: |
+          git tag -f dev
+          git push -f origin refs/tags/dev
+
+      - name: Publish dev pre-release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: dev
+          name: Dev build (${{ steps.apk.outputs.name }}, ${{ steps.apk.outputs.sha }})
+          prerelease: true
+          make_latest: false
+          body: |
+            Unreleased build of `main` at ${{ steps.apk.outputs.sha }}. Installs as
+            `io.github.maxke24.detour.debug`, next to the released app, with its own
+            data. Debug build: bigger and slower than a release. Replaced on every
+            push to main.
+          files: detour-dev.apk
