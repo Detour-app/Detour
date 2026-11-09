@@ -526,7 +526,7 @@ object RoutingClient {
     }
 
     /** [count] evenly spaced interior points, excluding start and end. */
-    private fun sampleInterior(line: List<LatLon>, count: Int): List<LatLon> {
+    internal fun sampleInterior(line: List<LatLon>, count: Int): List<LatLon> {
         val n = line.size
         if (n <= 2) return emptyList()
         return (1..count)

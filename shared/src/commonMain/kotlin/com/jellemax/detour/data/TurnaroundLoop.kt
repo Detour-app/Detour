@@ -472,7 +472,8 @@ internal fun joinLegs(out: RouteResult, back: RouteResult): RouteResult {
     val turnaround = out.polyline.last()
     return RouteResult(
         polyline = out.polyline + back.polyline.drop(1),
-        waypoints = interior(out.polyline, 4) + turnaround + interior(back.polyline, 4),
+        waypoints = RoutingClient.sampleInterior(out.polyline, 4) + turnaround +
+            RoutingClient.sampleInterior(back.polyline, 4),
         distanceMeters = out.distanceMeters?.let { o -> back.distanceMeters?.let { o + it } },
         instructions = out.instructions.map {
             if (it.sign == SIGN_FINISH) it.copy(sign = SIGN_VIA_REACHED, text = TurnaroundLoop.TURNAROUND_TEXT) else it
@@ -486,9 +487,3 @@ internal fun joinLegs(out: RouteResult, back: RouteResult): RouteResult {
 /** GraphHopper's sign codes for "arrived" and "via reached"; see [NavInstruction.sign]. */
 private const val SIGN_FINISH = 4
 private const val SIGN_VIA_REACHED = 5
-
-/** [count] evenly spaced points of [line], neither end included. */
-private fun interior(line: List<LatLon>, count: Int): List<LatLon> {
-    if (line.size <= 2) return emptyList()
-    return (1..count).map { i -> line[(i * (line.size - 1)) / (count + 1)] }.distinct()
-}

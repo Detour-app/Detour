@@ -1362,8 +1362,8 @@ fun MapScreen(
                     // derived from it. `settingsCollapsed` is left untouched, so
                     // the slot falls back to whatever the Spin chip last set —
                     // COLLAPSED at rest, the spin sheet only if the rider had it
-                    // open before picking.
-                    onClear = { s.destination = null; s.destinationName = null; s.route = null },
+                    // open before picking. A loop planning to this pin (#889) goes with it.
+                    onClear = { s.spinJob?.cancel(); s.destination = null; s.destinationName = null; s.route = null },
                     onLoopVia = { s.destination?.let { if (!s.spinning) spin(turnaround = it) } },
                     loopViaBusy = s.spinning,
                 ),
