@@ -95,12 +95,17 @@ internal data class GoTarget(
     val routeFetching: Boolean,
 )
 
-/** The dock's two header buttons, both acting on the destination pin: save it
- *  as a place, or drop it. Grouped to keep `NavigationDock` under the
- *  parameter limit (`docs/guidelines/state-holders.md` §14.2). */
+/** The dock's actions on the destination pin: save it as a place, drop it,
+ *  or ride a loop that turns around at it (#889). Grouped to keep
+ *  `NavigationDock` under the parameter limit
+ *  (`docs/guidelines/state-holders.md` §14.2). [onLoopVia] is null when
+ *  there is no routing server to plan the loop with; [loopViaBusy] is the
+ *  plan in flight. */
 internal data class PinActions(
     val onSave: () -> Unit,
     val onClear: () -> Unit,
+    val onLoopVia: (() -> Unit)? = null,
+    val loopViaBusy: Boolean = false,
 )
 
 /** A trip being recorded with nothing to navigate to. Closed: elapsed time

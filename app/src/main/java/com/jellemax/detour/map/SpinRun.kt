@@ -10,6 +10,8 @@ import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.TurnaroundLoop
+import com.jellemax.detour.data.TurnaroundRequest
 import com.jellemax.detour.data.pickThreeCandidates
 import com.jellemax.detour.presentation.spinFailureText
 import kotlinx.coroutines.CancellationException
@@ -110,4 +112,35 @@ suspend fun runSpin(
     } catch (e: Exception) {
         SpinOutcome.Failed(spinFailureText(e))
     }
+}
+
+/**
+ * Plans a loop out to [turnaround] and home on different roads (#889) and
+ * reports it as a [SpinOutcome.Loop], so the map lands it exactly where a spun
+ * loop lands: followed, saved and tile-cached the same way. Never
+ * [SpinOutcome.Candidates].
+ *
+ * Both legs use the A→B preferences, curvy preset included — this is a route
+ * to a place the rider chose, not a round trip the server chose. The rules
+ * (penalty rolls, overlap, pick, failure sentences) are shared
+ * [TurnaroundLoop]; only the dispatcher is chosen here. Cancellation is
+ * rethrown for the reason [runSpin] gives.
+ */
+suspend fun runTurnaroundLoop(
+    serverConfig: ServerConfig,
+    from: LatLon,
+    turnaround: LatLon,
+    mode: TravelMode,
+): SpinOutcome = try {
+    val loop = withContext(Dispatchers.IO) {
+        TurnaroundLoop.plan(
+            serverConfig,
+            TurnaroundRequest(from, turnaround, mode.ghProfile, Settings.navRoutePreferences()),
+        )
+    }
+    SpinOutcome.Loop(loop.route, loop.warning)
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    SpinOutcome.Failed(spinFailureText(e))
 }

@@ -123,6 +123,7 @@ internal fun BoxScope.MapBottomSlot(
     onPickDestination: (GeocodeResult) -> Unit,
     onPickPlace: (SavedPlace) -> Unit,
     onSavePin: () -> Unit,
+    onLoopVia: () -> Unit,
     onOpenRoutes: () -> Unit,
     onOpenSocial: () -> Unit,
     bottomCard: HomeBottomCard,
@@ -264,7 +265,13 @@ internal fun BoxScope.MapBottomSlot(
                         go = goTarget,
                         error = error,
                         onSelectMode = onSelectMode,
-                        pin = PinActions(onSave = onSavePin, onClear = onClearDestination),
+                        pin = PinActions(
+                            onSave = onSavePin,
+                            onClear = onClearDestination,
+                            // Without a router nothing can be made to pass the pin.
+                            onLoopVia = onLoopVia.takeIf { serverUsable },
+                            loopViaBusy = spinning,
+                        ),
                         curvy = { CurvyRouteControl(serverConfig, myLocation, destination, mode) },
                     )
                     HomeBottomCard.CANDIDATES -> CandidatesCard(

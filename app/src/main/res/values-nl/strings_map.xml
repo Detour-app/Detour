@@ -83,6 +83,8 @@
     <!-- NavigationDock.kt, NavAppLaunch.kt -->
     <string name="nav_navigate_to">Navigeren naar</string>
     <string name="nav_save_pin">Pin opslaan</string>
+    <string name="nav_loop_via">Lus via hier</string>
+    <string name="nav_loop_via_planning">Lus plannen…</string>
     <string name="nav_clear_destination">Bestemming wissen</string>
     <string name="nav_destination">Bestemming</string>
     <string name="nav_mode">Modus</string>

@@ -120,6 +120,7 @@ import com.jellemax.detour.map.modeSwitch
 import com.jellemax.detour.map.fetchStartRoute
 import com.jellemax.detour.map.navStart
 import com.jellemax.detour.map.runSpin
+import com.jellemax.detour.map.runTurnaroundLoop
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.needsBackgroundDisclosure
 import com.jellemax.detour.map.requiredStartupPermissions
@@ -985,7 +986,8 @@ fun MapScreen(
         derivedStateOf { s.camAuthority.northUpAvailable(s.navigating) }
     }
 
-    fun spin() {
+    /** A spin, or with [turnaround] the loop out to that pin and home another way (#889). */
+    fun spin(turnaround: LatLon? = null) {
         val loc = s.myLocation ?: run {
             if (permissions.offerLocationIfDenied()) return // #499: "waiting" would wait forever
             s.error = context.getString(R.string.map_waiting_location)
@@ -1004,10 +1006,13 @@ fun MapScreen(
                 // Producing the result lives in map/SpinRun, with its tests.
                 // What stays here is what a *screen* does with one: the buzz,
                 // the framing, and which var it lands in.
-                val outcome = runSpin(
+                val outcome = if (turnaround != null) runTurnaroundLoop(serverConfig, loc, turnaround, mode)
+                else runSpin(
                     serverConfig, loc,
                     SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg, timedLoopMinutes),
                 )
+                // A pin ✕'d or re-picked while its loop planned is no longer the ask.
+                if (turnaround != null && s.destination != turnaround) return@launch
                 when (outcome) {
                     is SpinOutcome.Loop -> {
                         s.route = outcome.route
@@ -1352,6 +1357,7 @@ fun MapScreen(
                         LatLng(p.location.lat, p.location.lon), 14.0), 600)
                 },
                 onSavePin = { s.destination?.let { s.savePinTarget = it } },
+                onLoopVia = { s.destination?.let { if (!s.spinning) spin(turnaround = it) } },
                 bottomCard = bottomCard,
                 navState = navState,
                 onExitNavigation = {
