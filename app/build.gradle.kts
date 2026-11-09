@@ -149,6 +149,14 @@ android {
             // release-signed app instead of forcing an uninstall (which would
             // take the trip history with it).
             applicationIdSuffix = ".debug"
+            // CI's dev build (.github/workflows/dev.yml) is signed with the
+            // release key: the runner's own debug key is new every run, so
+            // each build would refuse to update over the last one and force
+            // an uninstall. Absent locally, so a plain assembleDebug keeps the
+            // Android debug key.
+            if (releaseKeystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         release {
             // R8 shrinks and obfuscates; MapLibre and Play Services ship their
