@@ -153,12 +153,7 @@ object TurnaroundLoop {
         back: suspend (start: LatLon, penalty: AreaPenalty) -> RouteResult,
         timeoutMs: Long = SPIN_TIMEOUT_MS,
     ): Result {
-        // There is no approximate fallback, unlike LoopSpin's sampled loop:
-        // without a router, nothing can be made to pass the rider's point.
-        if (!serverUsable) throw SpinFailure("Couldn't plan the loop: ${failureReason(NoRoutingServerException())}")
-        if (RoadRoulette.distanceMeters(request.from, request.turnaround) < MIN_REACH_M) {
-            throw SpinFailure("That point is too close to turn around at — pick one further out.")
-        }
+        requirePlannable(request, serverUsable)
         var out: RouteResult? = null
         // Every way back, recorded as it lands, so the time cap firing during
         // the rolls still rides the best one that came back (#507's rule).
@@ -173,13 +168,7 @@ object TurnaroundLoop {
             },
             timeoutMs = timeoutMs,
         ) {
-            val o = try {
-                outbound()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                throw SpinFailure("Couldn't route to that point: ${failureReason(e)}")
-            }
+            val o = wayOut(outbound)
             out = o
             val corridor = corridor(o.polyline)
             val rolls = coroutineScope {
@@ -197,14 +186,34 @@ object TurnaroundLoop {
                 }.awaitAll()
             }
             val returns = rolls.mapNotNull { it.getOrNull() }
-            val best = pickReturn(returns, o.distanceMeters)
-            if (best == null) {
-                val errors = rolls.map { it.exceptionOrNull() }
-                errors.firstOrNull { it is CancellationException }?.let { throw it }
-                throw SpinFailure("Couldn't find a road back from that point: ${loopFailureReason(errors)}")
-            }
+            val best = pickReturn(returns, o.distanceMeters) ?: noWayBack(rolls.map { it.exceptionOrNull() })
             resultOf(o, best)
         }
+    }
+
+    /** The two refusals made before any request. There is no approximate
+     *  fallback, unlike LoopSpin's sampled loop: without a router, nothing
+     *  can be made to pass the rider's point. */
+    private fun requirePlannable(request: TurnaroundRequest, serverUsable: Boolean) {
+        if (!serverUsable) throw SpinFailure("Couldn't plan the loop: ${failureReason(NoRoutingServerException())}")
+        if (RoadRoulette.distanceMeters(request.from, request.turnaround) < MIN_REACH_M) {
+            throw SpinFailure("That point is too close to turn around at — pick one further out.")
+        }
+    }
+
+    /** [outbound], with a failure worded for the rider; a cancellation is the rider leaving. */
+    private suspend fun wayOut(outbound: suspend () -> RouteResult): RouteResult = try {
+        outbound()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        throw SpinFailure("Couldn't route to that point: ${failureReason(e)}")
+    }
+
+    /** Every way back failed: one of them cancelling is the rider, not the server. */
+    private fun noWayBack(errors: List<Throwable?>): Nothing {
+        errors.firstOrNull { it is CancellationException }?.let { throw it }
+        throw SpinFailure("Couldn't find a road back from that point: ${loopFailureReason(errors)}")
     }
 
     private fun resultOf(out: RouteResult, back: ScoredReturn): Result = Result(

@@ -158,27 +158,7 @@ internal fun NavigationDock(
                 )
             }
 
-            // A loop that turns around at this pin and comes home another
-            // way (#889). Secondary to Start: going *to* the pin is still
-            // what this dock is for. Busy for the length of the plan, which
-            // replaces this dock with the loop in the spin sheet once it lands.
-            pin.onLoopVia?.let { onLoopVia ->
-                OutlinedButton(
-                    onClick = onLoopVia,
-                    enabled = !pin.loopViaBusy,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                ) {
-                    if (pin.loopViaBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Rounded.UTurnRight, contentDescription = null, Modifier.size(20.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        stringResource(if (pin.loopViaBusy) R.string.nav_loop_via_planning else R.string.nav_loop_via),
-                        maxLines = 1,
-                    )
-                }
-            }
+            LoopViaButton(pin)
 
             if (go.inAppAvailable) {
                 // The common case: one tap starts the trip recording and
@@ -188,9 +168,7 @@ internal fun NavigationDock(
                 Button(
                     onClick = go.onNavigateInApp,
                     enabled = !go.routeFetching,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
                 ) {
                     if (go.routeFetching) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(20.dp))
@@ -215,5 +193,32 @@ internal fun NavigationDock(
                 )
             }
         }
+    }
+}
+
+/**
+ * A loop that turns around at the pin and comes home another way (#889).
+ * Secondary to Start, so outlined: going *to* the pin is still what the dock
+ * is for. Busy for the length of the plan, which replaces the dock with the
+ * loop in the spin sheet once it lands. Nothing when [PinActions.onLoopVia]
+ * is null.
+ */
+@Composable
+private fun LoopViaButton(pin: PinActions) {
+    val onLoopVia = pin.onLoopVia ?: return
+    OutlinedButton(
+        onClick = onLoopVia,
+        enabled = !pin.loopViaBusy,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp),
+    ) {
+        if (pin.loopViaBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        else Icon(Icons.Rounded.UTurnRight, contentDescription = null, Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            stringResource(if (pin.loopViaBusy) R.string.nav_loop_via_planning else R.string.nav_loop_via),
+            maxLines = 1,
+        )
     }
 }

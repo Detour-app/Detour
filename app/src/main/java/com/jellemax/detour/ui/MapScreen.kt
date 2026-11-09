@@ -1356,8 +1356,17 @@ fun MapScreen(
                     mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                         LatLng(p.location.lat, p.location.lon), 14.0), 600)
                 },
-                onSavePin = { s.destination?.let { s.savePinTarget = it } },
-                onLoopVia = { s.destination?.let { if (!s.spinning) spin(turnaround = it) } },
+                pin = PinActions(
+                    onSave = { s.destination?.let { s.savePinTarget = it } },
+                    // The navigation dock's ✕: drop the destination and everything
+                    // derived from it. `settingsCollapsed` is left untouched, so
+                    // the slot falls back to whatever the Spin chip last set —
+                    // COLLAPSED at rest, the spin sheet only if the rider had it
+                    // open before picking.
+                    onClear = { s.destination = null; s.destinationName = null; s.route = null },
+                    onLoopVia = { s.destination?.let { if (!s.spinning) spin(turnaround = it) } },
+                    loopViaBusy = s.spinning,
+                ),
                 bottomCard = bottomCard,
                 navState = navState,
                 onExitNavigation = {
@@ -1426,16 +1435,6 @@ fun MapScreen(
                 onNavigateInApp = { if (!s.rerouting) startNavigation() },
                 onNavigate = {
                     if (stats == null) permissions.recordHandedOffTrip(s.destination) // #500: never asks
-                },
-                // The navigation dock's ✕: drop the destination and everything
-                // derived from it. `settingsCollapsed` is left untouched, so
-                // the slot falls back to whatever the Spin chip last set —
-                // COLLAPSED at rest, the spin sheet only if the rider had it
-                // open before picking.
-                onClearDestination = {
-                    s.destination = null
-                    s.destinationName = null
-                    s.route = null
                 },
             )
 

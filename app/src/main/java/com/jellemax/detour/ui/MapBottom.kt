@@ -122,8 +122,8 @@ internal fun BoxScope.MapBottomSlot(
     onSearchOpenChange: (Boolean) -> Unit,
     onPickDestination: (GeocodeResult) -> Unit,
     onPickPlace: (SavedPlace) -> Unit,
-    onSavePin: () -> Unit,
-    onLoopVia: () -> Unit,
+    /** The dock's pin actions; [PinActions.onLoopVia] is dropped here when routing isn't usable. */
+    pin: PinActions,
     onOpenRoutes: () -> Unit,
     onOpenSocial: () -> Unit,
     bottomCard: HomeBottomCard,
@@ -156,7 +156,6 @@ internal fun BoxScope.MapBottomSlot(
     onCollapse: () -> Unit,
     onNavigateInApp: () -> Unit,
     onNavigate: () -> Unit,
-    onClearDestination: () -> Unit,
 ) {
     Column(
         Modifier
@@ -265,13 +264,8 @@ internal fun BoxScope.MapBottomSlot(
                         go = goTarget,
                         error = error,
                         onSelectMode = onSelectMode,
-                        pin = PinActions(
-                            onSave = onSavePin,
-                            onClear = onClearDestination,
-                            // Without a router nothing can be made to pass the pin.
-                            onLoopVia = onLoopVia.takeIf { serverUsable },
-                            loopViaBusy = spinning,
-                        ),
+                        // Without a router nothing can be made to pass the pin.
+                        pin = pin.copy(onLoopVia = pin.onLoopVia?.takeIf { serverUsable }),
                         curvy = { CurvyRouteControl(serverConfig, myLocation, destination, mode) },
                     )
                     HomeBottomCard.CANDIDATES -> CandidatesCard(
