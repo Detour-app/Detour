@@ -3,6 +3,8 @@ package com.jellemax.detour.data
 import com.jellemax.detour.data.RoutingServer.routingBase
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -149,11 +151,21 @@ internal fun roundTripQuery(
 internal data class RouteRequest(val url: String, val body: String?)
 
 /**
+ * Extra custom-model weight for one request: [areas] is a GeoJSON
+ * FeatureCollection that goes in as `custom_model.areas`, and [rule] is one
+ * priority rule over them (`in_<feature id>`), appended after the rider's own.
+ * [TurnaroundLoop] builds one from the outbound leg so the way back is pushed
+ * off it.
+ */
+internal data class AreaPenalty(val areas: JsonObject, val rule: JsonObject)
+
+/**
  * The request [RoutingClient.routeVia] sends, split out so the body is
  * testable without a MockEngine — the reason [roundTripQuery] is. Any priority
  * rule ([RoutePreferences.rulesFor]) switches to a POST with a custom model,
  * which needs flexible routing — hence `ch.disable`. A [heading] does the
- * same: GraphHopper only honours `heading` outside CH.
+ * same: GraphHopper only honours `heading` outside CH, and so does a
+ * [penalty], whose `areas` only a custom model can carry.
  */
 internal fun routeViaRequest(
     base: String,
@@ -161,8 +173,9 @@ internal fun routeViaRequest(
     profile: String,
     preferences: RoutePreferences,
     heading: HeadingHint?,
+    penalty: AreaPenalty? = null,
 ): RouteRequest {
-    val rules = preferences.rulesFor(profile)
+    val rules = preferences.rulesFor(profile).let { if (penalty == null) it else JsonArray(it + penalty.rule) }
     if (rules.isEmpty()) {
         val query = buildString {
             append(base)
@@ -188,7 +201,10 @@ internal fun routeViaRequest(
             putJsonArray("headings") { add(headingDegInt(heading.deg)) }
             put("heading_penalty", heading.penaltySec)
         }
-        putJsonObject("custom_model") { put("priority", rules) }
+        putJsonObject("custom_model") {
+            put("priority", rules)
+            if (penalty != null) put("areas", penalty.areas)
+        }
     }
     return RouteRequest(base + "/route", body.string())
 }
@@ -312,6 +328,25 @@ object RoutingClient {
     ): RouteResult {
         if (points.size < 2) throw IOException("routeVia needs at least two points")
         val request = routeViaRequest(requireRoutingBase(config), points, profile, preferences, heading)
+        return fetchRoute(request.url, request.body)
+    }
+
+    /**
+     * Two-point [routeVia] with [penalty] weighed into the custom model — the
+     * return leg of a [TurnaroundLoop]. Internal: the shape of a penalty is
+     * that feature's business, not an API for the platforms.
+     */
+    internal suspend fun routeWithPenalty(
+        config: ServerConfig,
+        from: LatLon,
+        to: LatLon,
+        profile: String,
+        preferences: RoutePreferences,
+        penalty: AreaPenalty,
+    ): RouteResult {
+        val request = routeViaRequest(
+            requireRoutingBase(config), listOf(from, to), profile, preferences, heading = null, penalty = penalty,
+        )
         return fetchRoute(request.url, request.body)
     }
 
@@ -491,7 +526,7 @@ object RoutingClient {
     }
 
     /** [count] evenly spaced interior points, excluding start and end. */
-    private fun sampleInterior(line: List<LatLon>, count: Int): List<LatLon> {
+    internal fun sampleInterior(line: List<LatLon>, count: Int): List<LatLon> {
         val n = line.size
         if (n <= 2) return emptyList()
         return (1..count)

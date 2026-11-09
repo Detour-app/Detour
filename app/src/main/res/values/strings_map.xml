@@ -86,6 +86,8 @@
     <!-- NavigationDock.kt, NavAppLaunch.kt -->
     <string name="nav_navigate_to">Navigate to</string>
     <string name="nav_save_pin">Save pin</string>
+    <string name="nav_loop_via">Loop via here</string>
+    <string name="nav_loop_via_planning">Planning the loop…</string>
     <string name="nav_clear_destination">Clear destination</string>
     <string name="nav_destination">Destination</string>
     <string name="nav_mode">Mode</string>

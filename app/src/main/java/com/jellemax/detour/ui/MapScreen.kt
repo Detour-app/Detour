@@ -120,6 +120,7 @@ import com.jellemax.detour.map.modeSwitch
 import com.jellemax.detour.map.fetchStartRoute
 import com.jellemax.detour.map.navStart
 import com.jellemax.detour.map.runSpin
+import com.jellemax.detour.map.runTurnaroundLoop
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.needsBackgroundDisclosure
 import com.jellemax.detour.map.requiredStartupPermissions
@@ -985,7 +986,8 @@ fun MapScreen(
         derivedStateOf { s.camAuthority.northUpAvailable(s.navigating) }
     }
 
-    fun spin() {
+    /** A spin, or with [turnaround] the loop out to that pin and home another way (#889). */
+    fun spin(turnaround: LatLon? = null) {
         val loc = s.myLocation ?: run {
             if (permissions.offerLocationIfDenied()) return // #499: "waiting" would wait forever
             s.error = context.getString(R.string.map_waiting_location)
@@ -1004,10 +1006,13 @@ fun MapScreen(
                 // Producing the result lives in map/SpinRun, with its tests.
                 // What stays here is what a *screen* does with one: the buzz,
                 // the framing, and which var it lands in.
-                val outcome = runSpin(
+                val outcome = if (turnaround != null) runTurnaroundLoop(serverConfig, loc, turnaround, mode)
+                else runSpin(
                     serverConfig, loc,
                     SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg, timedLoopMinutes),
                 )
+                // A pin ✕'d or re-picked while its loop planned is no longer the ask.
+                if (turnaround != null && s.destination != turnaround) return@launch
                 when (outcome) {
                     is SpinOutcome.Loop -> {
                         s.route = outcome.route
@@ -1351,7 +1356,17 @@ fun MapScreen(
                     mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                         LatLng(p.location.lat, p.location.lon), 14.0), 600)
                 },
-                onSavePin = { s.destination?.let { s.savePinTarget = it } },
+                pin = PinActions(
+                    onSave = { s.destination?.let { s.savePinTarget = it } },
+                    // The navigation dock's ✕: drop the destination and everything
+                    // derived from it. `settingsCollapsed` is left untouched, so
+                    // the slot falls back to whatever the Spin chip last set —
+                    // COLLAPSED at rest, the spin sheet only if the rider had it
+                    // open before picking. A loop planning to this pin (#889) goes with it.
+                    onClear = { s.spinJob?.cancel(); s.destination = null; s.destinationName = null; s.route = null },
+                    onLoopVia = { s.destination?.let { if (!s.spinning) spin(turnaround = it) } },
+                    loopViaBusy = s.spinning,
+                ),
                 bottomCard = bottomCard,
                 navState = navState,
                 onExitNavigation = {
@@ -1420,16 +1435,6 @@ fun MapScreen(
                 onNavigateInApp = { if (!s.rerouting) startNavigation() },
                 onNavigate = {
                     if (stats == null) permissions.recordHandedOffTrip(s.destination) // #500: never asks
-                },
-                // The navigation dock's ✕: drop the destination and everything
-                // derived from it. `settingsCollapsed` is left untouched, so
-                // the slot falls back to whatever the Spin chip last set —
-                // COLLAPSED at rest, the spin sheet only if the rider had it
-                // open before picking.
-                onClearDestination = {
-                    s.destination = null
-                    s.destinationName = null
-                    s.route = null
                 },
             )
 

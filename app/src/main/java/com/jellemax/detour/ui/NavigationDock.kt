@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.UTurnRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -20,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -156,6 +158,8 @@ internal fun NavigationDock(
                 )
             }
 
+            LoopViaButton(pin)
+
             if (go.inAppAvailable) {
                 // The common case: one tap starts the trip recording and
                 // in-app turn-by-turn together (startNavigation() does both),
@@ -164,9 +168,7 @@ internal fun NavigationDock(
                 Button(
                     onClick = go.onNavigateInApp,
                     enabled = !go.routeFetching,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
                 ) {
                     if (go.routeFetching) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(20.dp))
@@ -191,5 +193,32 @@ internal fun NavigationDock(
                 )
             }
         }
+    }
+}
+
+/**
+ * A loop that turns around at the pin and comes home another way (#889).
+ * Secondary to Start, so outlined: going *to* the pin is still what the dock
+ * is for. Busy for the length of the plan, which replaces the dock with the
+ * loop in the spin sheet once it lands. Nothing when [PinActions.onLoopVia]
+ * is null.
+ */
+@Composable
+private fun LoopViaButton(pin: PinActions) {
+    val onLoopVia = pin.onLoopVia ?: return
+    OutlinedButton(
+        onClick = onLoopVia,
+        enabled = !pin.loopViaBusy,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp),
+    ) {
+        if (pin.loopViaBusy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        else Icon(Icons.Rounded.UTurnRight, contentDescription = null, Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            stringResource(if (pin.loopViaBusy) R.string.nav_loop_via_planning else R.string.nav_loop_via),
+            maxLines = 1,
+        )
     }
 }
