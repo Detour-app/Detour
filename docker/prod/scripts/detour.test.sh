@@ -137,6 +137,24 @@ for n in 1 2 3; do
 done
 [ -z "$(find "$KIT" -maxdepth 1 -name '.env.*' ! -name .env.example)" ] || fail "failed setup left a temp file"
 
+# --- setup --force: Ctrl-C or a kill mid-write leaves .env alone and no temp file.
+# The stub chmod signals the CLI (its parent) after the temp file is filled in.
+# dash skips an EXIT-only trap on a signal, which left the secrets in .env.XXXXXX.
+SIGNAL_BIN="$WORK/signal-bin"
+mkdir -p "$SIGNAL_BIN"
+cat > "$SIGNAL_BIN/chmod" <<'STUB'
+#!/bin/sh
+kill -s "$SIGNAL_CLI" "$PPID"
+STUB
+/bin/chmod +x "$SIGNAL_BIN/chmod"
+for sig in INT TERM; do
+    if PATH="$SIGNAL_BIN:$PATH" SIGNAL_CLI="$sig" sh "$CLI" setup --host e.example.com --force >/dev/null 2>&1; then
+        fail "setup --force exited 0 after SIG$sig"
+    fi
+    [ "$(cat "$ENV")" = "$GOOD_ENV" ] || fail "SIG$sig during setup changed .env"
+    [ -z "$(find "$KIT" -maxdepth 1 -name '.env.*' ! -name .env.example)" ] || fail "SIG$sig during setup left a temp file"
+done
+
 # --- setup: --routing, --email, --tag.
 sh "$CLI" setup --host c.example.com --routing france --email me@c.example.com --tag abc123 --force >/dev/null
 expect_key COMPOSE_FILE "$BASE:docker-compose.routing.yml:docker-compose.proxy.yml:docker-compose.caddy.yml"

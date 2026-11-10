@@ -116,6 +116,10 @@ cmd_setup() {
     umask 077
     ENV_TMP="$(mktemp .env.XXXXXX)"
     trap 'rm -f "$ENV_TMP" "$ENV_TMP.new"' EXIT
+    # dash skips the EXIT trap when a signal kills the script, which would leave the
+    # temp file (mode 600, holds the new secrets) behind; exiting runs it.
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     cat .env.example > "$ENV_TMP"
     set_key COMPOSE_FILE "$layers"
     set_key DETOUR_IMAGE_TAG "$tag"
@@ -133,7 +137,7 @@ cmd_setup() {
     [ -z "$region" ] || set_key OSM_REGION "$region"
     chmod 600 "$ENV_TMP"
     mv "$ENV_TMP" .env
-    trap - EXIT
+    trap - EXIT INT TERM
 
     echo "Wrote .env for https://$host"
     if [ -n "$region" ]; then
