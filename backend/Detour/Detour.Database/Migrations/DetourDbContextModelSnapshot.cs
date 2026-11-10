@@ -1450,6 +1450,10 @@ namespace Detour.Database.Migrations
                         .HasColumnType("citext")
                         .HasColumnName("email");
 
+                    b.Property<string>("HereTrafficKeyProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("here_traffic_key_protected");
+
                     b.Property<bool>("IsAdministrator")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")

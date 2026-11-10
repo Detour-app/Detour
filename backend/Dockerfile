@@ -31,9 +31,17 @@ COPY --from=build /app ./
 ENV ASPNETCORE_HTTP_PORTS=7500
 EXPOSE 7500
 
-# Non-root, using the user the runtime image already ships. Nothing here writes to
-# disk: logs go to stdout and file logging is off unless Serilog:EnableFileLogging
-# is turned on, which needs a volume and a writable path chosen deliberately.
+# The Data Protection key ring (#802: it encrypts each rider's stored HERE key)
+# lives here when DataProtection__KeysPath=/keys, as docker/prod sets it. Created
+# and owned by the app user now, because a named volume mounted on an existing
+# directory takes that directory's owner; mounted on a missing one it would be
+# root's, and the non-root user below could not write the ring.
+RUN mkdir /keys && chown $APP_UID /keys
+
+# Non-root, using the user the runtime image already ships. Apart from /keys
+# above, nothing here writes to disk: logs go to stdout and file logging is off
+# unless Serilog:EnableFileLogging is turned on, which needs a volume and a
+# writable path chosen deliberately.
 USER $APP_UID
 
 # No HEALTHCHECK on purpose: the runtime image carries no HTTP client, and adding

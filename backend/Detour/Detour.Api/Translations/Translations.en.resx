@@ -62,6 +62,9 @@
   <data name="User.EmailInvalid" xml:space="preserve">
     <value>That does not look like an email address.</value>
   </data>
+  <data name="User.HereTrafficKeyInvalid" xml:space="preserve">
+    <value>A HERE key must be 1 to {0} characters.</value>
+  </data>
   <data name="Badge.IdInvalid" xml:space="preserve">
     <value>{0} is not a badge identifier.</value>
   </data>

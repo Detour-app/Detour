@@ -318,6 +318,15 @@ Two volumes matter and losing either is unrecoverable:
   on, so losing this means nobody can log in, and the rows in `postgres-data`
   belong to subjects that no longer exist.
 
+Back up a third, with the same care as your secrets:
+
+- `api-dataprotection` — the key ring that encrypts riders' stored HERE traffic
+  keys (#802). Losing it is recoverable: a rider whose phone still holds the key
+  uploads it again on the next sync, and one whose phones don't types it again.
+  A `postgres-data` dump alone cannot decrypt those keys. The ring is plain XML
+  with no key encryptor, so anyone who can read this volume can decrypt every
+  stored HERE key: treat it, and any backup of it, as sensitive as the keys.
+
 `keycloak-data`, `redis-data`, `osm-data`, `graphhopper-data` and `photon-data`
 are caches and downloads — safe to drop. GraphHopper and Photon rebuild them on
 the next `up` (the long first boot again), so snapshot them if that wait matters.

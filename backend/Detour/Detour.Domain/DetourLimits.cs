@@ -22,6 +22,9 @@ public static class DetourLimits
     /// <summary>Keycloak subject identifiers are UUIDs today; sized for an opaque issuer id.</summary>
     public const int SubjectMaxLength = 128;
 
+    /// <summary>A HERE API key is about 43 characters; this leaves room without inviting abuse.</summary>
+    public const int HereTrafficKeyMaxLength = 256;
+
     // --- badges -------------------------------------------------------------------------
     public const int MaxBadgesPerUser = 200;
     public const int BadgeIdMaxLength = 40;
