@@ -174,6 +174,15 @@ public static class DetourLimits
     /// </summary>
     public static readonly TimeSpan MaxDeletedRideWindow = TimeSpan.FromHours(48);
 
+    /// <summary>
+    /// The longest silence inside one ride, for inferring where a deleted ride ended when nothing
+    /// recorded it (#895). Client/server mirror: <c>TripTrackingService.STATIONARY_END_MS</c> in
+    /// <c>app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt</c> ends a ride
+    /// after 5 min stationary, and the 25 m decimation records no point while stationary, so a
+    /// longer gap between two points is a gap between two rides. Change both together.
+    /// </summary>
+    public static readonly TimeSpan DeletedRideGap = TimeSpan.FromMinutes(5);
+
     // --- dashboard ----------------------------------------------------------------------
     public const int MaxDashboardRides = 500;
     public const int MaxTraceThinning = 50;
