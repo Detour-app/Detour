@@ -103,7 +103,7 @@ position, so they are safe to publish as-is.
 
 ## App content answers
 
-- **Privacy policy URL** — `https://maxke24.github.io/Detour/privacy.html`
+- **Privacy policy URL** — `https://detour-app.github.io/Detour/privacy.html`
   (enable GitHub Pages first: repo Settings → Pages → source `main` / `/docs`)
 - **App access** — all functionality is available without restrictions. Sign-in
   is optional, reaches only a server the user supplies, and is unavailable in
@@ -152,7 +152,7 @@ SDK sends as collected by the app, so the answer is **yes**, with this table:
   You → Profile & account → Delete account calls `DELETE /api/me`, which removes
   every row the account owns on its server (#700).
 - **Delete account URL** (Data safety → Data deletion) —
-  `https://maxke24.github.io/Detour/delete-account.html`: the in-app steps, and
+  `https://detour-app.github.io/Detour/delete-account.html`: the in-app steps, and
   for a rider who has uninstalled, the server's Keycloak account console plus
   asking that server's administrator.
 
