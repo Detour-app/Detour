@@ -128,6 +128,7 @@ class ConvoyLiveService : Service() {
                 val newScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
                 scope = newScope
                 TripTrackingService.setConvoyActive(this, true)
+                ConvoyAlertNotifications.watch(this, newScope)
                 if (Features.pushToTalk) {
                     val manager = getSystemService(AudioManager::class.java)
                     audioManager = manager
@@ -202,6 +203,7 @@ class ConvoyLiveService : Service() {
         }
         scope?.cancel()
         scope = null
+        ConvoyAlertNotifications.cancelAll(this)
         super.onDestroy()
     }
 

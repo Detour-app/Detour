@@ -13,11 +13,11 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.jellemax.detour.R
+import com.jellemax.detour.convoy.convoyRiderHandle
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RiderId
-import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.BreakRequest
 import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.net.ConvoyLiveClient
@@ -204,7 +204,10 @@ internal object CarBreakRegroup {
                         announced = current
                         if (seen == null) return@collect
                         breakRequestsToAnnounce(seen, current, Account.riderId.value).forEach {
-                            toast(carContext, carContext.getString(R.string.map_break_pill, handle(it.riderId)))
+                            toast(
+                                carContext,
+                                carContext.getString(R.string.map_break_pill, convoyRiderHandle(it.riderId)),
+                            )
                         }
                     }
                 }
@@ -238,12 +241,6 @@ internal object CarBreakRegroup {
     }
 
     private fun ownLocation(): LatLon? = TripTrackingService.lastFix.value?.let { LatLon(it.lat, it.lon) }
-
-    private fun handle(riderId: RiderId): String {
-        val convoyId = ConvoyLiveClient.activeConvoyId.value
-        val convoy = ConvoysStore.state.value.convoys.firstOrNull { it.id == convoyId }
-        return convoy?.members.orEmpty().handleFor(riderId)
-    }
 
     /** Everything [rows], [breakAction] and [routeAction] read, as one string. */
     private fun displayKey(): String {

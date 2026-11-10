@@ -275,6 +275,8 @@ dependencies {
     implementation("androidx.navigation3:navigation3-ui:1.1.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
+    // ProcessLifecycleOwner: convoy alerts post only while the app is in the background (#906).
+    implementation("androidx.lifecycle:lifecycle-process:2.9.4")
     implementation("org.maplibre.gl:android-sdk-opengl:13.7.1")
     implementation("com.google.android.gms:play-services-location:21.4.0")
     // Android Auto: projects a car-screen "Spin" flow onto the head unit.

@@ -342,9 +342,16 @@ can't survive the gap.
 
 **`place_event` is server-originated only.** A client cannot cause one by
 sending it, which is why there is no inbound counterpart. It is also why there is
-no push notification anywhere in this project: arrivals reach an open app through
-this frame and a closed one by polling the feed, and adding real push would mean
-device tokens, a vendor service and, for iOS, a paid developer account.
+no push for arrivals: they reach an open app through this frame and a closed one
+by polling the feed. Push exists only as a wake-up ping for circles and planned
+rides; see `docs/PUSH.md`.
+
+**Break requests and regroup pins become local notifications on a backgrounded
+phone** (#906). `ConvoyLiveService` keeps the socket open while a convoy is
+joined, so the frames arrive anyway and the service posts them on its own
+`convoy_alerts` channel. No push is involved. They are not posted while the
+app is on screen, where the pills already show them, and leaving the convoy
+takes them down.
 
 ### 6.4 Voice
 
