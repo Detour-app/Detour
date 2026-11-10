@@ -1,8 +1,10 @@
 package com.jellemax.detour.data
 
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -59,6 +61,35 @@ object Account {
         Settings.pushToken()?.let { token -> runCatching { Devices.unregister(token) } }
         Settings.setPushToken(null)
         Auth.signOut()
+    }
+
+    /**
+     * Deletes this rider's account (#700): the server's copy first, then the
+     * session and this device's copy.
+     *
+     * `DELETE /api/me` removes the account row and everything that references
+     * it, push registrations included, and asks the realm's admin to remove
+     * the sign-in itself; this side never talks to the realm's admin API. A
+     * throw from that call means nothing was deleted anywhere, and the rider
+     * is still signed in with every file in place.
+     *
+     * Once the server has answered there is no account left to be signed in
+     * to, so the rest runs [NonCancellable]: a rider who leaves the screen
+     * mid-way must not end up signed in to a deleted account with its rides
+     * still on the phone. The bucket key is read before [Auth.signOut], which
+     * moves the scope to the anonymous bucket; that bucket is never erased
+     * (see [AccountFiles.discard]).
+     */
+    // @Throws(Exception::class): same reason as [signOut].
+    @Throws(Exception::class)
+    suspend fun deleteAccount() {
+        val bucket = AccountScope.current()
+        Api.request("DELETE", "/me")
+        withContext(NonCancellable) {
+            Settings.setPushToken(null)
+            Auth.signOut()
+            AccountFiles.discard(fileSystem, appFilesDir(), bucket)
+        }
     }
 }
 

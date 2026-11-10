@@ -172,6 +172,28 @@ internal object AccountFiles {
         return adopted
     }
 
+    /**
+     * Erases the bucket of an account that no longer exists (#700): its trips,
+     * traces, badges, saved places and routes, everything [SCOPED_NAMES] lists.
+     *
+     * Only ever a real account bucket. [AccountScope.ANONYMOUS] is refused
+     * because it holds rides recorded with nobody signed in, which belong to
+     * whoever holds the phone and not to the account being deleted; anything
+     * else that is not a bucket name is refused for the reason
+     * [isAccountBucket] gives. A refused or absent bucket returns `false` and
+     * touches nothing.
+     *
+     * The caller must have moved the scope off [key] first ([Auth.clear]
+     * does), or the next store write recreates the directory this just
+     * removed.
+     */
+    fun discard(fs: FileSystem, root: Path, key: String): Boolean {
+        val bucket = root / AccountScope.ACCOUNTS_DIR / key
+        if (!bucket.isAccountBucket(fs)) return false
+        fs.deleteRecursively(bucket)
+        return true
+    }
+
     /** Puts the [migrated] guard back, so a test that ran [migrate] does not
      *  disarm [accountDir]'s check for every later test in the same JVM.
      *  `internal` and unused by the app for the same reason

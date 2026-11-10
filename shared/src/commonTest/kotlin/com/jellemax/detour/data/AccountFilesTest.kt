@@ -449,4 +449,62 @@ class AccountFilesTest {
             fs.textAt(root / "accounts" / "_local" / "trips.json"),
         )
     }
+
+    private val deletedKey = "0123456789abcdef"
+    private val otherKey = "fedcba9876543210"
+
+    private fun fsWithBuckets(vararg buckets: String): FakeFileSystem {
+        val fs = FakeFileSystem()
+        buckets.forEach { bucket ->
+            val dir = root / "accounts" / bucket
+            fs.createDirectories(dir)
+            fs.write(dir / "trips.json") { writeUtf8("trips-of-$bucket") }
+            fs.write(dir / "traces.jsonl") { writeUtf8("traces-of-$bucket") }
+        }
+        return fs
+    }
+
+    @Test
+    fun discardErasesTheDeletedAccountsBucketAndNothingElse() {
+        val fs = fsWithBuckets(deletedKey, otherKey, "_local")
+
+        assertTrue(AccountFiles.discard(fs, root, deletedKey))
+
+        assertFalse(fs.exists(root / "accounts" / deletedKey))
+        assertEquals("trips-of-$otherKey", fs.textAt(root / "accounts" / otherKey / "trips.json"))
+        assertEquals("trips-of-_local", fs.textAt(root / "accounts" / "_local" / "trips.json"))
+    }
+
+    /** Rides recorded signed out belong to whoever holds the phone, not to the
+     *  account being deleted: a blank key falls back to `_local` in
+     *  [AccountScope.current], so this is the call a stale scope would make. */
+    @Test
+    fun discardRefusesTheAnonymousBucket() {
+        val fs = fsWithBuckets("_local")
+
+        assertFalse(AccountFiles.discard(fs, root, AccountScope.ANONYMOUS))
+
+        assertEquals("trips-of-_local", fs.textAt(root / "accounts" / "_local" / "trips.json"))
+    }
+
+    @Test
+    fun discardRefusesAnythingThatIsNotABucketName() {
+        val fs = fsWithBuckets(deletedKey)
+
+        assertFalse(AccountFiles.discard(fs, root, ""))
+        assertFalse(AccountFiles.discard(fs, root, ".."))
+        assertFalse(AccountFiles.discard(fs, root, "not-a-bucket"))
+
+        assertTrue(fs.exists(root / "accounts" / deletedKey / "trips.json"))
+        assertTrue(fs.exists(root / "accounts"))
+    }
+
+    @Test
+    fun discardOfABucketThatIsNotThereIsANoOp() {
+        val fs = fsWithBuckets(otherKey)
+
+        assertFalse(AccountFiles.discard(fs, root, deletedKey))
+
+        assertTrue(fs.exists(root / "accounts" / otherKey / "trips.json"))
+    }
 }
