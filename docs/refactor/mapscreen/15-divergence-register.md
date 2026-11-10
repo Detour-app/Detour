@@ -2545,6 +2545,59 @@ check 'iOS does not configure the device yet' 0 \
     "$(grep -c 'configureDevice' iosApp/Detour/DetourApp.swift)"
 ```
 
+## 33. The routing gate: Android asks the probe, iOS still asks `usable`
+
+**New with `#854`**, recorded because iOS is parked (owner decision 2026-10-27).
+
+**What.** When a server's capability probe announced no routing, the shared resolution no longer
+falls back to the general or baked address (`RoutingServer.routingResolved`). Whether routing can
+be tried is now `RoutingServer.routingUsable(config)`, re-read when `RoutingServer.revision` moves.
+
+**Copies.** Android gates on `routingUsable` in `MapBottom.kt`, `RouteEditorScreen.kt`,
+`RoutesScreen.kt` (saved-route Ride) and `PlannedRideStart.kt` (planned-ride start). `LoopSpin` and
+`SpinPicker` are shared and gate on `routingUsable` for both platforms, so iOS spins already get it
+(`SpinModel.swift:220` calls `pickThreeCandidates`, `:243` calls `LoopSpin.spin`). iOS still gates on
+`ServerConfig.usable` in `iosApp/Detour/RouteEditorScreen.swift` (`serverUsable`) and
+`iosApp/Detour/SpinModel.swift` (two `guard server.usable`).
+
+**33a. On iOS, a server that announced no routing still tries to route.** The editor's fill goes
+ahead and `RoutingClient` throws `NoRoutingServerException`, which the rider sees as `fillError`.
+The two `guard server.usable` in `SpinModel.swift` route a destination that arrived without a route:
+`:102` (`setDestinationRouting`, a convoy's committed pick or the regroup point) and `:157`
+(`fetchSearched`, a searched place). Both call `RoutingClient` under `try?`, so the throw is
+swallowed and the rider silently gets a destination with no route. The fix is to swap those three
+reads for `RoutingServer.shared.routingUsable(config:)`, observing `revision` through the existing
+`IntWatcher` (`FlowWatcher.kt`).
+
+**33b. On iOS, routing can vanish on a server that does announce it.** iOS never calls
+`probeCapabilities`; its only probe is `Oidc.resolveIssuer` at sign-in (`SignIn.swift:53`). How far
+that goes depends on where the routing address is:
+
+- **Same host as the API.** A rider who signed in on a build before `#854` holds a feature list with
+  no routing state, which now reads as "probed, no routing", so after updating they have no routing
+  until they sign in again. For the same reason a server's routing address only updates on iOS at the
+  next sign-in.
+- **Another host.** `nextAnnouncedServiceState` stores the announcement as pending with `discovered`
+  blank, and only `acceptRoutingAnnouncement` promotes it. iOS has no consent prompt and no field to
+  type a routing address (the only `TextField` is the server address, `SettingsScreen.swift:236`;
+  `routingURL` is only loaded and re-saved, `:297`, `:306`), so an iOS rider whose sign-in stored a
+  feature list (a typed issuer skips the probe, `Oidc.kt:116`), including one
+  signing in fresh, has no routing and no way to set one. Signing in again and a startup probe
+  don't cure it.
+
+The fix is all three: run `probeCapabilities` at app start, as Android does; add the prompt that
+accepts or declines an announcement (`SettingsServers.kt:331` is Android's); and add a field to type
+the routing address, since a plain-HTTP or non-announcing server produces no announcement a prompt
+could accept. Not checked: whether any iOS build is live; if none is, this waits for the unpark.
+
+**Fence.**
+
+```sh
+# Entry 33 — iOS still gates routing on ServerConfig.usable. A changed count means iOS moved.
+check 'iOS gates routing on usable, not routingUsable' 3 \
+    "$(cat iosApp/Detour/RouteEditorScreen.swift iosApp/Detour/SpinModel.swift | grep -c '\.usable')"
+```
+
 ---
 
 ## 34. Joining a convoy by invite link: Android only

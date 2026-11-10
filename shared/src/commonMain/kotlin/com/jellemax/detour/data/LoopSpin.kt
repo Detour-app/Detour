@@ -70,7 +70,7 @@ object LoopSpin {
     @Throws(Exception::class)
     suspend fun spin(config: ServerConfig, request: LoopRequest): Result = spin(
         request,
-        serverUsable = config.usable,
+        serverUsable = RoutingServer.routingUsable(config),
         roll = { meters ->
             RoutingClient.roundTrip(
                 config, request.from, meters, Random.nextLong(),

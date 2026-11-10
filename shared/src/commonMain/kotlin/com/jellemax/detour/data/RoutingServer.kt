@@ -1,5 +1,10 @@
 package com.jellemax.detour.data
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+
 /**
  * One rider's self-hosted addresses.
  *
@@ -175,21 +180,82 @@ object RoutingServer {
     /** Base of the GraphHopper instance, which serves `/route`. A rider who
      *  typed a routing address keeps winning; one who only pointed the app at
      *  their own server reaches whatever that server announces, rather than the
-     *  general address or this build's baked-in routing host (#355). */
-    fun routingBase(custom: ServerConfig?): String = routingBase(custom, discoveredRoutingBase())
+     *  general address or this build's baked-in routing host (#355).
+     *
+     *  Once the API has answered a capability probe, its answer is final
+     *  (#854): a server that announced no routing resolves to `""`, not to the
+     *  general address or the baked one, so the app stops sending `/route` to
+     *  an API that has no GraphHopper behind it. See [routingResolved]. */
+    fun routingBase(custom: ServerConfig?): String =
+        routingBase(custom, discoveredRoutingBase(), probed = knownServerFeatures() != null)
 
-    /** `internal` with the discovered value passed in, for the same reason the
+    /** `internal` with the stored state passed in, for the same reason the
      *  [issuer] overload exists: reading it means touching `prefs`, which
      *  reaches a Context that does not exist in a unit test. */
-    internal fun routingBase(custom: ServerConfig?, discoveredRouting: String): String =
-        routingResolved(custom, discoveredRouting).value
+    internal fun routingBase(custom: ServerConfig?, discoveredRouting: String, probed: Boolean): String =
+        routingResolved(custom, discoveredRouting, probed).value
 
-    internal fun routingResolved(custom: ServerConfig?, discoveredRouting: String): ResolvedAddress = resolve(
+    /**
+     * [probed] is whether the API's last capability probe returned a document
+     * ([knownServerFeatures] is non-null). When it did, the document is what
+     * decides: [discoveredRouting] is the announcement this device accepted,
+     * and a blank one means the server announced no routing, or announced a
+     * host the rider has not accepted yet (pending) or said no to (declined).
+     * All three resolve to `""` unless the rider typed a routing address. The
+     * general and baked slots are skipped, the baked one too: iOS bakes
+     * `ROUTING_SERVER_URL`, and a server that answered "no routing" means the
+     * rider gets none, not this build's default host.
+     *
+     * Not probed (an old server with no `/api/capabilities`, or offline before
+     * the first probe) keeps the full precedence, so those riders lose nothing.
+     *
+     * No second "probed" flag is stored for this: every probe goes through
+     * [rememberProbe], which writes the announcement before the feature list,
+     * so a feature list this build wrote comes with the routing state of the
+     * same probe or a later one. One written by an older build, which stored
+     * features without announcements at sign-in, can stand alone until the
+     * next probe; that rider has no routing until then.
+     */
+    internal fun routingResolved(
+        custom: ServerConfig?,
+        discoveredRouting: String,
+        probed: Boolean,
+    ): ResolvedAddress = resolve(
         typed = custom?.routingUrl.orEmpty(),
         announced = discoveredRouting,
-        general = custom?.url.orEmpty(),
-        baked = BuildDefaults.routingUrl,
+        general = if (probed) "" else custom?.url.orEmpty(),
+        baked = if (probed) "" else BuildDefaults.routingUrl,
     )
+
+    /**
+     * Whether routing can be attempted with [config]: the gate for "Navigate in
+     * app", the route editor's fill, and the spins' server path. Derived from
+     * the resolved routing base rather than [ServerConfig.usable], which never
+     * looks at the probe and stays true for a server that announced no routing,
+     * so the button would show and [RoutingClient] would throw
+     * [NoRoutingServerException].
+     *
+     * Reads `prefs`, which nobody can observe: a screen reads this again when
+     * [revision] changes, so a probe that lands while it is open is seen.
+     */
+    fun routingUsable(config: ServerConfig?): Boolean =
+        routingUsable(config, discoveredRoutingBase(), probed = knownServerFeatures() != null)
+
+    /** The pure half of [routingUsable], for tests. */
+    internal fun routingUsable(config: ServerConfig?, discoveredRouting: String, probed: Boolean): Boolean =
+        routingBase(config, discoveredRouting, probed).isNotBlank()
+
+    private val _revision = MutableStateFlow(0)
+
+    /**
+     * Bumped whenever something [routingUsable] reads may have changed: a
+     * capability probe that parsed, a save or a clear of the rider's server, and
+     * a routing announcement accepted or declined. Carries no value of its own;
+     * a screen keys its `remember` on it to read the prefs again.
+     */
+    val revision: StateFlow<Int> = _revision.asStateFlow()
+
+    private fun bumpRevision() = _revision.update { it + 1 }
 
     /** Base of the Photon instance, which serves `/api/?q=`. Same precedence as
      *  [routingBase]. */
@@ -476,6 +542,7 @@ object RoutingServer {
             put("geocoder_url", config.geocoderUrl.trim())
             put("idp_issuer", config.idpIssuer.trim())
         }
+        bumpRevision()
     }
 
     /**
@@ -545,6 +612,7 @@ object RoutingServer {
         if (clearDropsSession(loadCustom(), discoveredIssuer())) Auth.clear()
 
         prefs(PREFS).clear()
+        bumpRevision()
     }
 
     /**
@@ -642,21 +710,33 @@ object RoutingServer {
     suspend fun probeCapabilities() {
         val custom = loadCustom()
         val api = apiBase(custom)
-        val fetched = Capabilities.fetch(api, userAgentHeaders())
-        rememberServerFeatures(fetched?.features)
-        // Same "null leaves it alone, a parsed document always overwrites" rule
-        // as rememberServerFeatures — a failed or unparseable probe must not
-        // evict an accepted routing/geocoder base just because the rider is
-        // offline right now.
-        if (fetched != null) {
-            rememberAnnouncedService(ROUTING_KEYS, fetched.routingBaseUrl, api)
-            rememberAnnouncedService(GEOCODER_KEYS, fetched.geocoderBaseUrl, api)
-            rememberAnnouncedService(CAMERAS_KEYS, fetched.camerasBaseUrl, api)
-            rememberAnnouncedService(SPEEDLIMITS_KEYS, fetched.speedLimitsBaseUrl, api)
-            rememberAnnouncedService(ROADS_KEYS, fetched.roadsBaseUrl, api)
-            rememberAnnouncedService(MUNICIPALITY_KEYS, fetched.municipalityBaseUrl, api)
-            rememberAnnouncedService(POIS_KEYS, fetched.poisBaseUrl, api)
-        }
+        rememberProbe(Capabilities.fetch(api, userAgentHeaders()), api)
+    }
+
+    /**
+     * Records one capability document: every announced service, then the
+     * feature list, then a [revision] bump. The one writer of the probe's
+     * answer, shared by [probeCapabilities] and [Oidc.resolveIssuer], so a
+     * stored feature list never stands beside routing state from no probe.
+     *
+     * A null [fetched] (failed or unparseable) changes nothing, so an offline
+     * rider keeps an accepted base. Features go last: a stored list is what
+     * [routingResolved] reads as "probed", and then trusts a blank routing
+     * announcement as "none"; written first, a process death in between would
+     * leave the rider without routing until the next start. Each put commits
+     * the whole prefs file, so a later one on disk carries the earlier.
+     */
+    internal fun rememberProbe(fetched: ServerCapabilities?, api: String) {
+        if (fetched == null) return
+        rememberAnnouncedService(ROUTING_KEYS, fetched.routingBaseUrl, api)
+        rememberAnnouncedService(GEOCODER_KEYS, fetched.geocoderBaseUrl, api)
+        rememberAnnouncedService(CAMERAS_KEYS, fetched.camerasBaseUrl, api)
+        rememberAnnouncedService(SPEEDLIMITS_KEYS, fetched.speedLimitsBaseUrl, api)
+        rememberAnnouncedService(ROADS_KEYS, fetched.roadsBaseUrl, api)
+        rememberAnnouncedService(MUNICIPALITY_KEYS, fetched.municipalityBaseUrl, api)
+        rememberAnnouncedService(POIS_KEYS, fetched.poisBaseUrl, api)
+        rememberServerFeatures(fetched.features)
+        bumpRevision()
     }
 
     /**
@@ -854,7 +934,10 @@ object RoutingServer {
         }
         return listOf(
             ResolvedService("API", apiResolved(custom)),
-            announced("Routing", ROUTING_KEYS, routingResolved(custom, discoveredRoutingBase())),
+            announced(
+                "Routing", ROUTING_KEYS,
+                routingResolved(custom, discoveredRoutingBase(), probed = knownServerFeatures() != null),
+            ),
             announced("Search", GEOCODER_KEYS, geocoderResolved(custom, discoveredGeocoderBase())),
             ResolvedService("Sign-in", issuerResolved(custom, discoveredIssuer())),
             announced("Cameras", CAMERAS_KEYS, camerasResolved(custom, discoveredCamerasBase())),
@@ -910,5 +993,6 @@ object RoutingServer {
         val previous = readAnnouncedServiceState(keys)
         if (previous.pending.isBlank()) return
         writeAnnouncedServiceState(keys, resolvedAnnouncedServiceState(previous, accept))
+        bumpRevision()
     }
 }

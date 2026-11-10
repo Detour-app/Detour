@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.GroupMember
 import com.jellemax.detour.data.LatLon
@@ -36,6 +38,7 @@ import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
+import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
@@ -181,8 +184,13 @@ internal fun BoxScope.MapBottomSlot(
         // bottomCard is decided once, up in MapScreen; animate the handover
         // here instead of hard-swapping so the bottom of the screen stops
         // popping.
+        // Keyed on the probe's revision: a server that announced no routing
+        // must hide "Navigate in app" once its answer lands, not at the next
+        // unrelated recompose (#854).
+        val routingRevision by RoutingServer.revision.collectAsStateWithLifecycle()
+        val serverUsable = remember(serverConfig, routingRevision) { RoutingServer.routingUsable(serverConfig) }
         val inAppAvailable = inAppNavAvailable(
-            serverUsable = serverConfig.usable,
+            serverUsable = serverUsable,
             hasDestination = destination != null,
             hasRouteInstructions = route?.instructions?.isNotEmpty() == true,
         )
