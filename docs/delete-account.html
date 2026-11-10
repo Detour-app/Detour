@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Detour — Delete your account</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
+    line-height: 1.6;
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e6e6e6; background: #141414; }
+    a { color: #7fb3ff; }
+    code { background: #262626; }
+  }
+  h1 { font-size: 1.9rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.25rem; margin-top: 2.25rem; }
+  .updated { color: #666; font-size: 0.9rem; margin-top: 0; }
+  @media (prefers-color-scheme: dark) { .updated { color: #999; } }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.9em; }
+  ul { padding-left: 1.25rem; }
+  li { margin-bottom: 0.4rem; }
+</style>
+</head>
+<body>
+
+<h1>Delete your Detour account</h1>
+<p class="updated">Last updated: 10 November 2026</p>
+
+<p>Detour is an open-source Android app
+(<a href="https://github.com/Detour-app/Detour">Detour-app/Detour</a>). Signing in is optional: an account
+exists only on the sync server you signed in to, which is run by whoever gave
+you its address, not by the developer. Deleting the account removes everything
+that server holds for you: trips, traces, explored area, saved places, saved and
+shared routes, badges, friendships, circle and convoy memberships. It cannot be
+undone.</p>
+
+<h2>In the app</h2>
+<ol>
+  <li>Tap your avatar in the search field to open <strong>You</strong>.</li>
+  <li>Tap <strong>Profile &amp; account</strong>.</li>
+  <li>Tap <strong>Delete account</strong> and confirm.</li>
+</ol>
+<p>The server deletes your account straight away, and the app signs you out and
+erases that account's copies on the phone.</p>
+
+<h2>Without the app</h2>
+<p>If you have uninstalled Detour or can no longer open it:</p>
+<ol>
+  <li>Sign in to your server's account page, Keycloak's account console. On a
+      server set up the standard way that is
+      <code>https://&lt;server address&gt;/auth/realms/detour/account</code>;
+      the server's administrator can give you the exact address. There you can
+      see and manage the sign-in Detour uses.</li>
+  <li>Ask the administrator of that server to delete your account, from the
+      address you have on that sign-in. They remove every row belonging to it
+      with one request, and remove your sign-in from the account console.</li>
+</ol>
+<p>If you cannot reach the server's administrator, write to
+<a href="mailto:jellemax24@gmail.com">jellemax24@gmail.com</a>.</p>
+
+<h2>What is kept</h2>
+<ul>
+  <li><strong>Your sign-in</strong> (username, email address, password) lives in
+      the server's identity provider, not in Detour's database. An in-app delete
+      tells the server's administrator automatically, if they have set that up,
+      so they can remove it; otherwise ask them. Until it is removed, signing in
+      again starts a new, empty account.</li>
+  <li><strong>An Android backup</strong> in your Google account is not touched
+      by deleting the account. See
+      <a href="privacy.html#deleting">Deleting your data</a> in the privacy
+      policy.</li>
+</ul>
+<p>Nothing is kept on the server after the delete, and no copy goes to the
+developer.</p>
+
+</body>
+</html>
