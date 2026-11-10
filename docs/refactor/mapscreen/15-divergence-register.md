@@ -2641,6 +2641,36 @@ check 'iOS binds the join store' 0 \
 
 ---
 
+## 35. Deleting the account: Android only
+
+**New with `#700`** — recorded because iOS is parked (owner decision 2026-10-27) and the shared
+half is written for both.
+
+**What.** A rider deletes their own account from the app, as Google Play requires: `DELETE
+/api/me` on the server, then sign-out, then this device's copy of the account's files.
+
+**Copies.** The rule is not duplicated. `Account.deleteAccount()` (`shared/…/data/Social.kt`)
+does all three steps in order, and `AccountFiles.discard` erases only a real account bucket,
+never `accounts/_local`. Android calls it from `app/…/ui/ProfileScreen.kt` ("Delete account",
+behind a confirm dialog). iOS has no account screen that calls it, so an iPhone rider can still
+only ask the server admin.
+
+**Verdict: survive — the shared call, and iOS follows.** Not a product question: the iOS side is
+a button and a confirm that call `Account.shared.deleteAccount()`; only the wording is
+per-surface. App Store review asks for the same in-app path, so it is due before an iOS release.
+
+**Fence.**
+
+```sh
+# Entry 35 — account deletion. A changed count means iOS gained the button or Android lost it.
+check 'Android calls deleteAccount' 1 \
+    "$(grep -c 'Account.deleteAccount()' app/src/main/java/com/jellemax/detour/ui/ProfileScreen.kt)"
+check 'iOS does not call deleteAccount yet' 0 \
+    "$(grep -rc 'deleteAccount' iosApp/Detour | awk -F: '{s+=$2} END {print s+0}')"
+```
+
+---
+
 ## §A — Summary, ranked by how user-visible the decision is
 
 **22 divergences.** By kind:
