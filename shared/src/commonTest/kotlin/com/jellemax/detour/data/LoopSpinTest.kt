@@ -145,6 +145,25 @@ class LoopSpinTest {
     }
 
     @Test
+    fun aProbedServerThatAnnouncedNoRoutingTakesTheNoServerPath() = runBlocking {
+        // #854: ServerConfig.usable still says yes for this rider, the gate
+        // LoopSpin.spin(config, …) now reads says no, and the spin must not
+        // ask the API for a loop it has no GraphHopper to answer.
+        val kit = ServerConfig(url = "https://kit.example", enabled = true)
+        assertTrue(kit.usable)
+        val asked = mutableListOf<Double>()
+        val waypoint = LatLon(50.9, 5.7)
+        val result = LoopSpin.spin(
+            request(null),
+            serverUsable = RoutingServer.routingUsable(kit, discoveredRouting = "", probed = true),
+            router(50.0, asked),
+            fallback = { listOf(waypoint) },
+        )
+        assertTrue(asked.isEmpty())
+        assertEquals(listOf(home, waypoint, home), result.route.polyline)
+    }
+
+    @Test
     fun rollsThatAllFailFallBackAndSayWhatTheServerDid() = runBlocking {
         val result = LoopSpin.spin(
             request(30f), serverUsable = true,

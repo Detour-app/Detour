@@ -147,7 +147,7 @@
     <string name="settings_import_text">De serveradressen op dit toestel worden vervangen door die uit het bestand. Wat er nu staat, is niet terug te halen.</string>
     <string name="settings_import">Importeren</string>
     <string name="settings_server_summary">Optioneel: je eigen adres voor routes, zoeken, sync en live.</string>
-    <string name="settings_server_detail">Optioneel: één zelfgehost adres voor routes, zoeken, sync en de live relay voor konvooien (zie de indeling met één hostnaam). Laat leeg om de ingebouwde route- en zoekservers te gebruiken, met sync en live uit.</string>
+    <string name="settings_server_detail">Optioneel: één zelfgehost adres voor zoeken, sync en de live relay voor konvooien, en voor routes als de server dat aankondigt (zie de indeling met één hostnaam). Laat leeg om de ingebouwde route- en zoekservers te gebruiken, met sync en live uit.</string>
     <string name="settings_announced_routing">Je server stelt een routeadres voor: %1$s</string>
     <string name="settings_announced_search">Je server stelt een zoekadres voor: %1$s</string>
     <string name="settings_use_it">Gebruiken</string>

@@ -7,6 +7,7 @@ import okio.ForwardingFileSystem
 import okio.IOException
 import okio.Path
 import okio.Path.Companion.toPath
+import okio.Source
 import okio.fakefilesystem.FakeFileSystem
 
 /**
@@ -57,5 +58,43 @@ class AtomicWriteTest {
 
         assertEquals(old, fake.textAt(trips))
         assertEquals(listOf(trips), fake.list(dir))
+    }
+
+    @Test
+    fun anUnreadableFileIsRenamedAsideWithItsBytesIntact() {
+        val fs = FakeFileSystem()
+        fs.writeAtomically(trips, "[{\"startTimeMs\":1")
+        val aside = fs.setAsideIfUnreadable(trips, 42L) { TripStore.decodeAll(it) }
+        assertEquals(dir / "trips.json.unreadable-42", aside)
+        assertEquals("[{\"startTimeMs\":1", fs.textAt(aside!!))
+        assertEquals(false, fs.exists(trips))
+    }
+
+    /** A read that fails for a reason unrelated to the content, like `EIO`. */
+    private class ReadFails(delegate: FakeFileSystem) : ForwardingFileSystem(delegate) {
+        override fun source(file: Path): Source = throw IOException("simulated read failure")
+    }
+
+    @Test
+    fun aFailedReadPropagatesAndLeavesTheFileInPlace() {
+        val fake = FakeFileSystem()
+        val healthy = """[{"startTimeMs":1}]"""
+        fake.writeAtomically(trips, healthy)
+
+        assertFailsWith<IOException> {
+            ReadFails(fake).setAsideIfUnreadable(trips, 42L) { TripStore.decodeAll(it) }
+        }
+
+        assertEquals(healthy, fake.textAt(trips))
+        assertEquals(listOf(trips), fake.list(dir))
+    }
+
+    @Test
+    fun aReadableOrMissingFileIsLeftAlone() {
+        val fs = FakeFileSystem()
+        assertEquals(null, fs.setAsideIfUnreadable(trips, 1L) { TripStore.decodeAll(it) })
+        fs.writeAtomically(trips, "[]")
+        assertEquals(null, fs.setAsideIfUnreadable(trips, 1L) { TripStore.decodeAll(it) })
+        assertEquals("[]", fs.textAt(trips))
     }
 }
