@@ -47,7 +47,9 @@ import com.jellemax.detour.data.refreshQuietly
 import com.jellemax.detour.presentation.avatarInitialOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The rider's account: avatar, display name, sign out, delete account.
@@ -240,13 +242,14 @@ private fun DeleteAccountDialog(
             ConvoyLiveService.stop(context)
             onStart()
             scope.launch {
-                // A throw means the server refused or never answered: nothing was
-                // deleted and the rider is still signed in (Account.deleteAccount).
-                runCatching { Account.deleteAccount() }
+                // A throw means the request failed or went unanswered: the rider is
+                // still signed in, and a retry is safe (Account.deleteAccount). IO
+                // because the tail erases the account's files (§11).
+                runCatching { withContext(Dispatchers.IO) { Account.deleteAccount() } }
                     .onSuccess { FeatureFlags.refreshQuietly(); onDelete() }
                     .onFailure {
                         if (it is CancellationException) throw it
-                        onFail("Your account was not deleted — check your connection and try again.")
+                        onFail("Your account may not have been deleted — check your connection and try again.")
                     }
             }
         },

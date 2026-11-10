@@ -495,9 +495,10 @@ object Auth {
      * have rotated by the time the client gives up on the reply. [resolveRiderId]
      * stays outside: it is a separate request with nothing to lose to a cancel.
      *
-     * This is the one `withContext` in `commonMain` (architecture.md §2.1): it
-     * picks no dispatcher, only shields the block from its caller's cancellation,
-     * and the caller's dispatcher still runs it.
+     * Like the other `withContext(NonCancellable)` in `commonMain`
+     * ([Account.deleteAccount]), it picks no dispatcher (architecture.md §2.1),
+     * only shields the block from its caller's cancellation, and the caller's
+     * dispatcher still runs it.
      */
     private suspend fun refresh(): String {
         withContext(NonCancellable) { postRefreshAndStore() }

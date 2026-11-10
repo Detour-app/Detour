@@ -69,14 +69,20 @@ object Account {
      *
      * `DELETE /api/me` removes the account row and everything that references
      * it, push registrations included, and asks the realm's admin to remove
-     * the sign-in itself; this side never talks to the realm's admin API. A
-     * throw from that call means nothing was deleted anywhere, and the rider
-     * is still signed in with every file in place.
+     * the sign-in itself; this side never talks to the realm's admin API.
      *
-     * Once the server has answered there is no account left to be signed in
-     * to, so the rest runs [NonCancellable]: a rider who leaves the screen
-     * mid-way must not end up signed in to a deleted account with its rides
-     * still on the phone. The bucket key is read before [Auth.signOut], which
+     * The request and everything after it run [NonCancellable], for the same
+     * reason as [Auth]'s token refresh: the server may already have committed
+     * by the time a cancelled caller gives up on the reply. A rider who left
+     * the screen then would stay signed in with every ride on the phone, and
+     * the next sync would re-provision the account and upload them again —
+     * the deletion undone. The wait is bounded by [Api]'s read timeout.
+     *
+     * A throw means the request failed or went unanswered: the server may or
+     * may not have deleted the account, and the rider is still signed in with
+     * every file in place. Retrying is safe either way — a deleted account is
+     * re-provisioned on the request and deleted again. The bucket key is read
+     * before [Auth.signOut], which
      * moves the scope to the anonymous bucket; that bucket is never erased
      * (see [AccountFiles.discard]).
      */
@@ -84,8 +90,8 @@ object Account {
     @Throws(Exception::class)
     suspend fun deleteAccount() {
         val bucket = AccountScope.current()
-        Api.request("DELETE", "/me")
         withContext(NonCancellable) {
+            Api.request("DELETE", "/me")
             Settings.setPushToken(null)
             Auth.signOut()
             AccountFiles.discard(fileSystem, appFilesDir(), bucket)
