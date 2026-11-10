@@ -72,6 +72,13 @@ public interface ITrackPointRepository
     /// </summary>
     Task<double?> GetMaxLeanAsync(Guid userId, CancellationToken cancellationToken);
 
+    /// <summary>Whether this user has a sample in <paramref name="fromMs"/>..<paramref name="toMs"/>, inclusive.</summary>
+    Task<bool> AnyInWindowAsync(
+        Guid userId,
+        long fromMs,
+        long toMs,
+        CancellationToken cancellationToken);
+
     /// <summary>Removes this user's samples in <paramref name="fromMs"/>..<paramref name="toMs"/>, inclusive.</summary>
     Task<int> DeleteInWindowAsync(
         Guid userId,

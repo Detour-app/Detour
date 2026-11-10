@@ -163,6 +163,17 @@ public static class DetourLimits
     /// <summary>A regroup pin's label is a place name, read off a banner at a glance.</summary>
     public const int RegroupPinLabelMaxLength = 80;
 
+    // --- deleted rides ------------------------------------------------------------------
+
+    /// <summary>
+    /// Longest span the server believes of a deleted ride (#877). A trip's times come from the
+    /// device's wall clock, so a clock correction mid-ride can make one look years long, and
+    /// removing that span would take the rider's other rides with it. Longer than this, the ride
+    /// still counts as deleted but its location stays. The cost is a real ride this long keeping
+    /// its location, which is the recoverable side of that choice.
+    /// </summary>
+    public static readonly TimeSpan MaxDeletedRideWindow = TimeSpan.FromHours(48);
+
     // --- dashboard ----------------------------------------------------------------------
     public const int MaxDashboardRides = 500;
     public const int MaxTraceThinning = 50;

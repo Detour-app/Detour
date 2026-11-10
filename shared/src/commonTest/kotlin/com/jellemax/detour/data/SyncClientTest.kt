@@ -74,6 +74,15 @@ class SyncClientTest {
         assertNull(SyncClient.shareFogFromServer(server = null, editsAtUpload = 0, editsNow = 0))
     }
 
+    // --- deletedTripWindows: a deleted ride with no server row (#877) -------
+
+    @Test
+    fun aDeletedRidesWindowUploadsInTheShapeTheServerReads() {
+        val uploaded = SyncClient.deletedTripWindows(mapOf(1000L to 2000L))
+
+        assertEquals(jsonArrayOf("""[{"startTimeMs":1000,"endTimeMs":2000}]"""), uploaded)
+    }
+
     // --- deletedTripStartTimes: rides deleted on another device (#778) ------
 
     @Test
