@@ -1,0 +1,331 @@
+#!/bin/sh
+# docker/prod/detour: the group kit's CLI (#857). Writes .env for a group server
+# and manages its riders through the bundled Keycloak.
+#
+#   ./detour setup --host detour.example.com
+#   docker compose up -d
+#   ./detour invite
+#
+# It holds no state: .env is the install, Keycloak is the source of truth for
+# invites. The invite flow it scripts was run in config/keycloak/GROUP-REALM.md.
+# Keycloak calls sign in with the container's own KC_BOOTSTRAP_ADMIN_* env, so the
+# kit keeps KC_ADMIN_* in .env; don't clear them on a kit install.
+set -eu
+
+REALM=detour
+KCADM=/opt/keycloak/bin/kcadm.sh
+# Compose reads .env and the layer paths relative to this directory.
+cd "$(dirname "$0")"
+
+usage() {
+    cat <<'USAGE'
+Usage: ./detour <command>
+
+  setup --host <domain> [--email <acme>] [--routing <region>] [--tag <tag>] [--force]
+                      Write .env with generated secrets. Refuses to overwrite
+                      .env without --force. --force also replaces the database
+                      passwords, which an existing install's volumes won't accept.
+  invite              Create a one-time invite and print the message for the rider.
+  invites             List open invites, half-finished ones, and members still
+                      named join-*.
+  revoke <join-user>  Delete an invite nobody has redeemed.
+  disable <user>      Remove a member: no sign-in, every session logged out.
+  enable <user>       Restore a disabled member.
+  delete <user>       Delete the Keycloak account. A rider's in-app deletion leaves
+                      this login behind until you run this.
+  reset <user>        Give a rider a new one-time password; logs out their sessions.
+USAGE
+}
+
+die() { echo "detour: $*" >&2; exit 1; }
+
+# --- setup -------------------------------------------------------------------
+
+# Replaces KEY's active line, or appends one. Commented-out examples stay as they are.
+set_key() {
+    KEY="$1" VAL="$2" awk '
+        BEGIN { k = ENVIRON["KEY"]; v = ENVIRON["VAL"] }
+        index($0, k "=") == 1 { if (!done) print k "=" v; done = 1; next }
+        { print }
+        END { if (!done) print k "=" v }
+    ' "$ENV_TMP" > "$ENV_TMP.new"
+    mv "$ENV_TMP.new" "$ENV_TMP"
+}
+
+# A value starting with a dash is the next option, not a value: --email --force.
+need_value() {
+    [ "$#" -ge 2 ] || die "$1 needs a value"
+    case "$2" in
+        -*) die "$1 needs a value, got $2" ;;
+    esac
+}
+
+cmd_setup() {
+    host='' email='' region='' tag=latest force=''
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --host) need_value "$@"; host="$2"; shift 2 ;;
+            --email) need_value "$@"; email="$2"; shift 2 ;;
+            --routing) need_value "$@"; region="$2"; shift 2 ;;
+            --tag) need_value "$@"; tag="$2"; shift 2 ;;
+            --force) force=1; shift ;;
+            *) die "setup: unknown argument: $1" ;;
+        esac
+    done
+
+    # Everything here lands in .env unquoted, so only plain characters get through.
+    [ -n "$host" ] || die "setup: --host <domain> is required"
+    case "$host" in
+        *[!A-Za-z0-9.-]* | -* | .* | *.) die "setup: --host takes a bare domain, like detour.example.com: $host" ;;
+    esac
+    case "$email" in
+        *[!A-Za-z0-9._%+@-]*) die "setup: not an address: $email" ;;
+    esac
+    case "$tag" in
+        '' | *[!A-Za-z0-9._-]*) die "setup: not an image tag: $tag" ;;
+    esac
+    if [ -n "$region" ]; then
+        case "$region" in
+            *[!a-z0-9-]*) die "setup: unknown region: $region" ;;
+        esac
+        grep -q "^$region=" config/regions.env \
+            || die "setup: unknown region: $region (config/regions.env lists them)"
+    fi
+
+    if [ -e .env ] && [ -z "$force" ]; then
+        die "setup: .env already exists; --force replaces it and its passwords"
+    fi
+    command -v openssl >/dev/null 2>&1 || die "setup: needs openssl"
+
+    layers=docker-compose.yml:docker-compose.idp.yml:docker-compose.group.yml
+    routing_url=''
+    if [ -n "$region" ]; then
+        layers="$layers:docker-compose.routing.yml"
+        routing_url="https://$host"
+    fi
+    layers="$layers:docker-compose.proxy.yml:docker-compose.caddy.yml"
+
+    # Plain assignments, before anything is written: set -e stops here if openssl
+    # fails, where a failure inside a set_key argument would go unnoticed and --force
+    # would replace a good .env with blank passwords.
+    postgres_password="$(openssl rand -hex 24)"
+    kc_db_password="$(openssl rand -hex 24)"
+    admin_password="$(openssl rand -hex 24)"
+
+    # Secrets from the first byte: built privately, then moved into place whole.
+    umask 077
+    ENV_TMP="$(mktemp .env.XXXXXX)"
+    trap 'rm -f "$ENV_TMP" "$ENV_TMP.new"' EXIT
+    # dash skips the EXIT trap when a signal kills the script, which would leave the
+    # temp file (mode 600, holds the new secrets) behind; exiting runs it.
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    cat .env.example > "$ENV_TMP"
+    set_key COMPOSE_FILE "$layers"
+    set_key DETOUR_IMAGE_TAG "$tag"
+    set_key POSTGRES_PASSWORD "$postgres_password"
+    set_key KC_DB_PASSWORD "$kc_db_password"
+    set_key KC_ADMIN_PASSWORD "$admin_password"
+    set_key DETOUR_HOSTNAME "$host"
+    set_key KC_HTTP_RELATIVE_PATH /auth
+    set_key KC_HOSTNAME "https://$host/auth"
+    set_key KC_HOSTNAME_ADMIN "http://127.0.0.1:7580/auth"
+    set_key IDP_ISSUER "https://$host/auth/realms/detour"
+    set_key ROUTING_BASE_URL "$routing_url"
+    set_key CAMERA_BASE_URL ''
+    [ -z "$email" ] || set_key ACME_EMAIL "$email"
+    [ -z "$region" ] || set_key OSM_REGION "$region"
+    chmod 600 "$ENV_TMP"
+    mv "$ENV_TMP" .env
+    trap - EXIT INT TERM
+
+    echo "Wrote .env for https://$host"
+    if [ -n "$region" ]; then
+        echo "Routing: $region. Check GRAPHHOPPER_HEAP in .env against the README's Regions table."
+    fi
+    echo
+    echo "Keycloak admin password (shown once, kept in .env; the CLI needs it there):"
+    echo "  $admin_password"
+    echo
+    echo "Next: point DNS for $host at this machine, open ports 80 and 443, then run"
+    echo "  docker compose up -d"
+    echo "and ./detour invite once it is up."
+}
+
+# --- Keycloak ----------------------------------------------------------------
+
+kc() { docker compose exec -T keycloak "$KCADM" "$@" </dev/null; }
+
+# Single-quoted: the container fills in its own env. kcadm reads the password from
+# KC_CLI_PASSWORD, because an argument would show in ps on this host: a container's
+# processes are the host's.
+kc_login() {
+    # kcadm says "Logging into..." on success, and why it couldn't on failure.
+    # shellcheck disable=SC2016
+    login_output="$(docker compose exec -T keycloak sh -c '
+        export KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD"
+        exec "$0" config credentials --realm master \
+            --server "http://localhost:8080${KC_HTTP_RELATIVE_PATH%/}" \
+            --user "$KC_BOOTSTRAP_ADMIN_USERNAME"
+    ' "$KCADM" </dev/null 2>&1)" || {
+        printf '%s\n' "$login_output" >&2
+        die "can't sign in to Keycloak; is the stack up? (docker compose ps)"
+    }
+}
+
+need_env() { [ -f .env ] || die "no .env here; run ./detour setup first"; }
+
+# One argument: a username. Keycloak's own check is stricter (GROUP-REALM.md); this
+# keeps the CSV below parseable and a stray option out of kcadm's arguments.
+need_user() {
+    [ "$#" -eq 2 ] || die "usage: ./detour $1 <user>"
+    case "$2" in
+        '' | -* | *[!A-Za-z0-9_.@-]*) die "$1: not a username: $2" ;;
+    esac
+}
+
+# Sets USER_ID, and USER_ACTIONS to the required actions with commas round each.
+find_user() {
+    found="$(kc get users -r "$REALM" -q "username=$1" -q exact=true \
+        --fields id,requiredActions --format csv --noquotes)" \
+        || die "can't read users from Keycloak"
+    found="$(printf '%s\n' "$found" | tr -d '\r' | head -n 1)"
+    [ -n "$found" ] || die "no user named $1"
+    USER_ID="${found%%,*}"
+    case "$found" in
+        *,*) USER_ACTIONS=",${found#*,}," ;;
+        *) USER_ACTIONS=,, ;;
+    esac
+}
+
+new_code() { openssl rand -hex 6; }
+
+# $3 is what Keycloak asks for after the code (GROUP-REALM.md has the forms).
+print_sign_in() {
+    host="$(sed -n 's/^DETOUR_HOSTNAME=//p' .env | tail -n 1)"
+    cat <<MESSAGE
+Sign in to our Detour server:
+
+  Server address: https://$host
+  Username: $1
+  Code: $2
+
+Put the address in the app under Settings, sign in with the username and code,
+then choose $3. The code works until you do.
+MESSAGE
+}
+
+cmd_invite() {
+    [ "$#" -eq 0 ] || die "usage: ./detour invite"
+    name="join-$(openssl rand -hex 2)"
+    code="$(new_code)"
+    kc_login
+    id="$(kc create users -r "$REALM" -s "username=$name" -s enabled=true \
+        -s 'requiredActions=["UPDATE_PASSWORD","UPDATE_PROFILE"]' -i)" \
+        || die "can't create $name; run ./detour invite again if the name was taken"
+    id="$(printf '%s' "$id" | tr -d '\r')"
+    # Without a password the invite can't be redeemed, so don't leave it behind.
+    if ! kc set-password -r "$REALM" --username "$name" --new-password "$code" --temporary; then
+        kc delete "users/$id" -r "$REALM" || true
+        die "can't set the code for $name"
+    fi
+    print_sign_in "$name" "$code" "your own username and password"
+}
+
+cmd_invites() {
+    [ "$#" -eq 0 ] || die "usage: ./detour invites"
+    kc_login
+    # Keycloak can't query on required actions and returns 100 users at a time.
+    offset=0
+    users=''
+    while :; do
+        page="$(kc get users -r "$REALM" -o "$offset" -l 100 \
+            --fields username,enabled,requiredActions --format csv --noquotes)" \
+            || die "can't read users from Keycloak"
+        page="$(printf '%s' "$page" | tr -d '\r')"
+        [ -n "$page" ] || break
+        users="$users$page
+"
+        [ "$(printf '%s\n' "$page" | wc -l)" -eq 100 ] || break
+        offset=$((offset + 100))
+    done
+    printf '%s' "$users" | awk -F, '
+        {
+            state = ""
+            for (i = 3; i <= NF; i++) {
+                if ($i == "UPDATE_PROFILE") state = "unredeemed"
+                else if (state == "") state = "waiting for a password"
+            }
+            if (state == "" && index($1, "join-") == 1) state = "member, still named join-*"
+            if (state == "") next
+            if ($2 == "false") state = state " (disabled)"
+            if (!n++) printf "%-26s %s\n", "USER", "STATE"
+            printf "%-26s %s\n", $1, state
+        }
+        END { if (!n) print "No open invites." }
+    '
+}
+
+cmd_revoke() {
+    need_user revoke "$@"
+    name="$1"
+    case "$name" in
+        join-*) ;;
+        *) die "revoke: $name is not an invite; ./detour delete removes an account" ;;
+    esac
+    kc_login
+    find_user "$name"
+    case "$USER_ACTIONS" in
+        *,UPDATE_PROFILE,*) ;;
+        *) die "revoke: $name has been redeemed; ./detour delete removes an account" ;;
+    esac
+    kc delete "users/$USER_ID" -r "$REALM"
+    echo "Revoked $name"
+}
+
+kc_logout() { kc create "users/$1/logout" -r "$REALM" -s "realm=$REALM" -s "user=$1"; }
+
+cmd_disable() {
+    need_user disable "$@"
+    kc_login
+    find_user "$1"
+    kc update "users/$USER_ID" -r "$REALM" -s enabled=false
+    kc_logout "$USER_ID"
+    echo "Disabled $1 and logged out their sessions"
+}
+
+cmd_enable() {
+    need_user enable "$@"
+    kc_login
+    find_user "$1"
+    kc update "users/$USER_ID" -r "$REALM" -s enabled=true
+    echo "Enabled $1"
+}
+
+cmd_delete() {
+    need_user delete "$@"
+    kc_login
+    find_user "$1"
+    kc delete "users/$USER_ID" -r "$REALM"
+    echo "Deleted $1"
+}
+
+cmd_reset() {
+    need_user reset "$@"
+    code="$(new_code)"
+    kc_login
+    find_user "$1"
+    kc set-password -r "$REALM" --userid "$USER_ID" --new-password "$code" --temporary
+    kc_logout "$USER_ID"
+    print_sign_in "$1" "$code" "a new password"
+}
+
+[ "$#" -gt 0 ] || { usage; exit 1; }
+cmd="$1"
+shift
+case "$cmd" in
+    setup) cmd_setup "$@" ;;
+    invite | invites | revoke | disable | enable | delete | reset) need_env; "cmd_$cmd" "$@" ;;
+    -h | --help | help) usage ;;
+    *) usage >&2; die "unknown command: $cmd" ;;
+esac

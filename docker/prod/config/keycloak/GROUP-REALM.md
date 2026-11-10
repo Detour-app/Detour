@@ -8,7 +8,7 @@ handle and password on first sign-in. Riders give a username and a password,
 nothing else; email, first and last name are not asked for.
 
 This file records the invite mechanism as it was run, and the `kcadm.sh`
-commands that drove it, so a CLI can script the same steps.
+commands that drove it. `./detour` (run from `docker/prod/`) scripts them.
 
 ## What was run
 

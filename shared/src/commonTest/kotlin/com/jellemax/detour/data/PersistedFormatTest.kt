@@ -330,6 +330,19 @@ class PersistedFormatTest {
         assertEquals(jsonObjectOf(modeOverridesV1), jsonObjectOf(TripStore.encodeModeOverrides(overrides)))
     }
 
+    // --- deleted_trip_windows.json --------------------------------------------
+    // Uploaded on every sync: a window that stops reading leaves a deleted ride's
+    // trace on a server with no row for it (#877).
+
+    private val deletedWindowsV1 = """{"1726000000000":1726000600000,"1726100000000":1726100900000}"""
+
+    @Test
+    fun deletedWindowsV1ReadsAndWrites() {
+        val windows = mapOf(1_726_000_000_000L to 1_726_000_600_000L, 1_726_100_000_000L to 1_726_100_900_000L)
+        assertEquals(windows, TripStore.decodeDeletedWindows(deletedWindowsV1))
+        assertEquals(jsonObjectOf(deletedWindowsV1), jsonObjectOf(TripStore.encodeDeletedWindows(windows)))
+    }
+
     // --- badges.json ---------------------------------------------------------
 
     private val earnedV1 = """{"dist_100000":1726000000000,"speed_130":1726100000000}"""
