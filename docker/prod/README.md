@@ -187,7 +187,10 @@ After the stack is up, at `https://idp.example.com/admin`:
    keep it that way: relationships key on the account id, so a rename changes the label
    riders see and nothing else. Turn it on if you want riders renaming themselves. Note that
    handles remain unique per realm, so a rename into a handle someone else holds is refused.
-7. Create your own administrator, then clear `KC_ADMIN_*` from `.env`.
+7. Create your own administrator, and keep `KC_ADMIN_*` in `.env`: Compose won't start
+   without them, and `./detour` signs in with them on a kit install. Keep the bootstrap
+   admin *user* in the `master` realm too, even when Keycloak's console suggests deleting
+   it: `./detour` signs in as that user, and every command fails once it is gone.
 
 `docker/dev/config/keycloak/detour-realm.json` is a useful shape to copy from.
 Copy the clients and roles; never the users.
