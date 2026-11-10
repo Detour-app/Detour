@@ -123,6 +123,7 @@ public class SavedRouteConfiguration : IEntityTypeConfiguration<SavedRoute>
         builder.Property(r => r.Payload).HasColumnType(ColumnTypes.Jsonb);
         builder.Property(r => r.ClientRouteId);
         builder.Property(r => r.UpdatedAt);
+        builder.Property(r => r.EditedAtMs);
 
         builder.HasOne<User>()
             .WithMany()
@@ -130,6 +131,28 @@ public class SavedRouteConfiguration : IEntityTypeConfiguration<SavedRoute>
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(r => new { r.UserId, r.ClientRouteId }).IsUnique();
+    }
+}
+
+public class SavedRouteTombstoneConfiguration : IEntityTypeConfiguration<SavedRouteTombstone>
+{
+    public void Configure(EntityTypeBuilder<SavedRouteTombstone> builder)
+    {
+        builder.ToTable("saved_route_tombstones");
+
+        builder.HasKey(t => t.Id);
+        builder.Property(t => t.Id).ValueGeneratedNever();
+
+        builder.Property(t => t.ClientRouteId);
+        builder.Property(t => t.DeletedAt);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(t => t.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // One tombstone per route per rider: phones resend every deleted id on each sync.
+        builder.HasIndex(t => new { t.UserId, t.ClientRouteId }).IsUnique();
     }
 }
 
