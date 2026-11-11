@@ -1,0 +1,22 @@
+meta {
+  name: The caller's saved routes
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{BASE_URL}}/api/routes
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Each route document exactly as stored, the same ones /sync returns, ascending by id. Deleted routes are not listed.
+
+  Responses:
+  - 200: OK
+}

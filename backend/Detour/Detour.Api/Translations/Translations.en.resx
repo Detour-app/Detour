@@ -134,6 +134,21 @@
   <data name="SavedRoute.PayloadRequired" xml:space="preserve">
     <value>A saved route needs its details.</value>
   </data>
+  <data name="SavedRoute.IdMismatch" xml:space="preserve">
+    <value>The route's id does not match the one in the address.</value>
+  </data>
+  <data name="SavedRoute.EditStampRequired" xml:space="preserve">
+    <value>A route edit needs the time it was made.</value>
+  </data>
+  <data name="SavedRoute.NotEnoughStops" xml:space="preserve">
+    <value>A route needs at least {0} stops.</value>
+  </data>
+  <data name="SavedRoute.ModeRequired" xml:space="preserve">
+    <value>A route needs a travel mode.</value>
+  </data>
+  <data name="SavedRoute.PayloadTooLarge" xml:space="preserve">
+    <value>That route is larger than {0} bytes.</value>
+  </data>
   <data name="Friendship.CannotFriendYourself" xml:space="preserve">
     <value>You are already your own friend.</value>
   </data>

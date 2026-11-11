@@ -1,3 +1,4 @@
+using System.Text;
 using JV.ResultUtilities;
 using Shared.Domain;
 using Shared.Database;
@@ -73,6 +74,48 @@ public sealed class SavedRoute : Entity
         EditedAtMs = incoming;
         UpdatedAt = DateTimeOffset.UtcNow;
         return true;
+    }
+
+    /// <summary>
+    /// The rules for a route written one at a time, by the web planner (#912), on top of the ones
+    /// every stored copy meets. Stricter than <c>/sync</c>, which takes whatever a phone holds:
+    /// the planner is new, so it can be held to a document the phone will actually show.
+    /// <list type="bullet">
+    /// <item>the document's own id is the one it is stored under;</item>
+    /// <item>it carries an edit stamp, or it could never be ordered against the phone's copy;</item>
+    /// <item>at least <see cref="DetourLimits.MinRouteStops"/> stops, below which the app drops it;</item>
+    /// <item>a mode — any name, since the app reads one it does not know as a car and a later
+    /// app may add modes;</item>
+    /// <item>at most <see cref="DetourLimits.MaxRoutePayloadBytes"/>, as a shared route.</item>
+    /// </list>
+    /// </summary>
+    public static Result ValidateEdit(
+        long clientRouteId,
+        long documentId,
+        long editedAtMs,
+        int stopCount,
+        string? mode,
+        string payload)
+    {
+        var stored = Validate(clientRouteId, payload);
+        if (stored.IsFailure)
+            return stored;
+
+        if (documentId != clientRouteId)
+            return Result.Error(ValidationKeys.SavedRoute.IdMismatch);
+
+        if (editedAtMs <= 0)
+            return Result.Error(ValidationKeys.SavedRoute.EditStampRequired);
+
+        if (stopCount < DetourLimits.MinRouteStops)
+            return Result.Error(ValidationKeys.SavedRoute.NotEnoughStops, DetourLimits.MinRouteStops);
+
+        if (string.IsNullOrWhiteSpace(mode))
+            return Result.Error(ValidationKeys.SavedRoute.ModeRequired);
+
+        return Encoding.UTF8.GetByteCount(payload) > DetourLimits.MaxRoutePayloadBytes
+            ? Result.Error(ValidationKeys.SavedRoute.PayloadTooLarge, DetourLimits.MaxRoutePayloadBytes)
+            : Result.Ok();
     }
 
     /// <summary>A negative stamp says nothing a missing one doesn't.</summary>
