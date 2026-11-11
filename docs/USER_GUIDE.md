@@ -611,7 +611,11 @@ The test itself asks about a fixed spot in Brussels, not where you are. Signed
 in, the key is stored on your Detour server, encrypted, and your other phones
 pick it up on their next sync; the server operator can decrypt it. Signing out
 removes the key you saved while signed in from the phone. Signed out, a key
-stays in the phone's secure storage only. It is never backed up or exported.
+stays in the phone's secure storage only, until the first account signs in on
+that phone: that account takes the key over and stores it on the server (a
+later account does not). A key already on the phone when you update to this
+version while signed in is uploaded the same way. It is never backed up or
+exported.
 **Remove key** turns traffic off again — signed in, on every phone of the
 account.
 

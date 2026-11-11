@@ -192,7 +192,9 @@ struct SettingsScreen: View {
                 stored on your Detour server, encrypted, and reaches your other \
                 phones; the server operator can decrypt it. Signing out removes \
                 it from this phone. Signed out, the key stays on this phone \
-                only. It is never backed up or exported.
+                only, until the first account signs in here: that account takes \
+                it over and stores it on the server. It is never backed up or \
+                exported.
                 """)
         }
     }

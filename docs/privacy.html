@@ -122,8 +122,11 @@ is listed below is sent:</p>
       Signed in to a Detour server, the key is also stored on that server,
       encrypted, so your other phones get it; the server operator can decrypt
       it. Signing out removes the key you saved while signed in from the
-      phone. Signed out, a key stays on the phone only. It is never backed up
-      or exported. With no key, nothing is sent to HERE.</li>
+      phone. Signed out, a key stays on the phone only, until the first
+      account signs in on that phone: that account takes the key over and
+      stores it on the server (a later account does not). A key already on
+      the phone when you update to this version while signed in is uploaded
+      the same way. It is never backed up or exported. With no key, nothing is sent to HERE.</li>
   <li><strong>Handing off navigation</strong> — if you choose to open a
       destination in Google Maps, Waze or another app, the destination
       coordinates are passed to that app, which is then governed by its own
@@ -176,7 +179,9 @@ governed by that operator rather than by this app.</p>
       uploaded with its stops (which can include your home or work) and its
       full path, as are routes a friend has shared with you.</li>
   <li>Your HERE traffic key, if you enter one while signed in, so your other
-      phones can use it. The server stores it encrypted and never shows it to
+      phones can use it. A key entered signed out goes too when the first
+      account signs in on that phone, as does a key already on the phone when
+      a signed-in rider updates to this version. The server stores it encrypted and never shows it to
       friends or in any administrator view, but its operator holds the
       decryption key and can read it.</li>
   <li>Your explored area is shared with an accepted friend only if you turn on
