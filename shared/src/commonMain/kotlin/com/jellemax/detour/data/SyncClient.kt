@@ -257,6 +257,9 @@ object SyncClient {
     private fun writeBackOptional(merged: JsonObject, fogEditsAtUpload: Int, uploadedRoutes: List<SavedRoute>?) {
         merged.optArray("savedPlaces")?.let { SavedPlaces.replaceFromServer(it.string()) }
         if (uploadedRoutes != null) {
+            // Before the routes, as for trips: a route deleted elsewhere is
+            // dropped by replaceFromServer's tombstone filter (#910).
+            RouteStore.addTombstones(deletedRouteIds(merged))
             merged.optArray("savedRoutes")?.let { RouteStore.replaceFromServer(it, uploadedRoutes) }
         }
         merged.optArray("tripTitles")?.let { TripTitleStore.mergeFromServer(TripTitleStore.fromServer(it)) }
@@ -319,6 +322,14 @@ object SyncClient {
     internal fun deletedTripStarts(merged: JsonObject): Set<Long> {
         val starts = merged.optArray("deletedTripStartTimes") ?: return emptySet()
         return starts.indices.mapNotNullTo(HashSet()) { i -> starts.optLong(i).takeIf { it > 0 } }
+    }
+
+    /** The saved routes this rider deleted on any device or in the web
+     *  planner, from the server's answer (#910). Empty from an older server
+     *  that omits the field. */
+    internal fun deletedRouteIds(merged: JsonObject): Set<Long> {
+        val ids = merged.optArray("deletedSavedRouteIds") ?: return emptySet()
+        return ids.indices.mapNotNullTo(HashSet()) { i -> ids.optLong(i).takeIf { it != 0L } }
     }
 
     private fun tripsForUpload() = buildJsonArray {
