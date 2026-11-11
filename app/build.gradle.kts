@@ -249,17 +249,16 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     // Release notes are GitHub's generated Markdown, rendered in Settings →
-    // "What's new" (#357). Held at 0.35.0 deliberately: 0.46.0 needs compileSdk
-    // 37 (as do Compose BOM 2026.09 and core-ktx 1.19) and renamed the
-    // `linkText` / `inlineCodeText` / `codeText` / `link` colour parameters
-    // ReleaseNotes.kt uses. Raise it together with compileSdk, not before.
+    // "What's new" (#357). 0.46.0 needs compileSdk 37 and dropped the
+    // `linkText` / `inlineCodeText` / `codeText` colours and the `link` style:
+    // ReleaseNotes.kt carries those in `textLink` and the code styles (#765).
     //
     // No `-coil3` artifact and no `imageTransformer` is passed, so a Markdown
     // image cannot be fetched: opening the expander makes no request of its own,
     // to any host a release author chose. That is omission, not a setting to
     // regress — GitHub's generator emits no images, so nothing is lost.
-    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.35.0")
-    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.46.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.46.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.core:core-ktx:1.19.1")
     // Custom Tabs, for the sign-in leg. A native app must not put the identity
