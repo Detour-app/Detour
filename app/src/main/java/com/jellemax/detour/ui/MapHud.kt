@@ -24,6 +24,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +47,7 @@ import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.presentation.SpeedHudState
+import com.jellemax.detour.presentation.speedHudStateFrom
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -226,6 +229,26 @@ internal fun SpeedIsland(state: SpeedHudState, obd2Lost: Boolean, modifier: Modi
         Obd2SignalLostLabel(lost = obd2Lost)
     }
 }
+
+/** [SpeedIsland]'s state, as a [State] the caller reads where it draws the
+ *  island. [RetainedMap.displaySpeedKmh] eases every frame while the speed
+ *  changes; read straight in MapScreen's Scaffold content lambda it put the
+ *  whole map content in the invalidation set each frame (#900). Behind
+ *  derivedStateOf the reader recomposes only when a formatted field changes:
+ *  the shown whole km/h, the speeding flag, the sign or the Ø. [limitKmh] is
+ *  a lambda so a delegated read (navState) stays live inside the derivation. */
+@Composable
+internal fun rememberSpeedHudState(retained: RetainedMap, limitKmh: () -> Double?): State<SpeedHudState> =
+    remember(retained) {
+        derivedStateOf {
+            speedHudStateFrom(
+                speedKmh = retained.displaySpeedKmh,
+                limitKmh = limitKmh(),
+                averageKmh = retained.sectionState.reading.averageKmh,
+                averageLimitKmh = retained.sectionState.reading.limitKmh,
+            )
+        }
+    }
 
 /** "OBD2 signal lost" — shown under the speed HUD when an adapter that was
  *  feeding this trip has dropped and not yet reconnected (gated by the caller).
