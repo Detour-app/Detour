@@ -55,6 +55,10 @@ data class SavedRoute(
      *  user's own routes. */
     val sharedBy: String = "",
     val origin: RouteOrigin = RouteOrigin.PLANNED,
+    /** When this route was last saved or renamed on any device (#910), so the
+     *  server keeps the newest copy when the phone and the web planner both
+     *  edit it. 0 for a route from a build that predates the stamp. */
+    val editedAtMs: Long = 0,
 )
 
 /**
@@ -69,7 +73,8 @@ data class SavedRoute(
  *
  * `origin` is written only when it isn't [RouteOrigin.PLANNED], so a planned
  * route keeps the exact bytes it had before the field existed. A build that
- * predates it ignores the key and still reads the route.
+ * predates it ignores the key and still reads the route. `editedAtMs` is
+ * written only when non-zero, for the same reason.
  */
 fun SavedRoute.toJson(): JsonObject = buildJsonObject {
     put("id", id)
@@ -93,6 +98,7 @@ fun SavedRoute.toJson(): JsonObject = buildJsonObject {
     timeMs?.let { put("timeMs", it) }
     if (sharedBy.isNotEmpty()) put("sharedBy", sharedBy)
     if (origin != RouteOrigin.PLANNED) put("origin", origin.name)
+    if (editedAtMs != 0L) put("editedAtMs", editedAtMs)
 }
 
 /** Inverse of [SavedRoute.toJson]. Null for a route with fewer than two
@@ -120,6 +126,7 @@ fun routeFromJson(o: JsonObject): SavedRoute? {
         timeMs = if (o.has("timeMs")) o.optLong("timeMs") else null,
         sharedBy = o.optString("sharedBy"),
         origin = RouteOrigin.of(o.optString("origin")),
+        editedAtMs = o.optLong("editedAtMs"),
     )
 }
 
@@ -167,21 +174,21 @@ object RouteStore {
         _routes.value = emptyList()
     }
 
-    /** Add a route (or replace in place if [route]'s id already exists) and persist. */
+    /** Add a route (or replace in place if [route]'s id already exists),
+     *  stamped as edited now, and persist. Every edit path (the route editor,
+     *  a kept spin, a file import, a shared route) comes through here, so the
+     *  stamp is set once rather than at each caller. */
     fun save(route: SavedRoute) {
         ensureLoaded() // a mutation can arrive before any screen has loaded the store —
         // e.g. saving straight from the map on a cold start — and without this,
         // _routes.value is still empty and write() below would wipe every
         // previously saved route instead of adding to them.
-        val next = _routes.value.filterNot { it.id == route.id } + route
-        write(next.sortedByDescending { it.createdMs })
+        write(routesWithSaved(_routes.value, route, nowMs()))
     }
 
     fun rename(id: Long, name: String) {
         ensureLoaded() // see save(): a rename can be the first call to touch the store.
-        val cleaned = name.trim().ifEmpty { return }
-        write(_routes.value.map { if (it.id == id) it.copy(name = cleaned) else it }
-            .sortedByDescending { it.createdMs })
+        write(routesWithRenamed(_routes.value, id, name, nowMs()) ?: return)
     }
 
     /** Remove a route. Its id is also tombstoned, so the server's copy — the
@@ -209,6 +216,16 @@ object RouteStore {
     /** Ids removed on this device, uploaded with the sync payload so the
      *  server deletes its copy too. See [remove]. */
     fun deletedIds(): Set<Long> = tombstones()
+
+    /** Routes deleted on another device or in the web planner, from the
+     *  server's answer (#910). Tombstoned here like a local [remove], so the
+     *  next [replaceFromServer] drops them, a copy edited here mid-sync
+     *  included: a delete anywhere beats an edit anywhere. */
+    fun addTombstones(ids: Set<Long>) {
+        val known = tombstones()
+        if (known.containsAll(ids)) return
+        writeTombstones(known + ids)
+    }
 
     /** Replace the local store with the server's merged array (the union it
      *  holds), so a reinstall restores every route on the first sync. See
@@ -257,6 +274,21 @@ object RouteStore {
             null
         }
     }
+}
+
+/** [routes] with [route] added, or replacing the one with its id, stamped
+ *  [nowMs]. Newest first. Pure half of [RouteStore.save]. */
+internal fun routesWithSaved(routes: List<SavedRoute>, route: SavedRoute, nowMs: Long): List<SavedRoute> =
+    (routes.filterNot { it.id == route.id } + route.copy(editedAtMs = nowMs))
+        .sortedByDescending { it.createdMs }
+
+/** [routes] with route [id] renamed to [name] (trimmed) and stamped [nowMs],
+ *  or null for a blank name, which changes nothing. Pure half of
+ *  [RouteStore.rename]. */
+internal fun routesWithRenamed(routes: List<SavedRoute>, id: Long, name: String, nowMs: Long): List<SavedRoute>? {
+    val cleaned = name.trim().ifEmpty { return null }
+    return routes.map { if (it.id == id) it.copy(name = cleaned, editedAtMs = nowMs) else it }
+        .sortedByDescending { it.createdMs }
 }
 
 /**
