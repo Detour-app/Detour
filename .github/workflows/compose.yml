@@ -29,6 +29,9 @@ jobs:
       - name: group-realm
         run: sh docker/prod/scripts/group-realm.test.sh
 
+      - name: prod-realm
+        run: sh docker/prod/scripts/prod-realm.test.sh
+
       - name: compose config — every COMPOSE_FILE combination
         working-directory: docker/prod
         run: |
@@ -97,6 +100,7 @@ jobs:
           KC_HOSTNAME=http://localhost:7580
           IDP_ISSUER=http://localhost:7580/realms/detour
           IDP_REQUIRE_HTTPS=false
+          DETOUR_HOSTNAME=ci.invalid
           EOF
           export COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml
           docker compose up -d
@@ -110,4 +114,15 @@ jobs:
             exit 1
           fi
           curl -s localhost:7500/api/health
+          # The prod realm was imported, with detour-web's redirect filled from
+          # DETOUR_HOSTNAME (Keycloak's import placeholder substitution, #911).
+          # Keycloak's healthcheck greps a nested "UP", so poll the kcadm login.
+          kcadm() { docker compose exec -T keycloak /opt/keycloak/bin/kcadm.sh "$@"; }
+          if ! timeout 240 sh -c 'until docker compose exec -T keycloak /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user admin --password ci >/dev/null 2>&1; do sleep 5; done' \
+            || ! kcadm get clients -r detour -q clientId=detour-web --fields clientId,redirectUris \
+              | jq -e 'length == 1 and .[0].redirectUris == ["https://ci.invalid/planner/*"]' ; then
+            docker compose logs keycloak
+            docker compose down -v
+            exit 1
+          fi
           docker compose down -v
