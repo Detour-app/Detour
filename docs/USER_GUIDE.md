@@ -607,9 +607,13 @@ off until you paste a HERE API key into Settings → Navigation → HERE traffic
 it passes **Test key**. From then on Detour asks HERE directly — never through
 your Detour server — so HERE sees your IP address, your key (which ties the
 requests to your HERE account) and the area along the route you are navigating.
-The test itself asks about a fixed spot in Brussels, not where you are. The key
-is kept in the phone's secure storage and is not synced, backed up or exported;
-**Remove key** turns traffic off again.
+The test itself asks about a fixed spot in Brussels, not where you are. Signed
+in, the key is stored on your Detour server, encrypted, and your other phones
+pick it up on their next sync; the server operator can decrypt it. Signing out
+removes the key you saved while signed in from the phone. Signed out, a key
+stays in the phone's secure storage only. It is never backed up or exported.
+**Remove key** turns traffic off again — signed in, on every phone of the
+account.
 
 **Android backup copies your trips to Google Drive.** Detour opts in to
 Android's automatic backup, so if backup is on for your phone, your trips and

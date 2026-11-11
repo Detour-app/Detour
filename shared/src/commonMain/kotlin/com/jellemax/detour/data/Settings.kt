@@ -261,13 +261,11 @@ object Settings {
     val authRiderId: StateFlow<RiderId> = _authRiderId
 
     /** The rider's own HERE API key for live traffic (#637), blank when none.
-     *  In the secure bag with the session, and nowhere else: not synced, not
-     *  in the diagnostics export, never logged. Not cleared on sign-out — it
-     *  belongs to the device's rider, not to a Detour account. A blank key
-     *  means [HereTrafficClient.forKey] gives no client, so nothing about
-     *  traffic runs. */
-    private val _hereTrafficKey = MutableStateFlow("")
-    val hereTrafficKey: StateFlow<String> = _hereTrafficKey
+     *  Signed in, the account's key, synced through `/api/me/here-key`, and
+     *  gone from the phone on sign-out; signed out, a key kept on this phone
+     *  only — see [HereKeySync]. Never in the diagnostics export, never logged.
+     *  Blank means [HereTrafficClient.forKey] gives no client. */
+    val hereTrafficKey: StateFlow<String> get() = HereKeySync.key
 
     /** Rider opted out of the monthly HERE request cap ([TrafficBudget]). */
     private val _trafficOverFreeTier = MutableStateFlow(false)
@@ -570,6 +568,7 @@ object Settings {
         secure.put("access_token_expires_at", expiresAtMs)
         secure.put("auth_username", username)
         secure.put("auth_scope_key", scopeKey)
+        HereKeySync.onSession(refreshToken.isNotBlank())
     }
 
     /** Written once `/me` answers — see [Auth.resolveRiderId]. Not a
@@ -580,12 +579,9 @@ object Settings {
         secure.put("auth_rider_id", id)
     }
 
-    /** Stores [key] trimmed; a blank one removes it rather than storing "". */
-    fun setHereTrafficKey(key: String) {
-        val trimmed = key.trim()
-        _hereTrafficKey.value = trimmed
-        if (trimmed.isEmpty()) secure.remove("here_traffic_key") else secure.put("here_traffic_key", trimmed)
-    }
+    /** Stores [key] trimmed in the live slot (a blank one removes it); signed
+     *  in, marks it for upload by [HereKeySync.reconcile]. */
+    fun setHereTrafficKey(key: String) = HereKeySync.edit(key)
 
     fun setTrafficOverFreeTier(value: Boolean) {
         _trafficOverFreeTier.value = value
@@ -683,7 +679,9 @@ object Settings {
         _cameraWarnLimitUnknown.value = prefs.bool("camera_warn_limit_unknown", false)
         // A Navigation setting (#637) but a credential, so from the secure
         // bag. Here rather than in init(), whose length §8 pins.
-        _hereTrafficKey.value = secure.string("here_traffic_key")
+        HereKeySync.load(secure, _refreshToken.value.isNotBlank()) {
+            runCatching { AccountFiles.hasAccountBucket(fileSystem, appFilesDir()) }.getOrDefault(true)
+        }
         _trafficOverFreeTier.value = prefs.bool("traffic_over_free_tier", false)
         _trafficUsage.value = TrafficBudget.Usage(
             prefs.long("traffic_usage_month", 0L).toInt(),

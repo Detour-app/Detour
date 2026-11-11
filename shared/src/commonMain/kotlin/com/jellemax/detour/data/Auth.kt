@@ -256,7 +256,11 @@ object Auth {
             )
         }
         store(response, establishesSession = true)
+        // After the store, so the slots already read as signed in; before the
+        // reconcile, so a first rider's signed-out key is what it compares (#905).
+        HereKeySync.claimDeviceKey()
         resolveRiderId()
+        HereKeySync.reconcile()
     }
 
     /**
@@ -444,6 +448,8 @@ object Auth {
         // Same write, not a later one: a signed-out install that still answers
         // to a departed rider's id is #73 with a new field to carry it.
         Settings.setRiderId("")
+        // The account's HERE key leaves with the session; a signed-out key stays (#905).
+        HereKeySync.clearAccount()
         // A departed rider's failed resolve must not suppress the next rider's:
         // without this reset, signing in again after a `/me` failure would keep
         // skipping [resolveRiderId] for a session that never actually tried.
