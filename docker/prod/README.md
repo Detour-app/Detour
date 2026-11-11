@@ -212,6 +212,19 @@ has already moved.
 The API applies migrations on startup, so a `pull` that crosses a schema change
 applies it the moment the container comes up. Back up `postgres-data` first.
 
+This release adds a third stateful volume, `api-dataprotection`, mounted on the
+API at `/keys` (see [Backups](#backups)). Update the compose file and the image
+together. A `DETOUR_IMAGE_TAG` pinned to an older build does no harm: that API
+never writes to `/keys`, so the volume stays empty, and the first newer image
+to mount it hands it to the API's user. If `PUT /api/me/here-key` answers 500
+with a permission error in `docker compose logs api` anyway, the volume is not
+writable by that user. Give it back and restart:
+
+```bash
+docker compose run --rm --no-deps --user root --entrypoint chown api -R 1654 /keys
+docker compose restart api
+```
+
 This release moves `keycloak-db` from Postgres 17 to 18. Postgres does not
 upgrade its data directory across a major version in place. Before `pull`ing,
 dump the realm database:
@@ -317,6 +330,15 @@ Two volumes matter and losing either is unrecoverable:
 - `keycloak-db-data` — every account. There is no local registration to fall back
   on, so losing this means nobody can log in, and the rows in `postgres-data`
   belong to subjects that no longer exist.
+
+Back up a third, with the same care as your secrets:
+
+- `api-dataprotection` — the key ring that encrypts riders' stored HERE traffic
+  keys (#802). Losing it is recoverable: a rider whose phone still holds the key
+  uploads it again on the next sync, and one whose phones don't types it again.
+  A `postgres-data` dump alone cannot decrypt those keys. The ring is plain XML
+  with no key encryptor, so anyone who can read this volume can decrypt every
+  stored HERE key: treat it, and any backup of it, as sensitive as the keys.
 
 `keycloak-data`, `redis-data`, `osm-data`, `graphhopper-data` and `photon-data`
 are caches and downloads — safe to drop. GraphHopper and Photon rebuild them on

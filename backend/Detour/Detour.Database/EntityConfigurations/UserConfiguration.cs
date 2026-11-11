@@ -34,6 +34,10 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.CreatedAt);
         builder.Property(u => u.LastSeenAt);
 
+        // Data Protection ciphertext, not the key (#802). Unbounded text: the ciphertext's
+        // length is the format's business, and the plaintext is capped before it is protected.
+        builder.Property(u => u.HereTrafficKeyProtected);
+
         // Flattened into the users table with a stats_ prefix: the friend leaderboard sorts on
         // total distance, and sorting inside a JSON document is not worth the trade.
         builder.OwnsOne(u => u.Stats, stats =>
