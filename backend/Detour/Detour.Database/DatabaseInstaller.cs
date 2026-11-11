@@ -61,6 +61,7 @@ public static class DatabaseInstaller
         services.AddScoped<ISavedRouteRepository, SavedRouteRepository>();
         services.AddScoped<ITripTitleRepository, TripTitleRepository>();
         services.AddScoped<ITripTombstoneRepository, TripTombstoneRepository>();
+        services.AddScoped<IRiderLock, RiderLock>();
         services.AddScoped<IFriendshipRepository, FriendshipRepository>();
         services.AddScoped<ISharedRouteRepository, SharedRouteRepository>();
         services.AddScoped<IPlannedRideRepository, PlannedRideRepository>();
