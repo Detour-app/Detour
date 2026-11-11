@@ -172,4 +172,49 @@ class ConvoyBreakRegroupStateTest {
         assertNull(regroupPinToAnnounce(announced = pin, current = null, selfId = sam))
         assertNull(regroupPinToAnnounce(announced = null, current = pin, selfId = host))
     }
+
+    @Test
+    fun `the break requests there when collection starts stay quiet`() {
+        val announcer = BreakRequestAnnouncer()
+        val (_, old) = request(kim, ageMs = 5_000)
+        assertTrue(announcer.next(mapOf(kim to old), selfId = host).isEmpty())
+        val (_, fresh) = request(sam, ageMs = 0)
+        assertEquals(listOf(sam), announcer.next(mapOf(kim to old, sam to fresh), selfId = host).map { it.riderId })
+        assertTrue(announcer.next(mapOf(kim to old, sam to fresh), selfId = host).isEmpty())
+    }
+
+    @Test
+    fun `your own break request is never announced`() {
+        val announcer = BreakRequestAnnouncer()
+        announcer.next(emptyMap(), selfId = sam)
+        assertTrue(announcer.next(mapOf(request(sam, ageMs = 0)), selfId = sam).isEmpty())
+    }
+
+    @Test
+    fun `the pin there when collection starts stays quiet`() {
+        val announcer = RegroupPinAnnouncer()
+        val pin = RegroupPin(pinAt, "Fuel", setBy = host)
+        assertNull(announcer.next(pin, selfId = sam))
+        assertNull(announcer.next(pin, selfId = sam))
+    }
+
+    @Test
+    fun `a pin replayed after a reconnect stays quiet a moved one is announced`() {
+        val announcer = RegroupPinAnnouncer()
+        val pin = RegroupPin(pinAt, "Fuel", setBy = host)
+        assertNull(announcer.next(null, selfId = sam))
+        assertEquals(pin, announcer.next(pin, selfId = sam))
+        // Reconnect: the relay forgets the pin, then replays it unchanged.
+        assertNull(announcer.next(null, selfId = sam))
+        assertNull(announcer.next(pin, selfId = sam))
+        val moved = pin.copy(location = far)
+        assertEquals(moved, announcer.next(moved, selfId = sam))
+    }
+
+    @Test
+    fun `your own pin is never announced`() {
+        val announcer = RegroupPinAnnouncer()
+        announcer.next(null, selfId = host)
+        assertNull(announcer.next(RegroupPin(pinAt, null, setBy = host), selfId = host))
+    }
 }
