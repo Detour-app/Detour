@@ -290,7 +290,9 @@ struct RouteEditorScreen: View {
             timeMs: timeMs.map { KotlinLong(value: $0) },
             sharedBy: existing?.sharedBy ?? "",
             // Edited stops still came from a spin; see the Android editor.
-            origin: existing?.origin ?? RouteOrigin.planned
+            origin: existing?.origin ?? RouteOrigin.planned,
+            // Kotlin defaults don't reach Swift; RouteStore.save stamps it.
+            editedAtMs: 0
         )
         RouteStore.shared.save(route: route)
         // RoutesScreen observes RouteStore's StateFlow, so it picks this up

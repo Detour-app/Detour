@@ -61,6 +61,40 @@ class RouteSyncMergeTest {
         assertEquals(listOf(2L), merged.map { it.id })
     }
 
+    // --- edit stamps and server tombstones (#910) ----------------------------
+
+    @Test fun aRouteDeletedElsewhereIsDroppedOnceItsServerTombstoneIsStored() {
+        // The server's tombstone goes into the same set as a local delete
+        // (RouteStore.addTombstones), so the filter above is what drops it.
+        val uploaded = listOf(route(1), route(2))
+        val merged = mergeServerRoutes(listOf(route(2)), uploaded, uploaded, setOf(1L))
+        assertEquals(listOf(2L), merged.map { it.id })
+    }
+
+    @Test fun aDeleteElsewhereBeatsAnEditHereDuringTheRoundTrip() {
+        val uploaded = listOf(route(1, "Old"))
+        val local = listOf(route(1, "Edited mid-sync").copy(editedAtMs = 9))
+        val merged = mergeServerRoutes(emptyList(), uploaded, local, setOf(1L))
+        assertEquals(emptyList(), merged)
+    }
+
+    @Test fun aNewerServerStampReplacesAnUnchangedLocalCopy() {
+        // Edited in the web planner: this device uploaded its older copy
+        // unchanged, so the server's newer one is taken.
+        val uploaded = listOf(route(1, "Phone").copy(editedAtMs = 5))
+        val server = listOf(route(1, "Browser").copy(editedAtMs = 8))
+        val merged = mergeServerRoutes(server, uploaded, uploaded, emptySet())
+        assertEquals(listOf(8L), merged.map { it.editedAtMs })
+    }
+
+    @Test fun aRestampedLocalEditMadeDuringTheRoundTripStillWins() {
+        val uploaded = listOf(route(1, "Phone").copy(editedAtMs = 5))
+        val local = listOf(route(1, "Phone again").copy(editedAtMs = 7))
+        val server = listOf(route(1, "Browser").copy(editedAtMs = 6))
+        val merged = mergeServerRoutes(server, uploaded, local, emptySet())
+        assertEquals(listOf("Phone again"), merged.map { it.name })
+    }
+
     @Test fun theResultIsNewestFirst() {
         val server = listOf(route(1, createdMs = 10), route(2, createdMs = 30), route(3, createdMs = 20))
         val merged = mergeServerRoutes(server, emptyList(), emptyList(), emptySet())
