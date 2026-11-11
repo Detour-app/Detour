@@ -60,3 +60,39 @@ Cite the section number in the finding (`§8.4`), so the reader can check the
 rule rather than take the finding on trust. Section numbers are stable across
 files. If the guideline is wrong for the case in front of you, say so and why —
 a documented exception is fine, a silent one is rot.
+
+## Where things live
+
+A map to skip the search step. Kotlin packages are under `com/jellemax/detour/`;
+"app" is `app/src/main/java/…`, "shared" is `shared/src/commonMain/kotlin/…`.
+Which surface new logic belongs to is the `detour-shared-core` skill; which `ui/`
+package a file belongs to is `detour-ui-structure`.
+
+| Area | Where |
+| --- | --- |
+| Domain logic, stores, API/sync clients (KMP) | shared `data/` — `*Store` (trips, traces, circles, convoys, friends, speed cameras…), `Api`, `SyncClient`, `Auth`/`Oidc`, `Routes`/`RoutingClient`/`NavEngine`, `Settings`, `FeatureFlags` |
+| Live-drive logic (KMP) | shared `drive/` — camera warnings, speed limit and section average, convoy gap/relay (`ConvoyRelay`, `RelaySocket`), hard events, stop detection, traffic ETA |
+| Presenters + UI state (KMP) | shared `presentation/` — `<Screen>Presenter` / `<Screen>State` pairs |
+| Shared tests | `shared/src/commonTest/`, `shared/src/androidHostTest/` |
+| Android screens (Compose) | app `ui/` — map screen is `MapScreen` plus its `Map*` files (`MapHud`, `MapCamera`, `MapNavigation`, `MapLibreMap`, …); settings are `Settings*` |
+| Map camera / follow / mode policy | app `map/` (`FollowCamera`, `CameraAuthority`, `NavPolicy`, `ModeSwitch`) |
+| Trip recording, location, geofences | app `tracking/` (`TripTrackingService`, `TripSession`, `TripStartDetector`/`TripEndDetector`, `FusedLocationSource`) |
+| Android Auto | app `car/` (`DetourCarAppService`, `DetourCarSession`, `CarMapRenderer`, `NavScreen`) |
+| Notifications, push, circle sync worker | app `notif/` |
+| In-app APK update | app `update/` |
+| BLE handlebar display, OBD2, audio | app `ble/`, `obd2/`, `audio/` |
+| App entry + Android-only data glue | app root (`DetourApplication`, `MainActivity`), app `data/` |
+| App unit tests | `app/src/test/` |
+| iOS app (SwiftUI) | `iosApp/Detour/` — one `*.swift` per screen/feature, mirroring the Android names |
+| Backend API (.NET) | `backend/Detour/Detour.Api/` (`Controllers/`, `Contracts/`, `Services/`, `Live/` WebSocket, `Notifications/`) |
+| Backend domain + persistence | `backend/Detour/Detour.Domain/`, `Detour.Database/` (`Repositories/`, `EntityConfigurations/`, `Migrations/`) |
+| Backend tests | `backend/Detour/Detour.Domain.Tests/`, `Detour.InfraTests/` |
+| Backend cross-cutting libs | `backend/Shared/` (middlewares, caching, SSE, rate limiting, health checks) |
+| Self-host deploy | `docker/prod/` (compose, `README.md`), dev stack `docker/dev/` |
+| API request collection | `bruno/` |
+| Data importers (cameras, POIs, roads, speed limits, municipalities) | `tools/*-importer/` |
+| GPS replay routes | `tools/mocklocation/` (`detour-gps-replay` skill) |
+| CI | `.github/workflows/` — `build.yml` (Android + release), `version.yml`, `ios.yml`, `backend.yml`, `compose.yml` |
+| System architecture, services | `docs/ARCHITECTURE.md`; backend contract `docs/BACKEND_SPEC.md` |
+| Map-screen refactor specs, divergence register | `docs/refactor/mapscreen/` |
+| Review guidelines | `docs/guidelines/` (routing table above) |

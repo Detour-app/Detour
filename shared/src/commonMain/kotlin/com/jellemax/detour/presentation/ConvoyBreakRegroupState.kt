@@ -130,3 +130,39 @@ fun breakRequestsToAnnounce(
  */
 fun regroupPinToAnnounce(announced: RegroupPin?, current: RegroupPin?, selfId: RiderId): RegroupPin? =
     current?.takeIf { it != announced && it.setBy != selfId }
+
+/**
+ * The break requests to announce as the relay's map changes, with the baseline
+ * every announcing surface needs: the map already there when collection starts
+ * is not announced. One per collector (the car toast, the phone's backgrounded
+ * notifications, #906); feed it every value of the relay's flow in order. Not
+ * thread-safe: one collector owns it.
+ */
+class BreakRequestAnnouncer {
+    private var seen: Map<RiderId, BreakRequest>? = null
+
+    fun next(current: Map<RiderId, BreakRequest>, selfId: RiderId): List<BreakRequest> {
+        val before = seen
+        seen = current
+        return if (before == null) emptyList() else breakRequestsToAnnounce(before, current, selfId)
+    }
+}
+
+/**
+ * The regroup pin to announce as the relay's pin changes, or null. The first
+ * value is the baseline and stays quiet. A null does not reset what was
+ * announced: every reconnect nulls the pin before the relay replays it, and the
+ * replayed pin must stay quiet ([regroupPinToAnnounce]). Same ownership as
+ * [BreakRequestAnnouncer].
+ */
+class RegroupPinAnnouncer {
+    private var baseline = true
+    private var announced: RegroupPin? = null
+
+    fun next(current: RegroupPin?, selfId: RiderId): RegroupPin? {
+        val pin = if (baseline) null else regroupPinToAnnounce(announced, current, selfId)
+        baseline = false
+        if (current != null) announced = current
+        return pin
+    }
+}

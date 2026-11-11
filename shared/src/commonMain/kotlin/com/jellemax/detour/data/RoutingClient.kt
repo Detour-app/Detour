@@ -3,8 +3,10 @@ package com.jellemax.detour.data
 import com.jellemax.detour.data.RoutingServer.routingBase
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -153,7 +155,8 @@ internal data class RouteRequest(val url: String, val body: String?)
  * testable without a MockEngine — the reason [roundTripQuery] is. Any priority
  * rule ([RoutePreferences.rulesFor]) switches to a POST with a custom model,
  * which needs flexible routing — hence `ch.disable`. A [heading] does the
- * same: GraphHopper only honours `heading` outside CH.
+ * same: GraphHopper only honours `heading` outside CH. So does an [avoid]
+ * area: it is a custom model, so it always posts, its priority rule last.
  */
 internal fun routeViaRequest(
     base: String,
@@ -161,9 +164,10 @@ internal fun routeViaRequest(
     profile: String,
     preferences: RoutePreferences,
     heading: HeadingHint?,
+    avoid: PenaltyArea? = null,
 ): RouteRequest {
     val rules = preferences.rulesFor(profile)
-    if (rules.isEmpty()) {
+    if (rules.isEmpty() && avoid == null) {
         val query = buildString {
             append(base)
             append("/route?profile=").append(profile)
@@ -188,9 +192,64 @@ internal fun routeViaRequest(
             putJsonArray("headings") { add(headingDegInt(heading.deg)) }
             put("heading_penalty", heading.penaltySec)
         }
-        putJsonObject("custom_model") { put("priority", rules) }
+        putJsonObject("custom_model") {
+            if (avoid == null) {
+                put("priority", rules)
+            } else {
+                putJsonArray("priority") {
+                    for (rule in rules) add(rule)
+                    addJsonObject {
+                        put("if", "in_${avoid.id}")
+                        put("multiply_by", avoid.multiplyBy)
+                    }
+                }
+                put("areas", penaltyAreaGeoJson(avoid))
+            }
+        }
     }
     return RouteRequest(base + "/route", body.string())
+}
+
+/**
+ * A polygon area an A→B route should keep off, as a priority penalty rather
+ * than an exclusion: the rider's own street, inside it, has to stay routable.
+ * [polygons] are rings of [LatLon] (closed or not; the request closes them),
+ * usually [PenaltyCorridor.polygons]. [id] names the area in the custom model
+ * (`in_<id>`), so it must be a plain identifier: letters, digits, `_`.
+ * [multiplyBy] scales the priority of every road touching the area — GraphHopper
+ * matches whole edges, so a side road joining it is penalised along its length.
+ */
+data class PenaltyArea(val id: String, val polygons: List<List<LatLon>>, val multiplyBy: Double)
+
+/**
+ * [area] as the custom model's `areas`: a GeoJSON `FeatureCollection` with one
+ * `MultiPolygon` feature, `[lon, lat]` order, every ring closed. One feature
+ * rather than a `Polygon` per ring keeps the priority rule a single `in_<id>`;
+ * GraphHopper 12 accepts it (checked against CT 122 for #918).
+ */
+private fun penaltyAreaGeoJson(area: PenaltyArea): JsonObject = buildJsonObject {
+    put("type", "FeatureCollection")
+    putJsonArray("features") {
+        addJsonObject {
+            put("type", "Feature")
+            put("id", area.id)
+            putJsonObject("properties") {}
+            putJsonObject("geometry") {
+                put("type", "MultiPolygon")
+                putJsonArray("coordinates") {
+                    for (ring in area.polygons) {
+                        if (ring.isEmpty()) continue
+                        addJsonArray {
+                            addJsonArray {
+                                val closed = if (ring.first() == ring.last()) ring else ring + ring.first()
+                                for (p in closed) addJsonArray { add(p.lon); add(p.lat) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -312,6 +371,27 @@ object RoutingClient {
     ): RouteResult {
         if (points.size < 2) throw IOException("routeVia needs at least two points")
         val request = routeViaRequest(requireRoutingBase(config), points, profile, preferences, heading)
+        return fetchRoute(request.url, request.body)
+    }
+
+    /**
+     * A route from [from] to [to] that keeps off [avoid] where it can — the
+     * return leg of a turnaround loop (#889), penalising the way out. A new
+     * entry point rather than a parameter on [route]: Swift calls [route] and
+     * [routeVia] with every argument and the ObjC export has no defaults.
+     */
+    @Throws(Exception::class)
+    suspend fun routeAvoiding(
+        config: ServerConfig,
+        from: LatLon,
+        to: LatLon,
+        profile: String,
+        preferences: RoutePreferences,
+        avoid: PenaltyArea,
+    ): RouteResult {
+        val request = routeViaRequest(
+            requireRoutingBase(config), listOf(from, to), profile, preferences, heading = null, avoid = avoid,
+        )
         return fetchRoute(request.url, request.body)
     }
 

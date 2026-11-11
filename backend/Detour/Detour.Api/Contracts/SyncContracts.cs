@@ -58,8 +58,10 @@ public record SyncRequest
     public IReadOnlyList<SavedRoutePayload>? SavedRoutes { get; init; }
 
     /// <summary>
-    /// Route identifiers the device has deleted. Applied after the upserts, like
-    /// <see cref="DeletedSavedPlaceIds"/>, so the merged union stops handing the route back.
+    /// Route identifiers the device has deleted, re-sent on every sync. Applied after the upserts,
+    /// like <see cref="DeletedSavedPlaceIds"/>, and each kept as a tombstone (#909): a route in
+    /// both lists, or uploaded later by a device that still holds it, is not stored again, and the
+    /// tombstone goes back to every device in <see cref="SyncResponse.DeletedSavedRouteIds"/>.
     /// </summary>
     public IReadOnlyList<long>? DeletedSavedRouteIds { get; init; }
 
@@ -117,6 +119,15 @@ public record SavedRoutePayload
 {
     [Required] public long Id { get; init; }
 
+    /// <summary>
+    /// When the route was last edited, Unix milliseconds (#909). Absent from an app that predates
+    /// it, and then read as 0: such an upload replaces only an unstamped copy
+    /// (<see cref="Detour.Domain.Routes.SavedRoute.ReplaceIfNewer"/>). Not written back when
+    /// absent, so an unstamped route's stored document keeps the bytes it was sent with.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? EditedAtMs { get; init; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extra { get; init; }
 }
@@ -143,6 +154,10 @@ public record RiderStatsPayload(
 /// Every ride this rider has deleted on any device (#778). A device drops its copy of each and
 /// stops uploading it; an older client ignores the field, and the server ignores its upload.
 /// </param>
+/// <param name="DeletedSavedRouteIds">
+/// Every saved route this rider has deleted on any device or in the planner (#909), the same
+/// way. An older client ignores the field.
+/// </param>
 public record SyncResponse(
     [Required] IReadOnlyList<JsonElement> Trips,
     [Required] IReadOnlyList<long> DeletedTripStartTimes,
@@ -151,4 +166,5 @@ public record SyncResponse(
     [Required] IReadOnlyList<JsonElement> SavedRoutes,
     [Required] IReadOnlyDictionary<string, long> Badges,
     [Required] IReadOnlyList<TripTitlePayload> TripTitles,
-    [Required] bool ShareFog);
+    [Required] bool ShareFog,
+    [Required] IReadOnlyList<long> DeletedSavedRouteIds);
