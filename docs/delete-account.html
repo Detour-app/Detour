@@ -38,8 +38,9 @@
 (<a href="https://github.com/Detour-app/Detour">Detour-app/Detour</a>). Signing in is optional: an account
 exists only on the sync server you signed in to, which is run by whoever gave
 you its address, not by the developer. Deleting the account removes everything
-that server holds for you: trips, traces, explored area, saved places, saved and
-shared routes, badges, friendships, circle and convoy memberships. It cannot be
+Detour's database on that server holds for you: trips, traces, explored area, saved places, saved and
+shared routes, badges, friendships, circle and convoy memberships. Your sign-in
+is the one exception, see <a href="#kept">What is kept</a>. It cannot be
 undone.</p>
 
 <h2>In the app</h2>
@@ -60,13 +61,14 @@ erases that account's copies on the phone.</p>
       the server's administrator can give you the exact address. There you can
       see and manage the sign-in Detour uses.</li>
   <li>Ask the administrator of that server to delete your account, from the
-      address you have on that sign-in. They remove every row belonging to it
-      with one request, and remove your sign-in from the account console.</li>
+      address you have on that sign-in. They can remove every row belonging to it
+      with one request, and can remove your sign-in too, from Keycloak's admin
+      console.</li>
 </ol>
 <p>If you cannot reach the server's administrator, write to
 <a href="mailto:jellemax24@gmail.com">jellemax24@gmail.com</a>.</p>
 
-<h2>What is kept</h2>
+<h2 id="kept">What is kept</h2>
 <ul>
   <li><strong>Your sign-in</strong> (username, email address, password) lives in
       the server's identity provider, not in Detour's database. An in-app delete
@@ -78,7 +80,7 @@ erases that account's copies on the phone.</p>
       <a href="privacy.html#deleting">Deleting your data</a> in the privacy
       policy.</li>
 </ul>
-<p>Nothing is kept on the server after the delete, and no copy goes to the
+<p>Nothing else is kept in Detour's database, and no copy goes to the
 developer.</p>
 
 </body>
