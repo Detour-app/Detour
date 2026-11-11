@@ -140,6 +140,24 @@ can remove the sign-in. Best effort: an unreachable or failing webhook is
 logged, never a failed delete. Until the realm user is removed, signing in again
 starts a new, empty account.
 
+A signed-in rider's HERE traffic key (issue #802) is stored on their account,
+encrypted with the server's Data Protection key ring (purpose
+`Detour.HereTrafficKey.v1`). The operator holding the ring can decrypt it; a
+database dump without the ring cannot. It is never part of the profile, the
+sync payload, a log line or an administrator view, and it goes with the account
+when the account is deleted.
+
+- `GET /api/me/here-key` — `200 {"key":"…"}`, or `204` when none is stored. A
+  stored key that no longer decrypts (ring lost or replaced) answers
+  `200 {"key":null,"unreadable":true}` and stays stored until the next `PUT` or
+  `DELETE` overwrites it; a phone still holding the key puts it back.
+- `PUT /api/me/here-key` `{"key":"…"}` — `204`. Trimmed, then 1 to 256
+  characters, else `400`.
+- `DELETE /api/me/here-key` — `204`, whether or not a key was stored.
+
+A server older than this answers `404`; a client treats that as "this server
+does not sync keys" and keeps the key on the phone.
+
 ## 5. Device synchronisation
 
 One capability performs a **bidirectional merge** of everything the device
