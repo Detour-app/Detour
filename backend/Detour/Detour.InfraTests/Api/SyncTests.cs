@@ -254,6 +254,113 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_newer_route_edit_replaces_the_stored_copy()
+    {
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { StampedRoute(20, "Planner", 5_000) } });
+
+        var merged = await Sync(client, new { savedRoutes = new[] { StampedRoute(20, "Phone", 6_000) } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].GetProperty("name").GetString().Should().Be("Phone");
+        merged.SavedRoutes[0].GetProperty("editedAtMs").GetInt64().Should().Be(6_000);
+    }
+
+    [Fact]
+    public async Task An_older_route_edit_is_ignored()
+    {
+        // #909: the planner edited the route; a phone that never saw that edit re-uploads its copy.
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { StampedRoute(21, "Planner edit", 6_000) } });
+
+        var merged = await Sync(client, new { savedRoutes = new[] { StampedRoute(21, "Stale phone copy", 5_000) } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].GetProperty("name").GetString().Should().Be("Planner edit");
+    }
+
+    [Fact]
+    public async Task An_unstamped_route_cannot_replace_a_stamped_one()
+    {
+        // An app from before #910 sends no stamp at all.
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { StampedRoute(22, "Planner edit", 6_000) } });
+
+        var merged = await Sync(client, new { savedRoutes = new[] { Route(22, "Old app copy") } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].GetProperty("name").GetString().Should().Be("Planner edit");
+    }
+
+    [Fact]
+    public async Task Equal_route_stamps_keep_last_upload_wins()
+    {
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { StampedRoute(23, "First", 6_000) } });
+
+        var merged = await Sync(client, new { savedRoutes = new[] { StampedRoute(23, "Second", 6_000) } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].GetProperty("name").GetString().Should().Be("Second");
+    }
+
+    [Fact]
+    public async Task An_unstamped_route_is_stored_without_a_stamp_field()
+    {
+        // Absent stays absent: the stored document is the one the app sent, not one with a null added.
+        var client = NewRider();
+
+        var merged = await Sync(client, new { savedRoutes = new[] { Route(24, "Old app") } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].TryGetProperty("editedAtMs", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_deleted_route_re_uploaded_by_another_device_stays_gone_and_is_listed()
+    {
+        var deviceA = NewRider();
+        await Sync(deviceA, new { savedRoutes = new[] { Route(25, "Keep"), Route(26, "Drop") } });
+
+        var afterDelete = await Sync(deviceA, new { deletedSavedRouteIds = new[] { 26L } });
+        afterDelete.DeletedSavedRouteIds.Should().Equal(26L);
+
+        // The second device still holds both and uploads them, newer stamp and all.
+        var deviceB = await Sync(deviceA, new
+        {
+            savedRoutes = new[] { Route(25, "Keep"), StampedRoute(26, "Drop", 9_000) },
+        });
+
+        deviceB.SavedRoutes.Select(r => r.GetProperty("id").GetInt64()).Should().Equal(25L);
+        deviceB.DeletedSavedRouteIds.Should().Equal(26L);
+    }
+
+    [Fact]
+    public async Task Resending_the_same_deleted_route_id_is_harmless()
+    {
+        // Phones resend all of deleted_routes.json on every sync.
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { Route(27, "Drop") } });
+
+        await Sync(client, new { deletedSavedRouteIds = new[] { 27L } });
+        var again = await Sync(client, new { deletedSavedRouteIds = new[] { 27L, 27L } });
+
+        again.SavedRoutes.Should().BeEmpty();
+        again.DeletedSavedRouteIds.Should().Equal(27L);
+    }
+
+    [Fact]
+    public async Task Route_tombstones_are_never_returned_to_another_rider()
+    {
+        var owner = NewRider();
+        await Sync(owner, new { deletedSavedRouteIds = new[] { 28L } });
+
+        var other = await Sync(NewRider(), new { });
+
+        other.DeletedSavedRouteIds.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_route_without_an_id_fails_the_sync()
     {
         var client = NewRider();
@@ -873,6 +980,20 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
         timeMs = 3_600_000L,
     };
 
+    /// <summary>The same route as <see cref="Route"/>, carrying the edit stamp an app from #910 on writes.</summary>
+    private static object StampedRoute(long id, string name, long editedAtMs) => new
+    {
+        id,
+        name,
+        createdMs = 1_700_000_000_000L,
+        mode = "MOTO",
+        stops = new[] { new { lat = 50.8, lon = 3.2, name = "Home" }, new { lat = 50.9, lon = 3.3, name = "Work" } },
+        polyline = new[] { 50.8, 3.2, 50.9, 3.3 },
+        distanceMeters = 15_234.5,
+        timeMs = 3_600_000L,
+        editedAtMs,
+    };
+
     private static string Line(long startMs) =>
         $"[[51.05,3.72,{startMs},50.0,12.5],[51.06,3.73,{startMs + 1000},55.0,18.0]]";
 
@@ -913,7 +1034,8 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
         IReadOnlyList<JsonElement> SavedRoutes,
         IReadOnlyDictionary<string, long> Badges,
         IReadOnlyList<SyncedTitle> TripTitles,
-        bool ShareFog);
+        bool ShareFog,
+        IReadOnlyList<long> DeletedSavedRouteIds);
 
     private sealed record SyncedTitle(long StartTimeMs, string Title, long EditedAtMs);
 }

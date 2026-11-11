@@ -33,6 +33,7 @@ public class SyncService(
     IRiderLock riderLock,
     ISavedPlaceRepository savedPlaces,
     ISavedRouteRepository savedRoutes,
+    ISavedRouteTombstoneRepository savedRouteTombstones,
     IBadgeAwardRepository badges,
     ITripTitleRepository tripTitles,
     ILogger<SyncService> logger) : ISyncService
@@ -372,24 +373,43 @@ public class SyncService(
         SyncRequest request,
         CancellationToken cancellationToken)
     {
-        await UpsertSavedRoutesAsync(userId, request.SavedRoutes, cancellationToken);
+        // A route deleted anywhere — on another device, in the planner, or in this very request —
+        // is never taken back from an upload; the uploading device hears of the deletion in the
+        // response instead (#909), as for rides (#778).
+        var tombstoned = (await savedRouteTombstones.GetIdsForUserAsync(userId, cancellationToken)).ToHashSet();
+        var deleted = (request.DeletedSavedRouteIds ?? [])
+            .Where(id => id != 0)
+            .Distinct()
+            .ToArray();
 
-        // After the upserts, as for saved places: a route saved and deleted between two syncs is
-        // sent in both lists and has to end up gone.
-        var deleted = request.DeletedSavedRouteIds ?? [];
-        if (deleted.Count > 0)
+        var incoming = (request.SavedRoutes ?? [])
+            .Where(r => !tombstoned.Contains(r.Id) && !deleted.Contains(r.Id))
+            .ToList();
+        await UpsertSavedRoutesAsync(userId, incoming, cancellationToken);
+
+        if (deleted.Length == 0)
+            return;
+
+        // Phones resend all of deleted_routes.json on every sync, so most of these are already
+        // buried: delete is a no-op for them, and only the new ones get a tombstone.
+        await savedRoutes.FlushChangesAsync(cancellationToken);
+        await savedRoutes.DeleteByClientIdsAsync(userId, deleted, cancellationToken);
+        foreach (var id in deleted.Where(id => !tombstoned.Contains(id)))
         {
-            await savedRoutes.FlushChangesAsync(cancellationToken);
-            await savedRoutes.DeleteByClientIdsAsync(userId, [.. deleted.Distinct()], cancellationToken);
+            var (result, tombstone) = SavedRouteTombstone.Create(userId, id);
+            if (result.IsFailure)
+                continue; // filtered above; a zero id has no route to bury
+
+            await savedRouteTombstones.SaveAsync(tombstone, cancellationToken);
         }
     }
 
     private async Task UpsertSavedRoutesAsync(
         Guid userId,
-        IReadOnlyList<SavedRoutePayload>? incoming,
+        IReadOnlyList<SavedRoutePayload> incoming,
         CancellationToken cancellationToken)
     {
-        if (incoming is not { Count: > 0 })
+        if (incoming.Count == 0)
             return;
 
         var ids = incoming.Select(r => r.Id).Distinct().ToArray();
@@ -399,15 +419,16 @@ public class SyncService(
         foreach (var payload in incoming)
         {
             var document = JsonSerializer.Serialize(payload, PayloadOptions);
+            var editedAtMs = payload.EditedAtMs ?? 0;
 
-            // Last upload wins, as for saved places: a route carries no edit stamp to compare.
+            // Newest edit wins, so a phone that never saw a planner edit cannot revert it (#909).
             if (existing.TryGetValue(payload.Id, out var stored))
             {
-                stored.Replace(document);
+                stored.ReplaceIfNewer(document, editedAtMs);
                 continue;
             }
 
-            var (result, route) = SavedRoute.Create(userId, payload.Id, document);
+            var (result, route) = SavedRoute.Create(userId, payload.Id, document, editedAtMs);
             if (result.IsFailure)
                 continue;
 
@@ -493,6 +514,7 @@ public class SyncService(
         var storedTraces = await traces.GetForUserAsync(user.Id, cancellationToken);
         var storedPlaces = await savedPlaces.GetForUserAsync(user.Id, cancellationToken);
         var storedRoutes = await savedRoutes.GetForUserAsync(user.Id, cancellationToken);
+        var storedRouteTombstones = await savedRouteTombstones.GetIdsForUserAsync(user.Id, cancellationToken);
         var storedBadges = await badges.GetForUserAsync(user.Id, cancellationToken);
         var storedTitles = await tripTitles.GetForUserAsync(user.Id, cancellationToken);
 
@@ -504,7 +526,8 @@ public class SyncService(
             [.. storedRoutes.Select(r => JsonSerializer.Deserialize<JsonElement>(r.Payload))],
             storedBadges.ToDictionary(b => b.BadgeId, b => b.EarnedAtMs),
             [.. storedTitles.Select(t => new TripTitlePayload(t.TripStartTimeMs, t.Title, t.EditedAtMs))],
-            user.ShareFog);
+            user.ShareFog,
+            storedRouteTombstones);
     }
 
     private static RiderStats ToDomain(RiderStatsPayload payload) => RiderStats.Sanitize(
