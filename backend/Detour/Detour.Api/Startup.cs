@@ -7,6 +7,7 @@ using Detour.Api.Services;
 using Detour.Api.Translations;
 using Detour.Database;
 using Detour.Domain;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
@@ -66,6 +67,13 @@ public class Startup(IConfiguration configuration)
 
         services.AddScoped<ICurrentUser, CurrentUser>();
         services.AddDetourServices();
+
+        // Encrypts the rider's stored HERE key (#802). A fixed application name, so the ring
+        // still opens after the content root or the container image changes; a path, so it
+        // survives a container recreate (docker/prod mounts a volume there).
+        var dataProtection = services.AddDataProtection().SetApplicationName("Detour");
+        if (!string.IsNullOrWhiteSpace(MappedConfiguration.DataProtection.KeysPath))
+            dataProtection.PersistKeysToFileSystem(new DirectoryInfo(MappedConfiguration.DataProtection.KeysPath));
 
         services.AddCaching(new CacheConfiguration
         {

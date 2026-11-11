@@ -1,3 +1,4 @@
+using JV.ResultUtilities;
 using Detour.Domain.Routes;
 
 namespace Detour.Domain.Tests;
@@ -77,5 +78,65 @@ public class SavedRouteTests
     {
         Assert.True(SavedRouteTombstone.Create(Guid.NewGuid(), 0).IsFailure);
         Assert.False(SavedRouteTombstone.Create(Guid.NewGuid(), 7).IsFailure);
+    }
+
+    // --- planner edits (#912) --------------------------------------------------------------
+
+    private static Result Edit(
+        long documentId = 7,
+        long editedAtMs = 5_000,
+        int stopCount = 2,
+        string? mode = "MOTO",
+        string payload = "{\"id\":7}") =>
+        SavedRoute.ValidateEdit(7, documentId, editedAtMs, stopCount, mode, payload);
+
+    [Fact]
+    public void A_complete_planner_edit_passes()
+    {
+        Assert.False(Edit().IsFailure);
+    }
+
+    [Fact]
+    public void A_mode_the_app_does_not_know_still_passes()
+    {
+        // The app reads it as a car, and a later app may add the mode.
+        Assert.False(Edit(mode: "HOVERCRAFT").IsFailure);
+    }
+
+    [Fact]
+    public void A_document_whose_id_differs_from_the_path_is_refused()
+    {
+        Assert.True(Edit(documentId: 8).HasError(ValidationKeys.SavedRoute.IdMismatch));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void A_planner_edit_needs_a_stamp(long editedAtMs)
+    {
+        Assert.True(Edit(editedAtMs: editedAtMs).HasError(ValidationKeys.SavedRoute.EditStampRequired));
+    }
+
+    [Fact]
+    public void A_route_with_one_stop_is_refused()
+    {
+        Assert.True(Edit(stopCount: 1).HasError(ValidationKeys.SavedRoute.NotEnoughStops));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void A_route_without_a_mode_is_refused(string? mode)
+    {
+        Assert.True(Edit(mode: mode).HasError(ValidationKeys.SavedRoute.ModeRequired));
+    }
+
+    [Fact]
+    public void An_oversized_route_is_refused()
+    {
+        var payload = new string('x', DetourLimits.MaxRoutePayloadBytes + 1);
+
+        Assert.True(Edit(payload: payload).HasError(ValidationKeys.SavedRoute.PayloadTooLarge));
     }
 }

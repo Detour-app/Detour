@@ -42,10 +42,14 @@ services:
       Idp__Authority: http://localhost:7580/realms/detour
       Idp__RequireHttpsMetadata: "false"
       Cache__RedisConnectionString: ""
+      # Same key ring volume as docker/prod (#802), so a stored HERE key survives
+      # `up -d --force-recreate api`.
+      DataProtection__KeysPath: /keys
       TZ: ${TZ:-Europe/Brussels}
     volumes:
       # Importer JSON, read by `dotnet Detour.Api.dll import-*` via `compose exec`.
       - ${RIG_DATA}/import:/import:ro
+      - api-dataprotection:/keys
     depends_on:
       db:
         condition: service_healthy
@@ -63,3 +67,8 @@ services:
       timeout: 10s
       retries: 10
       start_period: 60s
+
+volumes:
+  # The API's Data Protection key ring (#802); named, not under RIG_DATA, so it
+  # lives with the rig project's other volumes and goes with `down -v`.
+  api-dataprotection:
