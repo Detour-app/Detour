@@ -17,6 +17,8 @@ import com.jellemax.detour.MainActivity
 import com.jellemax.detour.R
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.ConvoysStore
+import com.jellemax.detour.data.FeatureFlags
+import com.jellemax.detour.data.Flag
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.BreakRequest
@@ -48,6 +50,9 @@ internal fun convoyRiderHandle(riderId: RiderId): String {
  * collection starts, and a pin replayed after a reconnect, are not announced. The announced state follows
  * every event, foreground or not; only posting waits for the app to be in the
  * background, so something already seen as a pill is not announced later.
+ *
+ * Posting is behind [Flag.CONVOY_ALERTS], off by default. The announcers run
+ * either way, so switching the flag on mid-ride doesn't announce the backlog.
  */
 internal object ConvoyAlertNotifications {
 
@@ -97,6 +102,8 @@ internal object ConvoyAlertNotifications {
 
     private fun post(context: Context, id: Int, text: String) {
         if (inForeground()) return
+        // Collectors run on Dispatchers.Default, so isOn's one cache read per session is off main.
+        if (!FeatureFlags.isOn(Flag.CONVOY_ALERTS)) return
         // Skip silently without the permission; asked for where circles ask.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=

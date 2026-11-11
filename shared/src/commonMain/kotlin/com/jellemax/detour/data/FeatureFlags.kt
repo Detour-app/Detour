@@ -29,7 +29,11 @@ object Flag {
      *  been on for everyone. */
     val CONVOY_JOIN_LINK = FlagDef("convoy-join-link", false)
 
-    val all: List<FlagDef> = listOf(SELFTEST, CONVOY_JOIN_LINK)
+    /** Break requests and regroup pins as phone notifications while the app is backgrounded
+     *  (#906). Off until a two-rider check passes; remove once it has been on for everyone. */
+    val CONVOY_ALERTS = FlagDef("convoy-alerts", false)
+
+    val all: List<FlagDef> = listOf(SELFTEST, CONVOY_JOIN_LINK, CONVOY_ALERTS)
 }
 
 /** Where a [FlagReading]'s value came from. */

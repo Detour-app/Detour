@@ -351,7 +351,8 @@ phone** (#906). `ConvoyLiveService` keeps the socket open while a convoy is
 joined, so the frames arrive anyway and the service posts them on its own
 `convoy_alerts` channel. No push is involved. They are not posted while the
 app is on screen, where the pills already show them, and leaving the convoy
-takes them down.
+takes them down. Posting is behind the `convoy-alerts` flag (default off) until
+it has been ridden with two riders.
 
 ### 6.4 Voice
 
