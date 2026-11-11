@@ -18,10 +18,11 @@
 #   1. Nothing has a default password. Every secret uses ${VAR:?...}, so compose
 #      refuses to start rather than quietly running with a credential that is
 #      published in this repository.
-#   2. Keycloak runs `start`, not `start-dev`, and imports no realm. The dev realm
-#      ships a known user with a known password and a client that accepts any
+#   2. Keycloak runs `start`, not `start-dev`, and never imports the dev realm. That
+#      one ships a known user with a known password and a client that accepts any
 #      localhost redirect — importing it here would be a back door, not a
-#      convenience. See README.md for the realm you do have to create.
+#      convenience. The idp overlay imports config/keycloak/prod-realm.json instead:
+#      no users, fixed redirects. See README.md "The realm".
 #   3. Ports bind to 127.0.0.1. Put a reverse proxy with TLS in front; the realm
 #      issues tokens against one fixed issuer URL and that URL should be https.
 #

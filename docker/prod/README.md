@@ -31,8 +31,8 @@ docker compose -f docker/dev/docker-compose.yml up -d
 ```
 
 **Anywhere real** — no default passwords anywhere; compose refuses to start until
-every secret is set, and no realm is imported, because the dev realm ships a user
-whose password is in this repository. `.env` carries a `COMPOSE_FILE` line that
+every secret is set, and the realm it imports ships no users (the dev realm ships
+one whose password is in this repository). `.env` carries a `COMPOSE_FILE` line that
 picks which layers run (API only, `+idp`, `+routing`, `+search`); every command
 after that needs no `-f` flags:
 
@@ -166,34 +166,64 @@ permanently, because changing it invalidates every token and every stored
 redirect URI. The app talks to GraphHopper and Photon directly, so those need to
 be reachable too — the `proxy` / `cloudflare` layers do that.
 
-## The realm is not created for you
+## The realm
 
-`docker/dev` imports a realm on first start. This does not, and the difference is
-deliberate: that realm ships a user with a published password and a client that
-accepts any `localhost` redirect. Importing it here would be a back door.
+With `+idp`, Keycloak imports `config/keycloak/prod-realm.json` on its first start
+and creates the `detour` realm from it. There is nothing to click through. The
+realm has:
 
-After the stack is up, at `https://idp.example.com/admin`:
+- realm roles `detour-user` (every new account gets it) and `detour-admin`. Only
+  `detour-admin` gates anything, the administration endpoints.
+- `detour-api`, the audience the API validates. It has no flows and is never
+  signed into.
+- `detour-app`, the phone's client. Public with PKCE `S256`, no direct access
+  grants, redirect `detour://auth/callback`.
+- `detour-web`, the web planner's client at `https://<DETOUR_HOSTNAME>/planner`.
+  Public with PKCE `S256`, no refresh tokens. Keycloak fills its redirect from
+  `DETOUR_HOSTNAME` in `.env` when it imports the file.
+- the username rule the backend enforces: 3–24 letters, digits, dots, dashes or
+  underscores.
+- the group realm's security settings, not Keycloak's defaults: 90-day sessions,
+  so the app doesn't sign riders out after 30 minutes idle; brute-force lockout;
+  a password policy; and riders may rename themselves. The reasons are in
+  [REALM.md](../../docker/dev/config/keycloak/REALM.md).
+- no users, and self-registration off. Create accounts in the admin console, or use
+  `./detour invite` on a kit install.
 
-1. Create a realm — `detour` unless you change `IDP_ISSUER` to match.
-2. Add realm roles `detour-user` and `detour-admin`. Only `detour-admin` gates
-   anything (the administration endpoints); an ordinary rider needs no role.
-3. Create client `detour-api`. Confidential, no flows enabled — it exists only as
-   the audience the API validates.
-4. Create client `detour-app`. **Public**, standard flow on, direct access grants
-   **off**, PKCE `S256`. Redirect URI `detour://auth/callback`.
-5. Set the username policy to match what the backend enforces, or riders will
-   register handles the API then rejects.
-6. `editUsernameAllowed` is Keycloak's default (off) and there is no longer a reason here to
-   keep it that way: relationships key on the account id, so a rename changes the label
-   riders see and nothing else. Turn it on if you want riders renaming themselves. Note that
-   handles remain unique per realm, so a rename into a handle someone else holds is refused.
-7. Create your own administrator, and keep `KC_ADMIN_*` in `.env`: Compose won't start
-   without them, and `./detour` signs in with them on a kit install. Keep the bootstrap
-   admin *user* in the `master` realm too, even when Keycloak's console suggests deleting
-   it: `./detour` signs in as that user, and every command fails once it is gone.
+It is not `docker/dev`'s realm. That one ships a user with a published password
+and a client that accepts any `localhost` redirect.
 
-`docker/dev/config/keycloak/detour-realm.json` is a useful shape to copy from.
-Copy the clients and roles; never the users.
+Keycloak skips the import when a `detour` realm already exists, so a restart, an
+upgrade or an edit to the file changes nothing on a running server. Change a live
+realm in the admin console. With `+group`, `group-realm.json` is imported instead.
+
+**A server set up before the planner** has a realm without `detour-web`. Set
+`DETOUR_HOSTNAME` in `.env`, then run this once from `docker/prod/`:
+
+```bash
+./detour add-planner
+```
+
+It adds the client, or points an existing one at `DETOUR_HOSTNAME` again, and
+touches nothing else. It signs in with `KC_ADMIN_*`. If Keycloak refuses them, for
+example because the bootstrap admin was deleted, it makes a temporary
+administrator with Keycloak's `bootstrap-admin` command in a second container,
+uses it, and deletes it. That takes about a minute and does not stop Keycloak.
+
+**Your own identity provider** (no `+idp`): create the same roles and clients
+there by hand. `prod-realm.json` is the shape to copy.
+
+Keep `KC_ADMIN_*` in `.env`, and keep the bootstrap admin *user* in the `master`
+realm, even when Keycloak's console suggests deleting it. Compose won't start
+without the variables, and `./detour` signs in as that user.
+
+Known gaps:
+
+- A blank `DETOUR_HOSTNAME` (no `+caddy`, no kit) imports `detour-web` with an
+  unusable redirect. Set it, then run `./detour add-planner`.
+- A server whose realm has another name (with `IDP_ISSUER` to match) gets an unused
+  `detour` realm imported next to it. It holds no users. Delete it in the admin
+  console if it bothers you.
 
 ## Upgrading
 
@@ -233,8 +263,8 @@ docker compose up -d keycloak-db
 docker compose exec -T keycloak-db psql -U keycloak keycloak < kc.sql
 ```
 
-Or accept a fresh realm database and recreate the realm — see "The realm is not
-created for you" above.
+Or accept a fresh realm database: the next start imports the realm again, with no
+accounts (see "The realm" above).
 
 ### Rebuilding the routing graph
 

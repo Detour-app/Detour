@@ -1,5 +1,6 @@
 #!/bin/sh
-# POSIX-sh check for the invite-only group realm (#856). Needs jq.
+# POSIX-sh check for the invite-only group realm (#856), and its web planner
+# client (#911). Needs jq.
 #
 # The realm must ship no users and no self-registration, and the group overlay
 # must mount it as <realm>-realm.json: Keycloak 26.7 refuses to start ("File
@@ -11,10 +12,13 @@ REALM_FILE="$HERE/../config/keycloak/group-realm.json"
 OVERLAY="$HERE/../docker-compose.group.yml"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
+# shellcheck source=docker/prod/scripts/realm-web-client.sh
+. "$HERE/realm-web-client.sh"
 
 jq -e 'has("users") | not' "$REALM_FILE" >/dev/null || fail "realm file ships users"
 jq -e '.registrationAllowed == false' "$REALM_FILE" >/dev/null || fail "self-registration is on"
 jq -e '.editUsernameAllowed == true' "$REALM_FILE" >/dev/null || fail "riders cannot pick their username"
+check_web_client "$REALM_FILE"
 
 REALM="$(jq -r '.realm' "$REALM_FILE")"
 grep -q "group-realm.json:/opt/keycloak/data/import/$REALM-realm.json:ro" "$OVERLAY" \

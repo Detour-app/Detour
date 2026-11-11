@@ -29,6 +29,11 @@ services:
       - 127.0.0.1:${KC_PORT:-7580}:8080
     volumes:
       - keycloak-data:/opt/keycloak/data
+      # The prod realm, imported on first start (see config/keycloak/prod-realm.json
+      # and README "The realm"). Keycloak skips an import whose realm already
+      # exists, so an established server is untouched. The group overlay mounts its
+      # own realm on the same target, which replaces this one.
+      - ./config/keycloak/prod-realm.json:/opt/keycloak/data/import/detour-realm.json:ro
     environment:
       KC_LOG_LEVEL: ${KC_LOG_LEVEL:-info}
       # Keycloak only uses these to create the first admin, but keep them in .env:
@@ -57,13 +62,19 @@ services:
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
+      # Filled into the realm file's ${DETOUR_HOSTNAME} placeholders on import: the
+      # web planner's redirect and origin. Blank (no caddy layer, no kit) leaves the
+      # planner's client with an unusable redirect until it is set and
+      # `./detour add-planner` is run.
+      DETOUR_HOSTNAME: ${DETOUR_HOSTNAME:-}
       TZ: ${TZ:-Europe/Brussels}
     # `start`, not `start --optimized`: the stock quay.io image ships no prior
     # `kc.sh build`, and `--optimized` hard-fails ("don't use this flag for the
     # first startup") on a fresh volume. Plain `start` runs a short build against
     # the current env (KC_DB=postgres etc.) on boot, then serves. To skip that
     # ~15s step, bake your own image with `kc.sh build` and re-add --optimized.
-    command: start
+    # --import-realm reads data/import/ and creates any realm that is missing.
+    command: start --import-realm
     depends_on:
       keycloak-db:
         condition: service_healthy

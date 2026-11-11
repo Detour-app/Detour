@@ -15,13 +15,22 @@ cp "$HERE/../config/regions.env" "$KIT/config/"
 LOG="$WORK/docker.log"
 
 # Logs each call. `get users` answers from STUB_LOOKUP (one user) or from the files
-# STUB_PAGES/<offset> (the listing); anything matching STUB_FAIL exits 1.
+# STUB_PAGES/<offset> (the listing), `get clients` from STUB_CLIENT; anything
+# matching STUB_FAIL exits 1. STUB_REFUSE_ADMIN=1 makes Keycloak refuse the
+# KC_ADMIN_* login as it does once that admin is deleted.
 cat > "$WORK/bin/docker" <<'STUB'
 #!/bin/sh
 echo "$*" >> "$STUB_LOG"
+if [ -n "${STUB_REFUSE_ADMIN:-}" ]; then
+    case "$*" in
+        *KC_BOOTSTRAP_ADMIN_PASSWORD*) echo "Invalid user credentials [invalid_grant]" >&2; exit 1 ;;
+    esac
+fi
 case "$*" in
     *"${STUB_FAIL:-no-failure-set}"*) echo "stub: refused" >&2; exit 1 ;;
     *"get users"*"exact=true"*) printf '%s\n' "${STUB_LOOKUP:-}" ;;
+    *"get clients"*) printf '%s\n' "${STUB_CLIENT:-}" ;;
+    *"create clients"*"-f -"*) cat > "$STUB_CREATED" ;;
     *"get users"*)
         offset="$(printf '%s\n' "$*" | sed -n 's/.* -o \([0-9]*\) .*/\1/p')"
         cat "$STUB_PAGES/$offset" 2>/dev/null || true ;;
@@ -32,8 +41,9 @@ chmod +x "$WORK/bin/docker"
 PATH="$WORK/bin:$PATH"
 STUB_LOG="$LOG"
 STUB_PAGES="$WORK/pages"
+STUB_CREATED="$WORK/created.json"
 mkdir -p "$STUB_PAGES"
-export PATH STUB_LOG STUB_PAGES
+export PATH STUB_LOG STUB_PAGES STUB_CREATED
 
 CLI="$KIT/detour"
 ENV="$KIT/.env"
@@ -302,5 +312,67 @@ for c in disable enable delete reset; do
     expect_refused "$c" nobody
     expect_no_call 'users/'
 done
+
+# --- add-planner: creates detour-web for DETOUR_HOSTNAME, or repoints it.
+HOST="$(key DETOUR_HOSTNAME)"
+STUB_CLIENT=''
+export STUB_CLIENT
+: > "$LOG"
+OUT="$(sh "$CLI" add-planner)"
+expect_call 'get clients -r detour -q clientId=detour-web'
+expect_call 'create clients -r detour -f -'
+expect_no_call 'update clients'
+expect_no_call 'bootstrap-admin'
+echo "$OUT" | grep -q "Added the planner's client for https://$HOST/planner" || fail "add-planner create: $OUT"
+
+STUB_CLIENT='client-1'
+: > "$LOG"
+sh "$CLI" add-planner >/dev/null
+expect_call "update clients/client-1 -r detour -s redirectUris=\[\"https://$HOST/planner/\*\"\] -s webOrigins=\[\"https://$HOST\"\]"
+expect_call "attributes.\"post.logout.redirect.uris\"=https://$HOST/planner/"
+expect_no_call 'create clients'
+expect_refused add-planner extra
+
+# The JSON it creates is the client the realm files ship.
+# shellcheck disable=SC2016
+SHIPPED="$(jq -S --arg h "$HOST" '.clients[] | select(.clientId == "detour-web")
+    | walk(if type == "string" then gsub("\\$\\{DETOUR_HOSTNAME\\}"; $h) else . end)' \
+    "$HERE/../config/keycloak/prod-realm.json")"
+[ "$SHIPPED" = "$(jq -S . "$STUB_CREATED")" ] || fail "add-planner's client differs from prod-realm.json's"
+
+# Without DETOUR_HOSTNAME there is no redirect to give it.
+SAVED_ENV="$(cat "$ENV")"
+sed -i.bak '/^DETOUR_HOSTNAME=/d' "$ENV" && rm -f "$ENV.bak"
+expect_refused add-planner
+expect_no_docker "add-planner without DETOUR_HOSTNAME"
+printf '%s\n' "$SAVED_ENV" > "$ENV"
+
+# KC_ADMIN_* refused: a temporary admin from bootstrap-admin, then deleted.
+STUB_REFUSE_ADMIN=1
+STUB_LOOKUP='temp-id'
+export STUB_REFUSE_ADMIN STUB_LOOKUP
+: > "$LOG"
+OUT="$(sh "$CLI" add-planner)"
+expect_call 'run --rm --no-deps -T -e KC_CLI_PASSWORD keycloak bootstrap-admin user --username detour-add-planner-[0-9a-f]\{6\} --password:env KC_CLI_PASSWORD'
+expect_call 'exec -T -e KC_CLI_PASSWORD keycloak sh -c'
+expect_call 'update clients/client-1 -r detour'
+expect_call 'delete users/temp-id -r master'
+expect_no_call 'KC_CLI_PASSWORD=[0-9a-f]'   # the temporary password is on no command line
+echo "$OUT" | grep -q 'Deleted the temporary administrator detour-add-planner-' || fail "temp admin not reported: $OUT"
+# ...deleted after the update, as the last call.
+[ "$(tail -n 1 "$LOG")" = "$(grep 'delete users/temp-id -r master' "$LOG")" ] || fail "temp admin not deleted last: $(cat "$LOG")"
+
+# A failure after it exists still deletes it.
+: > "$LOG"
+if STUB_FAIL='update clients' sh "$CLI" add-planner >/dev/null 2>&1; then fail "add-planner hid a failed update"; fi
+expect_call 'delete users/temp-id -r master'
+
+# A login that fails for another reason (stack down) makes no admin.
+STUB_REFUSE_ADMIN=''
+: > "$LOG"
+if STUB_FAIL='config credentials' sh "$CLI" add-planner >/dev/null 2>&1; then fail "add-planner hid a failed login"; fi
+expect_no_call 'bootstrap-admin'
+STUB_LOOKUP=''
+STUB_CLIENT=''
 
 echo "PASS"

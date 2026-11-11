@@ -1,0 +1,149 @@
+{
+  "realm": "detour",
+  "enabled": true,
+  "displayName": "Detour",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "verifyEmail": false,
+  "editUsernameAllowed": true,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 10,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 7776000,
+  "ssoSessionMaxLifespan": 7776000,
+  "offlineSessionIdleTimeout": 7776000,
+  "refreshTokenMaxReuse": 0,
+  "revokeRefreshToken": true,
+  "actionTokenGeneratedByUserLifespan": 3600,
+  "passwordPolicy": "length(8) and notUsername and passwordHistory(3)",
+  "roles": {
+    "realm": [
+      {
+        "name": "detour-user",
+        "description": "An ordinary rider. Everything the app does maps to this.",
+        "composite": false
+      },
+      {
+        "name": "detour-admin",
+        "description": "May manage accounts. Cannot read anyone's rides — enforced by the API having no such endpoint.",
+        "composite": false
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-detour",
+    "description": "Roles every new account gets",
+    "composite": true,
+    "clientRole": false,
+    "composites": {
+      "realm": [
+        "offline_access",
+        "uma_authorization",
+        "detour-user"
+      ]
+    }
+  },
+  "clients": [
+    {
+      "clientId": "detour-app",
+      "name": "Detour mobile app",
+      "description": "The native client. Public with PKCE.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "detour://auth/callback"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "detour://auth/signout"
+      },
+      "protocolMappers": [
+        {
+          "name": "detour-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "detour-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "detour-web",
+      "name": "Detour web planner",
+      "description": "The browser planner at /planner. Public with PKCE, no refresh tokens.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://${DETOUR_HOSTNAME}/planner/*"
+      ],
+      "webOrigins": [
+        "https://${DETOUR_HOSTNAME}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://${DETOUR_HOSTNAME}/planner/",
+        "use.refresh.tokens": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "detour-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "detour-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "detour-api",
+      "name": "Detour backend",
+      "description": "The audience the API validates. Never logged into.",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"validations\":{\"length\":{\"min\":3,\"max\":24},\"pattern\":{\"pattern\":\"^[A-Za-z0-9_.-]+$\",\"error-message\":\"Use letters, digits, dots, dashes or underscores only.\"},\"up-username-not-idn-homograph\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"${email}\",\"validations\":{\"email\":{},\"length\":{\"max\":255}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false}],\"groups\":[{\"name\":\"user-metadata\",\"displayHeader\":\"User metadata\",\"displayDescription\":\"Attributes, which refer to user metadata\"}]}"
+          ]
+        }
+      }
+    ]
+  }
+}
