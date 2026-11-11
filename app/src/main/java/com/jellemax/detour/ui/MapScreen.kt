@@ -132,6 +132,8 @@ import com.jellemax.detour.tracking.MapSurface
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.tracking.hasLocationPermission
+import com.jellemax.detour.ui.map.DimMapWhenIdle
+import com.jellemax.detour.ui.map.MapIdleDimmer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

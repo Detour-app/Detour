@@ -2683,7 +2683,7 @@ starting navigation brings full brightness back. Settings → Map → "Dim the m
 
 **Copies.** The rule is not duplicated: `mapScreenDimmed` and both constants are in
 `shared/…/presentation/MapScreenDim.kt`, and the setting is in `shared/…/data/Settings.kt`.
-Android applies it in `app/…/ui/MapIdleDimmer.kt`. iOS sets no `isIdleTimerDisabled`, so its map
+Android applies it in `app/…/ui/map/MapIdleDimmer.kt`. iOS sets no `isIdleTimerDisabled`, so its map
 lets the system auto-lock apply and there is nothing to dim yet.
 
 **Verdict: survive — and iOS follows once it holds the screen on.** Not a product question: an
@@ -2695,7 +2695,7 @@ iOS map that disables the idle timer should call `mapScreenDimmed` and dim with
 ```sh
 # Entry 36 — idle dim. A changed count means iOS gained the dim or Android lost it.
 check 'Android calls mapScreenDimmed' 2 \
-    "$(grep -c 'mapScreenDimmed(' app/src/main/java/com/jellemax/detour/ui/MapIdleDimmer.kt)"
+    "$(grep -c 'mapScreenDimmed(' app/src/main/java/com/jellemax/detour/ui/map/MapIdleDimmer.kt)"
 check 'iOS does not call mapScreenDimmed yet' 0 \
     "$(grep -rc 'mapScreenDimmed' iosApp/Detour | awk -F: '{s+=$2} END {print s+0}')"
 ```

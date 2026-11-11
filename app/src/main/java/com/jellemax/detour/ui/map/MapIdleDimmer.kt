@@ -1,33 +1,24 @@
-package com.jellemax.detour.ui
+package com.jellemax.detour.ui.map
 
 import android.os.SystemClock
 import android.view.Window
 import android.view.WindowManager
 import androidx.activity.compose.LocalActivity
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.currentStateAsState
-import com.jellemax.detour.R
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.presentation.MAP_DIM_AFTER_MS
 import com.jellemax.detour.presentation.MAP_DIM_BRIGHTNESS
 import com.jellemax.detour.presentation.mapScreenDimmed
+import com.jellemax.detour.ui.MapScreenState
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -107,25 +98,4 @@ internal fun DimMapWhenIdle(dimmer: MapIdleDimmer, s: MapScreenState) {
 
 private fun Window.setBrightness(value: Float) {
     attributes = attributes.apply { screenBrightness = value }
-}
-
-/** The Settings → Map row for [Settings.dimMapWhenIdle]. */
-@Composable
-internal fun DimMapWhenIdleRow() {
-    val on by Settings.dimMapWhenIdle.collectAsStateWithLifecycle()
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(stringResource(R.string.settings_dim_map_idle), style = MaterialTheme.typography.bodyLarge)
-            Text(
-                stringResource(R.string.settings_dim_map_idle_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = on, onCheckedChange = { Settings.setDimMapWhenIdle(it) })
-    }
 }

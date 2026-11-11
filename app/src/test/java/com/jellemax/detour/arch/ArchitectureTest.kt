@@ -120,14 +120,14 @@ class ArchitectureTest {
             // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
             // +3: #647 convoy gap voice and banner (both in MapConvoyGap.kt)
             // +1: #590 FollowedRoute import (the claim is on the existing recordTrip line)
-            // +2: #902 the idle dim's touch holder and its call (both in MapIdleDimmer.kt)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1460,
+            // +4: #902 the idle dim's touch holder, its call and their two imports (both in ui/map/MapIdleDimmer.kt)
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1462,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             // +7: #823 problem-report spoke's title, dispatch and the onNavigate the Diagnostics row needs
             // (the screen is ui/settings/ProblemReportScreen.kt)
-            // +1: #902 dim-when-idle row (body in MapIdleDimmer.kt)
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1286,
+            // +2: #902 dim-when-idle row and its import (body in ui/settings/DimMapWhenIdleRow.kt)
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1287,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             // +10: #653 traffic layers held and refilled on a replacement surface, as cameras are
