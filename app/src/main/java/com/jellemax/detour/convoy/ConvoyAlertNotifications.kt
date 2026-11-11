@@ -22,8 +22,9 @@ import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.BreakRequest
 import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.net.ConvoyLiveClient
-import com.jellemax.detour.presentation.breakRequestsToAnnounce
-import com.jellemax.detour.presentation.regroupPinToAnnounce
+import com.jellemax.detour.notif.PendingMapOpen
+import com.jellemax.detour.presentation.BreakRequestAnnouncer
+import com.jellemax.detour.presentation.RegroupPinAnnouncer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
@@ -42,9 +43,9 @@ internal fun convoyRiderHandle(riderId: RiderId): String {
  * is in the background (#906). No push: [ConvoyLiveService] keeps the relay
  * socket open, so the events arrive here anyway.
  *
- * Which events count is shared ([breakRequestsToAnnounce], [regroupPinToAnnounce]),
- * with the car toast's baseline: what is there when collection starts, and a
- * pin replayed after a reconnect, are not announced. The announced state follows
+ * Which events count, baseline included, is shared with the car toast
+ * ([BreakRequestAnnouncer], [RegroupPinAnnouncer]): what is there when
+ * collection starts, and a pin replayed after a reconnect, are not announced. The announced state follows
  * every event, foreground or not; only posting waits for the app to be in the
  * background, so something already seen as a pill is not announced later.
  */
@@ -63,24 +64,15 @@ internal object ConvoyAlertNotifications {
         val app = context.applicationContext
         ensureChannel(app)
         scope.launch {
-            var announced: Map<RiderId, BreakRequest>? = null
+            val breaks = BreakRequestAnnouncer()
             ConvoyLiveClient.breakRequests.collect { current ->
-                val seen = announced
-                announced = current
-                if (seen == null) return@collect
-                breakRequestsToAnnounce(seen, current, Account.riderId.value).forEach { postBreak(app, it) }
+                breaks.next(current, Account.riderId.value).forEach { postBreak(app, it) }
             }
         }
         scope.launch {
-            var baseline = true
-            var announcedPin: RegroupPin? = null
+            val pins = RegroupPinAnnouncer()
             ConvoyLiveClient.regroupPin.collect { current ->
-                val pin = if (baseline) null else regroupPinToAnnounce(announcedPin, current, Account.riderId.value)
-                baseline = false
-                // Not cleared on null: every reconnect nulls the pin before the
-                // relay replays it, and the replay must stay quiet.
-                if (current != null) announcedPin = current
-                pin?.let { postRegroup(app, it) }
+                pins.next(current, Account.riderId.value)?.let { postRegroup(app, it) }
             }
         }
     }
@@ -115,7 +107,8 @@ internal object ConvoyAlertNotifications {
         val open = PendingIntent.getActivity(
             context, id,
             Intent(context, MainActivity::class.java)
-                .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(PendingMapOpen.EXTRA_OPEN_MAP, true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
