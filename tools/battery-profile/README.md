@@ -107,8 +107,9 @@ Per row it force-stops the Detour variants not under test, checks with `pidof` t
 Detour process runs before and after the window (and that it didn't restart), unplugs the
 battery in batterystats for the window (a `trap` runs `dumpsys battery reset` on any exit), and
 prints one table at the end. `navigated` pushes a GPX of its window to
-`/sdcard/Download/battery-profile-navigated.gpx` (standstill thinned to one point, since
-`RouteGpx` thins by index and 439 identical points would stack via stops there) and waits for
+`/sdcard/Download/battery-profile-navigated.gpx` (thinned to one point per 25 m, about 44 in
+all: the standstill is ~215 distinct fixes jittering within 12 m, and `RouteGpx` thins by
+index, so keeping them would stack via stops there) and waits for
 you to import it in Routes and start navigating.
 
 Output: `build/battery-profile/<timestamp>/` (`--out` to choose), `summary.tsv` plus every raw

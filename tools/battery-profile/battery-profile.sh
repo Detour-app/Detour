@@ -133,17 +133,27 @@ if [ "$SECONDS_PER_ROW" -gt 360 ] && [[ ",$ROWS," == *,still,* ]]; then
     die "--seconds above 360 runs the still row past the end of the standstill"
 fi
 
-# The GPX for the navigated row: the same window, with the standstill thinned to one point.
-# RouteGpx thins by index, so 439 identical points would become a stack of via stops there.
+# The GPX for the navigated row: the same window, thinned by distance. The standstill is not
+# one repeated point but ~215 distinct jittering fixes within 12 m, and RouteGpx thins by index,
+# so dropping only exact duplicates would still leave a cluster of via stops there. Keeping a
+# point only once it is MIN_GAP_M from the last kept one collapses the standstill to one point.
 write_navigated_gpx() {
     make_navigated | python3 -I -c '
-import sys
-pts = [l.split()[:2] for l in sys.stdin if len(l.split()) >= 2]
-out, last = [], None
-for lon, lat in pts:
-    if (lon, lat) != last:
-        out.append((lon, lat))
-    last = (lon, lat)
+import math, sys
+MIN_GAP_M = 25.0
+def dist(a, b):
+    (lon1, lat1), (lon2, lat2) = a, b
+    k = math.pi / 180
+    x = (lon2 - lon1) * k * math.cos((lat1 + lat2) / 2 * k)
+    y = (lat2 - lat1) * k
+    return 6371000 * math.hypot(x, y)
+pts = [tuple(map(float, l.split()[:2])) for l in sys.stdin if len(l.split()) >= 2]
+out = pts[:1]
+for p in pts[1:]:
+    if dist(out[-1], p) >= MIN_GAP_M:
+        out.append(p)
+if pts and out[-1] != pts[-1]:
+    out.append(pts[-1])
 print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
 print("<gpx version=\"1.1\" creator=\"battery-profile.sh\" xmlns=\"http://www.topografix.com/GPX/1/1\">")
 print("<trk><name>battery-profile navigated</name><trkseg>")
@@ -159,7 +169,7 @@ run_row() {
     pkg="$(pkg_for "$row")"
     lead="$(lead_in_for "$row")"
     installed "$pkg" || die "$row: $pkg is not installed; see README.md"
-    if [ "$pkg" = "$RELEASE" ] && sh_ dumpsys package "$pkg" | grep -q 'flags=\[.*DEBUGGABLE'; then
+    if [ "$pkg" = "$RELEASE" ] && sh_ dumpsys package "$pkg" | grep 'flags=\[.*DEBUGGABLE' >/dev/null; then
         die "$row: $pkg is debuggable; profile the minified release build"
     fi
     echo
