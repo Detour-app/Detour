@@ -1212,8 +1212,8 @@ private fun LeanCalibrationSection() {
                 override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
             }
             sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
-            delay(2000)
-            sensorManager.unregisterListener(listener)
+            // finally: leaving Settings cancels the effect at the delay (#897).
+            try { delay(2000) } finally { sensorManager.unregisterListener(listener) }
             status = if (samples.isNotEmpty()) {
                 val avg = samples.average()
                 Settings.setLeanOffsetDeg(avg.toFloat())

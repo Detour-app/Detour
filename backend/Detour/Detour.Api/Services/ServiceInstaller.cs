@@ -5,6 +5,9 @@ public static class ServiceInstaller
     public static IServiceCollection AddDetourServices(this IServiceCollection services)
     {
         services.AddScoped<ISyncService, SyncService>();
+        services.AddScoped<IDeletedRideTraceRemover, DeletedRideTraceRemover>();
+        services.AddSingleton<DeletedRideTraceSweep>();
+        services.AddHostedService<DeletedRideTraceSweepWorker>();
         services.AddScoped<IFriendshipService, FriendshipService>();
         services.AddScoped<IRouteSharingService, RouteSharingService>();
         services.AddScoped<IPlannedRideService, PlannedRideService>();

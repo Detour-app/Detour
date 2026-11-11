@@ -187,4 +187,92 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
         Assert.Single(found);
         Assert.Equal(0, found[0].Sources[0].MissedRuns);
     }
+
+    [Fact]
+    public async Task UpsertAsync_of_a_section_whose_geometry_moved_past_the_cluster_radius_updates_its_own_row()
+    {
+        // Issue #894: the re-imported polyline's bbox centre is ~110 m from the old one, so
+        // proximity alone found nothing and a second Active row was created next to the stale one.
+        var repo = new CameraRepository(Factory);
+        const string source = "upsert-test-moved-section";
+        var first = Camera.CreateSection(CameraKind.Section, [(51.6000, 3.6000), (51.6100, 3.6000)], 70, "N31",
+            new CameraSource(source, "w1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        await repo.UpsertAsync(first, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        var moved = Camera.CreateSection(CameraKind.Section, [(51.6010, 3.6000), (51.6110, 3.6000)], 70, "N31",
+            new CameraSource(source, "w1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        var stored = await repo.UpsertAsync(moved, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        Assert.Equal(first.Id, stored.Id);
+        var rows = (await repo.GetAllNonTrackingAsync(CancellationToken.None))
+            .Where(c => c.Sources.Any(s => s.Source == source)).ToList();
+        var row = Assert.Single(rows);
+        Assert.Equal(51.6010, row.BboxMinLat); // the new polyline, not the stale one at 51.6000
+        Assert.Equal(51.6110, row.BboxMaxLat);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_of_a_point_camera_that_moved_past_the_cluster_radius_updates_its_own_row()
+    {
+        var repo = new CameraRepository(Factory);
+        const string source = "upsert-test-moved-point";
+        var first = Camera.CreatePoint(CameraKind.FixedSpeed, 51.7000, 3.7000, 50, "N9",
+            new CameraSource(source, "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        await repo.UpsertAsync(first, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        // ~110 m north: outside the 40 m radius.
+        var moved = Camera.CreatePoint(CameraKind.FixedSpeed, 51.7010, 3.7000, 50, "N9",
+            new CameraSource(source, "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        var stored = await repo.UpsertAsync(moved, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        Assert.Equal(first.Id, stored.Id);
+        var rows = (await repo.GetAllNonTrackingAsync(CancellationToken.None))
+            .Where(c => c.Sources.Any(s => s.Source == source)).ToList();
+        var row = Assert.Single(rows);
+        Assert.Equal(51.7010, row.Lat);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_matches_its_own_row_added_earlier_in_the_same_run()
+    {
+        // CameraImport flushes once at the end (#367): the source-id match must see Set.Local too.
+        var repo = new CameraRepository(Factory);
+        const string source = "upsert-test-moved-unflushed";
+        var first = Camera.CreatePoint(CameraKind.FixedSpeed, 51.7200, 3.7200, 50, "N9",
+            new CameraSource(source, "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        await repo.UpsertAsync(first, CancellationToken.None);
+        var moved = Camera.CreatePoint(CameraKind.FixedSpeed, 51.7210, 3.7200, 50, "N9",
+            new CameraSource(source, "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        var stored = await repo.UpsertAsync(moved, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        Assert.Equal(first.Id, stored.Id);
+        var rows = (await repo.GetAllNonTrackingAsync(CancellationToken.None))
+            .Where(c => c.Sources.Any(s => s.Source == source)).ToList();
+        Assert.Single(rows);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_still_clusters_a_second_source_onto_the_same_physical_camera()
+    {
+        var repo = new CameraRepository(Factory);
+        var osm = Camera.CreatePoint(CameraKind.FixedSpeed, 51.7400, 3.7400, 50, "N9",
+            new CameraSource("upsert-test-cross-a", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        await repo.UpsertAsync(osm, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        // ~12 m away, another source with its own id: no source-id match, so proximity decides.
+        var lufop = Camera.CreatePoint(CameraKind.FixedSpeed, 51.74011, 3.7400, 50, "N9",
+            new CameraSource("upsert-test-cross-b", "L7", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        var stored = await repo.UpsertAsync(lufop, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        Assert.Equal(osm.Id, stored.Id);
+        var found = Assert.Single(await repo.BboxAsync(51.73, 3.73, 51.75, 3.75, CancellationToken.None));
+        Assert.Equal(2, found.Sources.Count);
+    }
 }

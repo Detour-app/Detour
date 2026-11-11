@@ -21,6 +21,17 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
 
     public async Task<Camera> UpsertAsync(Camera incoming, CancellationToken cancellationToken)
     {
+        // The row this source already calls by this id wins over proximity: a source whose
+        // geometry for one object moves more than ClusterRadiusMeters (a section's bbox centre
+        // after a polyline fix) would otherwise get a second row, and the old one would never
+        // retire because its SourceId is still seen every run (issue #894).
+        var own = await FindBySourceIdAsync(incoming, cancellationToken);
+        if (own is not null)
+        {
+            own.MergeSource(incoming);
+            return own;
+        }
+
         // Retired cameras stay in the candidate set (not just Active) so a source that stops
         // reporting and later comes back finds its old row via Cluster/MergeSource instead of
         // creating a duplicate that orphans the retired row's Sources/AttributionJson history.
@@ -54,6 +65,33 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
 
         match.MergeSource(incoming);
         return match;
+    }
+
+    /// <summary>The row already carrying <paramref name="incoming"/>'s (Source, SourceId), Active or
+    /// Retired, among kinds it may merge with. Active first, then the most recently seen, so a
+    /// stale duplicate left by an import before #894 doesn't win over the live row.</summary>
+    private async Task<Camera?> FindBySourceIdAsync(Camera incoming, CancellationToken cancellationToken)
+    {
+        var key = incoming.Sources[0];
+        var compatibleKinds = Camera.MergeCompatibleKinds(incoming.Kind);
+        bool Carries(Camera c) =>
+            compatibleKinds.Contains(c.Kind) && c.Sources.Any(s => s.Source == key.Source && s.SourceId == key.SourceId);
+
+        // jsonb containment: an array element with both keys. Property names are the record's,
+        // as System.Text.Json writes them by default (see Camera.SourcesJson).
+        var probe = System.Text.Json.JsonSerializer.Serialize(new[] { new { key.Source, key.SourceId } });
+        var dbMatches = await Set
+            .TagWith(Tag(nameof(FindBySourceIdAsync)))
+            .Where(c => compatibleKinds.Contains(c.Kind))
+            .Where(c => EF.Functions.JsonContains(c.SourcesJson, probe))
+            .ToListAsync(cancellationToken);
+
+        // Set.Local for a row added earlier in this import run and not flushed yet (see #367).
+        return dbMatches.Where(Carries)
+            .UnionBy(Set.Local.Where(Carries), c => c.Id)
+            .OrderBy(c => c.Status == CameraStatus.Active ? 0 : 1)
+            .ThenByDescending(c => c.LastSeen)
+            .FirstOrDefault();
     }
 
     // ponytail: loads every active camera into memory to find which ones carry `source`, since

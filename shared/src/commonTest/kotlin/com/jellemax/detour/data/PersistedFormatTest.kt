@@ -304,6 +304,27 @@ class PersistedFormatTest {
         assertEquals(jsonObjectOf(routeV2), spinRoute.toJson())
     }
 
+    // V3 (#910): a saved or renamed route carries "editedAtMs". An unstamped
+    // route (0, every route from before) omits the key, so V1 and V2 above
+    // keep their bytes and read as 0.
+    private val stampedRoute = route.copy(editedAtMs = 1_726_300_000_000L)
+    private val routeV3 = """
+        {"id":7,"name":"Ardennes loop","createdMs":1726000000000,"mode":"MOTO",
+         "stops":[{"lat":50.85,"lon":4.35,"name":"Start"},{"lat":50.25,"lon":5.7}],
+         "polyline":[50.85,4.35,50.5,5.0,50.25,5.7],
+         "distanceMeters":152300.0,"timeMs":7200000,"sharedBy":"rider2","editedAtMs":1726300000000}
+    """
+
+    @Test
+    fun routeV3Reads() {
+        assertEquals(stampedRoute, routeFromJson(jsonObjectOf(routeV3)))
+    }
+
+    @Test
+    fun routeWriterMatchesV3() {
+        assertEquals(jsonObjectOf(routeV3), stampedRoute.toJson())
+    }
+
     @Test
     fun routeOriginNamesArePinned() {
         assertEquals(listOf("PLANNED", "SPIN"), RouteOrigin.entries.map { it.name })
