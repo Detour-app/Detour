@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.fadeIn
@@ -271,6 +272,30 @@ private fun KeepScreenOn() {
     }
 }
 
+/**
+ * Asks the system to run the window at [hz] for as long as the caller is
+ * composed (#901). The map follows the rider with MapLibre and four
+ * `withFrameNanos` loops that otherwise run at the panel's rate - 120 Hz on a
+ * high-refresh phone - for eases that look the same at 60. Scoped to the map
+ * entry like [KeepScreenOn], so History, Settings and the rest keep the panel
+ * rate, and the previous preference comes back on dispose. A request, not a
+ * cap: the system may still pick another rate, and a 60 Hz panel sees no change.
+ */
+@Composable
+private fun PreferRefreshRate(hz: Float) {
+    val window = LocalActivity.current?.window ?: return
+    DisposableEffect(window, hz) {
+        val previous = window.attributes.preferredRefreshRate
+        window.attributes = window.attributes.apply { preferredRefreshRate = hz }
+        onDispose {
+            window.attributes = window.attributes.apply { preferredRefreshRate = previous }
+        }
+    }
+}
+
+/** What the map entry asks for through [PreferRefreshRate] (#892 owner decision 1A). */
+private const val MAP_REFRESH_RATE_HZ = 60f
+
 @Composable
 private fun AppRoot() {
     // Created here, above the navigation swap, so it outlives MapScreen's
@@ -469,6 +494,7 @@ private fun AppRoot() {
             entryProvider = entryProvider {
                 entry<Destination.Map> {
                     KeepScreenOn()
+                    PreferRefreshRate(MAP_REFRESH_RATE_HZ)
                     MapScreen(
                         onOpenHub = { backStack.push(Destination.Hub) },
                         // The home sheet's two cards. Both destinations already
