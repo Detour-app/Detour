@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Detour.Api.Services;
 using Detour.InfraTests.Database;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
@@ -21,7 +22,9 @@ namespace Detour.InfraTests.Api;
 /// role flattening. Only the party holding the signing key changes. A test that stubbed out
 /// authentication instead would prove nothing about the thing most worth proving.
 /// </summary>
-public sealed class DetourApiFactory(PostgresFixture postgres) : WebApplicationFactory<Program>
+public sealed class DetourApiFactory(
+    PostgresFixture postgres,
+    Action<IServiceCollection>? configureServices = null) : WebApplicationFactory<Program>
 {
     // Public so a test can assert that the API advertises exactly what it was
     // configured with, rather than repeating the literal and drifting from it.
@@ -63,6 +66,12 @@ public sealed class DetourApiFactory(PostgresFixture postgres) : WebApplicationF
                 options.TokenValidationParameters.ValidateIssuerSigningKey = true;
             });
 
+            // The deleted-ride sweep's startup pass would race a test seeding unswept tombstones;
+            // DeletedRideTraceSweepTests runs each pass itself instead.
+            var sweepWorker = services.Single(d => d.ImplementationType == typeof(DeletedRideTraceSweepWorker));
+            services.Remove(sweepWorker);
+
+            configureServices?.Invoke(services);
         });
     }
 

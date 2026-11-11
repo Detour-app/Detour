@@ -328,6 +328,33 @@ public class TripTombstoneRepository(ICustomDbContextFactory<DetourDbContext> fa
             .OrderBy(t => t.TripStartTimeMs)
             .Select(t => t.TripStartTimeMs)
             .ToListAsync(cancellationToken);
+
+    public async Task<long?> GetNextStartAsync(Guid userId, long afterMs, CancellationToken cancellationToken)
+    {
+        var starts = await Set.AsNoTracking()
+            .TagWith(Tag(nameof(GetNextStartAsync)))
+            .Where(t => t.UserId == userId && t.TripStartTimeMs > afterMs)
+            .OrderBy(t => t.TripStartTimeMs)
+            .Select(t => t.TripStartTimeMs)
+            .Take(1)
+            .ToListAsync(cancellationToken);
+
+        return starts.Count == 0 ? null : starts[0];
+    }
+
+    public Task<List<Guid>> GetUsersWithUnsweptAsync(CancellationToken cancellationToken) =>
+        Set.AsNoTracking()
+            .TagWith(Tag(nameof(GetUsersWithUnsweptAsync)))
+            .Where(t => t.TraceSweptAt == null)
+            .Select(t => t.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+    public Task<List<TripTombstone>> GetUnsweptForUserAsync(Guid userId, CancellationToken cancellationToken) =>
+        Set.TagWith(Tag(nameof(GetUnsweptForUserAsync)))
+            .Where(t => t.UserId == userId && t.TraceSweptAt == null)
+            .OrderBy(t => t.TripStartTimeMs)
+            .ToListAsync(cancellationToken);
 }
 
 public class TraceTombstoneRepository(ICustomDbContextFactory<DetourDbContext> factory)

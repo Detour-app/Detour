@@ -69,6 +69,7 @@
 
     <!-- convoy/ConvoyLiveService.kt -->
     <string name="convoy_channel">Konvooi</string>
+    <string name="notif_channel_convoy_alerts">Konvooipauze en verzamelen</string>
     <string name="convoy_live_title">Konvooi live</string>
     <string name="convoy_live_text">Locatie wordt gedeeld, luistert naar push-to-talk</string>
     <string name="convoy_stop">Stoppen</string>

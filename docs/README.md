@@ -39,6 +39,7 @@
 | [STORE_LISTING.md](STORE_LISTING.md) | Filling in the Play Console listing and App content answers. |
 | [PLAY_LOCATION_DECLARATION.md](PLAY_LOCATION_DECLARATION.md) | Declaring background location and foreground-service types, and recording the videos Play requires. |
 | [privacy.html](privacy.html) | The published privacy policy. Change it whenever what leaves the device changes. |
+| [delete-account.html](delete-account.html) | The published account-deletion page Play links to. Change it with the Delete account flow or the self-host layout. |
 
 ## Running a server
 

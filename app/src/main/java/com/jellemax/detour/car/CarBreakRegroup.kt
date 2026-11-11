@@ -13,20 +13,17 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.jellemax.detour.R
+import com.jellemax.detour.convoy.convoyRiderHandle
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.RiderId
-import com.jellemax.detour.data.handleFor
-import com.jellemax.detour.drive.BreakRequest
-import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.presentation.BREAK_AGE_TICK_MS
+import com.jellemax.detour.presentation.BreakRequestAnnouncer
 import com.jellemax.detour.presentation.ConvoyBreakRegroupState
 import com.jellemax.detour.presentation.RegroupBanner
-import com.jellemax.detour.presentation.breakRequestsToAnnounce
+import com.jellemax.detour.presentation.RegroupPinAnnouncer
 import com.jellemax.detour.presentation.convoyBreakRegroupStateFrom
-import com.jellemax.detour.presentation.regroupPinToAnnounce
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ui.formatDistanceKm
 import kotlinx.coroutines.delay
@@ -197,24 +194,20 @@ internal object CarBreakRegroup {
     fun announce(owner: LifecycleOwner, carContext: CarContext) {
         owner.lifecycleScope.launch {
             owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                var announced: Map<RiderId, BreakRequest>? = null
+                val breaks = BreakRequestAnnouncer()
                 launch {
                     ConvoyLiveClient.breakRequests.collect { current ->
-                        val seen = announced
-                        announced = current
-                        if (seen == null) return@collect
-                        breakRequestsToAnnounce(seen, current, Account.riderId.value).forEach {
-                            toast(carContext, carContext.getString(R.string.map_break_pill, handle(it.riderId)))
+                        breaks.next(current, Account.riderId.value).forEach {
+                            toast(
+                                carContext,
+                                carContext.getString(R.string.map_break_pill, convoyRiderHandle(it.riderId)),
+                            )
                         }
                     }
                 }
-                var baseline = true
-                var announcedPin: RegroupPin? = null
+                val pins = RegroupPinAnnouncer()
                 ConvoyLiveClient.regroupPin.collect { current ->
-                    val pin = if (baseline) null else regroupPinToAnnounce(announcedPin, current, Account.riderId.value)
-                    baseline = false
-                    if (current != null) announcedPin = current
-                    pin ?: return@collect
+                    val pin = pins.next(current, Account.riderId.value) ?: return@collect
                     toast(
                         carContext,
                         carContext.getString(
@@ -238,12 +231,6 @@ internal object CarBreakRegroup {
     }
 
     private fun ownLocation(): LatLon? = TripTrackingService.lastFix.value?.let { LatLon(it.lat, it.lon) }
-
-    private fun handle(riderId: RiderId): String {
-        val convoyId = ConvoyLiveClient.activeConvoyId.value
-        val convoy = ConvoysStore.state.value.convoys.firstOrNull { it.id == convoyId }
-        return convoy?.members.orEmpty().handleFor(riderId)
-    }
 
     /** Everything [rows], [breakAction] and [routeAction] read, as one string. */
     private fun displayKey(): String {

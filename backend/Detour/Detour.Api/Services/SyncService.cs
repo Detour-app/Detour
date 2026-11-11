@@ -29,6 +29,8 @@ public class SyncService(
     ITraceRepository traces,
     ITraceTombstoneRepository traceTombstones,
     ITrackPointRepository trackPoints,
+    IDeletedRideTraceRemover deletedRideTraces,
+    IRiderLock riderLock,
     ISavedPlaceRepository savedPlaces,
     ISavedRouteRepository savedRoutes,
     ISavedRouteTombstoneRepository savedRouteTombstones,
@@ -49,6 +51,11 @@ public class SyncService(
         var validation = Validate(request);
         if (validation.IsFailure)
             return validation;
+
+        // Before the first read: the deleted-ride sweep (#895) cuts this rider's lines in its own
+        // transaction, and a merge that read the trace tombstones before it committed would
+        // store a cut line again. Held until the request's transaction ends.
+        await riderLock.AcquireAsync(user.Id, cancellationToken);
 
         var rowWindows = await MergeTripsAsync(user.Id, request, cancellationToken);
         await MergeTracesAsync(user.Id, request.Traces, cancellationToken);
@@ -211,9 +218,8 @@ public class SyncService(
     }
 
     /// <summary>
-    /// Takes a deleted ride's location off the server (#780): its samples, and every line with a
-    /// point in its window. A line is a flush of the tracker's buffer rather than a ride, so one
-    /// can straddle the window; the points either side stay, as new lines.
+    /// Takes a deleted ride's location off the server (#780), through
+    /// <see cref="IDeletedRideTraceRemover"/>.
     ///
     /// Runs after <see cref="MergeTracesAsync"/> so this request's own lines are covered too: an
     /// older client deletes a ride without cutting its trace, and uploads the line alongside.
@@ -234,7 +240,7 @@ public class SyncService(
         if (rowWindows.Count == 0 && reportedWindows.Count == 0)
             return;
 
-        // The lookups and bulk deletes below go straight to the database, past anything still pending.
+        // The lookups below go straight to the database, past anything still pending.
         await traces.FlushChangesAsync(cancellationToken);
 
         var windows = rowWindows.ToList();
@@ -244,54 +250,7 @@ public class SyncService(
                 windows.Add(window);
         }
 
-        if (windows.Count == 0)
-            return;
-
-        foreach (var window in windows)
-            await trackPoints.DeleteInWindowAsync(userId, window.FromMs, window.ToMs, cancellationToken);
-
-        var stored = await traces.GetForUserAsync(userId, cancellationToken);
-        var cutHashes = new List<string>();
-        var survivors = new Dictionary<string, string>();
-        foreach (var trace in stored)
-        {
-            if (TraceLineReader.WithoutWindows(trace.Line, windows) is not { } runs)
-                continue;
-
-            cutHashes.Add(trace.LineHash);
-            foreach (var run in runs)
-                survivors[Trace.HashOf(run)] = run;
-        }
-
-        if (cutHashes.Count == 0)
-            return;
-
-        await traces.DeleteByHashesAsync(userId, cutHashes, cancellationToken);
-
-        foreach (var hash in cutHashes)
-        {
-            var (result, tombstone) = TraceTombstone.Create(userId, hash);
-            if (result.IsFailure)
-                continue; // a stored line always has a hash
-
-            await traceTombstones.SaveAsync(tombstone, cancellationToken);
-        }
-
-        // The deleting device's own cut lines arrived in this request, so most survivors are
-        // already held. Their samples are too: they sit outside the window, so none were removed.
-        var held = stored.Select(t => t.LineHash).ToHashSet();
-        var buried = await traceTombstones.GetExistingHashesAsync(userId, survivors.Keys, cancellationToken);
-        foreach (var (hash, run) in survivors)
-        {
-            if (held.Contains(hash) || buried.Contains(hash))
-                continue;
-
-            var (result, trace) = Trace.Create(userId, run);
-            if (result.IsFailure)
-                continue; // a run holds at least two points, so it is never blank
-
-            await traces.SaveAsync(trace, cancellationToken);
-        }
+        await deletedRideTraces.RemoveAsync(userId, windows, cancellationToken);
     }
 
     private async Task MergeTracesAsync(

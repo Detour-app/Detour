@@ -87,7 +87,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "4.10.0"
+        versionName = "4.12.0"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -244,24 +244,23 @@ android {
 dependencies {
     // Roulette/routing/trip logic, shared verbatim with the iOS app in iosApp/.
     implementation(project(":shared"))
-    implementation(platform("androidx.compose:compose-bom:2026.02.00"))
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     // Release notes are GitHub's generated Markdown, rendered in Settings →
-    // "What's new" (#357). Held at 0.35.0 deliberately: 0.46.0 needs compileSdk
-    // 37 (as do Compose BOM 2026.09 and core-ktx 1.19) and renamed the
-    // `linkText` / `inlineCodeText` / `codeText` / `link` colour parameters
-    // ReleaseNotes.kt uses. Raise it together with compileSdk, not before.
+    // "What's new" (#357). 0.46.0 needs compileSdk 37 and dropped the
+    // `linkText` / `inlineCodeText` / `codeText` colours and the `link` style:
+    // ReleaseNotes.kt carries those in `textLink` and the code styles (#765).
     //
     // No `-coil3` artifact and no `imageTransformer` is passed, so a Markdown
     // image cannot be fetched: opening the expander makes no request of its own,
     // to any host a release author chose. That is omission, not a setting to
     // regress — GitHub's generator emits no images, so nothing is lost.
-    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.35.0")
-    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.46.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.46.0")
     implementation("androidx.activity:activity-compose:1.13.0")
-    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     // Custom Tabs, for the sign-in leg. A native app must not put the identity
     // provider's login form in a WebView (RFC 8252): a tab keeps the address bar
     // and the browser's own session, so the user can see who they are typing a
@@ -275,6 +274,8 @@ dependencies {
     implementation("androidx.navigation3:navigation3-ui:1.1.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
+    // ProcessLifecycleOwner: convoy alerts post only while the app is in the background (#906).
+    implementation("androidx.lifecycle:lifecycle-process:2.9.4")
     implementation("org.maplibre.gl:android-sdk-opengl:13.7.1")
     implementation("com.google.android.gms:play-services-location:21.4.0")
     // Android Auto: projects a car-screen "Spin" flow onto the head unit.
@@ -293,19 +294,19 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.
-    implementation("com.squareup.okhttp3:okhttp:5.5.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.1")
 
     // Firebase Cloud Messaging ONLY — the push transport (docs/PUSH.md). No BOM,
     // no other Firebase product (no Firestore/Database/Analytics/Auth): this is
     // the sole com.google.firebase dependency and it pulls in none of those.
-    implementation("com.google.firebase:firebase-messaging:26.0.0")
+    implementation("com.google.firebase:firebase-messaging:26.0.1")
     // :shared's CircleEvents.placeEventFromRelayFrame takes a kotlinx
     // JsonObject, but shared/build.gradle.kts declares kotlinx-serialization
     // as `implementation`, not `api` - Gradle doesn't leak that onto a
     // consumer's compile classpath, so it has to be declared here too,
     // pinned to the same version shared uses to resolve to one identical
     // class rather than risk two.
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     // QR generation only (#762, owner decision): the convoy invite link as a code
     // a rider beside the host can scan. Core alone is pure Java with no camera
     // or scanner; ui/QrCode.kt draws its matrix in Compose, no bitmap.
@@ -318,7 +319,7 @@ dependencies {
     // Content-Range, ETag - and a fake that returns canned bytes would assert
     // the fake rather than the protocol. Same OkHttp version as the
     // implementation dependency above, so one upgrade moves both.
-    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.1")
     // Parses the Kotlin sources of both modules so ArchitectureTest can hold
     // docs/guidelines rules that detekt has no rule for (§4, §5, §8).
     testImplementation("com.lemonappdev:konsist:0.18.1")

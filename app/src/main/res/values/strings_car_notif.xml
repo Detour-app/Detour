@@ -70,6 +70,7 @@
 
     <!-- convoy/ConvoyLiveService.kt -->
     <string name="convoy_channel">Convoy</string>
+    <string name="notif_channel_convoy_alerts">Convoy break and regroup</string>
     <string name="convoy_live_title">Convoy live</string>
     <string name="convoy_live_text">Sharing location, listening for push-to-talk</string>
     <string name="convoy_stop">Stop</string>

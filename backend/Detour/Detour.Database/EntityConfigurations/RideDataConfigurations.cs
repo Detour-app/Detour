@@ -190,6 +190,7 @@ public class TripTombstoneConfiguration : IEntityTypeConfiguration<TripTombstone
 
         builder.Property(t => t.TripStartTimeMs);
         builder.Property(t => t.DeletedAt);
+        builder.Property(t => t.TraceSweptAt);
 
         builder.HasOne<User>()
             .WithMany()
