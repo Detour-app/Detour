@@ -45,7 +45,7 @@ public class CamerasTests(PostgresFixture postgres) : IAsyncLifetime
     {
         // Amsterdam-ish, deliberately clear of the Belgium (50.85/4.36) and Paris (48.85/2.35)
         // boxes CameraRepositoryTests seeds into this same un-truncated live table (#303).
-        await SeedCameraAsync(52.35, 4.87, "n1");
+        await SeedCameraAsync(52.35, 4.87, "api-n1");
 
         var response = await _factory.CreateClient()
             .GetAsync("/api/cameras?minLat=52.30&minLon=4.80&maxLat=52.40&maxLon=4.95");
@@ -98,7 +98,7 @@ public class CamerasTests(PostgresFixture postgres) : IAsyncLifetime
     {
         // Far from the query box below — a different city entirely — so this proves exclusion
         // rather than relying on this class's other test's rows staying out of a wide box.
-        var camera = await SeedCameraAsync(10.00, 10.00, "n2");
+        var camera = await SeedCameraAsync(10.00, 10.00, "api-n2");
 
         var response = await _factory.CreateClient()
             .GetAsync("/api/cameras?minLat=52.30&minLon=4.80&maxLat=52.40&maxLon=4.95");
