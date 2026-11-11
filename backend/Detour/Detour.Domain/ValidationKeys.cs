@@ -32,6 +32,10 @@ public static class ValidationKeys
 
         public static readonly ValidationKeyDefinition EmailInvalid =
             ValidationKeyDefinition.Create($"{Base}.EmailInvalid");
+
+        public static readonly ValidationKeyDefinition HereTrafficKeyInvalid =
+            ValidationKeyDefinition.Create($"{Base}.HereTrafficKeyInvalid")
+                .WithIntParameter("maxLength");
     }
 
     public static class Badge

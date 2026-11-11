@@ -20,6 +20,7 @@ public static class ServiceInstaller
         services.AddHttpClient(AccountDeletionNotifier.HttpClientName, client =>
             client.Timeout = AccountDeletionNotifier.Timeout);
         services.AddSingleton<IAccountDeletionNotifier, AccountDeletionNotifier>();
+        services.AddSingleton<IHereTrafficKeyProtector, HereTrafficKeyProtector>();
 
         return services;
     }
