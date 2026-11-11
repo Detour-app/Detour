@@ -112,4 +112,19 @@ class SyncClientTest {
 
         assertEquals(setOf(3000L), SyncClient.deletedTripStarts(merged))
     }
+
+    // --- deletedSavedRouteIds: routes deleted elsewhere (#910) ---------------
+
+    @Test
+    fun routeTombstonesAreReadFromTheResponse() {
+        val merged = jsonObjectOf("""{"savedRoutes":[],"deletedSavedRouteIds":[26,0,"x",27]}""")
+
+        assertEquals(setOf(26L, 27L), SyncClient.deletedRouteIds(merged))
+    }
+
+    @Test
+    fun aResponseWithoutRouteTombstonesAddsNone() {
+        // A server that predates #909 omits the field.
+        assertEquals(emptySet(), SyncClient.deletedRouteIds(jsonObjectOf("""{"savedRoutes":[]}""")))
+    }
 }
