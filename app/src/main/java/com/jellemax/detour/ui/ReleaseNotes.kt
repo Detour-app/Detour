@@ -46,19 +46,23 @@ fun InstalledNotesDialog(notes: String, onDismiss: () -> Unit) {
 fun ReleaseNotesMarkdown(notes: String, modifier: Modifier = Modifier) {
     Markdown(
         content = notes,
-        // Every slot is set, none defaulted. The library's
-        // defaults are sized for a full-page document —
-        // h1 is displayLarge, and `link` is bodyLarge +
-        // Bold + Underline, which is why an unstyled render
-        // put two wrapped, oversized URLs where the changes
-        // should be. Inside a settings card everything is
-        // one size (bodySmall) and hierarchy comes from
-        // weight and colour instead.
+        // Every slot GitHub's generated notes can reach is
+        // set. The library's defaults are sized for a
+        // full-page document — h1 is displayLarge, and a
+        // link is bodyLarge + Bold + Underline, which is why
+        // an unstyled render put two wrapped, oversized URLs
+        // where the changes should be. Inside a settings
+        // card everything is one size (bodySmall) and
+        // hierarchy comes from weight and colour instead.
+        // Left defaulted: table background, highlight and
+        // GitHub-alert colours, alert titles — the generator
+        // emits none of them.
+        //
+        // Since 0.46 a link's colour lives in `textLink` and
+        // code's in the `code` / `inlineCode` styles; the
+        // colour slots for them are gone.
         colors = markdownColor(
             text = MaterialTheme.colorScheme.onSurfaceVariant,
-            linkText = MaterialTheme.colorScheme.primary,
-            inlineCodeText = MaterialTheme.colorScheme.onSurfaceVariant,
-            codeText = MaterialTheme.colorScheme.onSurfaceVariant,
             inlineCodeBackground = Color.Transparent,
             codeBackground = Color.Transparent,
             dividerColor = MaterialTheme.colorScheme.outlineVariant,
@@ -70,14 +74,15 @@ fun ReleaseNotesMarkdown(notes: String, modifier: Modifier = Modifier) {
             ordered = MaterialTheme.typography.bodySmall,
             bullet = MaterialTheme.typography.bodySmall,
             quote = MaterialTheme.typography.bodySmall,
-            code = MaterialTheme.typography.bodySmall,
-            inlineCode = MaterialTheme.typography.bodySmall,
+            code = MaterialTheme.typography.bodySmall
+                .copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+            inlineCode = MaterialTheme.typography.bodySmall
+                .copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
             table = MaterialTheme.typography.bodySmall,
             // A link is body text in the accent colour, not
             // a headline. No underline: the colour already
             // marks it and an underlined 60-character URL
             // is the thing that made this unreadable.
-            link = MaterialTheme.typography.bodySmall,
             textLink = TextLinkStyles(
                 style = MaterialTheme.typography.bodySmall
                     .copy(color = MaterialTheme.colorScheme.primary)
