@@ -101,6 +101,11 @@ object Settings {
     private val _fogEnabled = MutableStateFlow(true)
     val fogEnabled: StateFlow<Boolean> = _fogEnabled
 
+    /** Dim the map after 30 s without a touch while no route is navigated
+     *  (#902). On by default, the owner's pick on #892. */
+    private val _dimMapWhenIdle = MutableStateFlow(true)
+    val dimMapWhenIdle: StateFlow<Boolean> = _dimMapWhenIdle
+
     /** Baseline map zoom while following/navigating; speed and turn proximity
      *  shift the camera up to two levels either side of it. */
     private val _defaultZoom = MutableStateFlow(DEFAULT_ZOOM_DEFAULT)
@@ -401,6 +406,7 @@ object Settings {
         _shareFog.value = prefs.bool("share_fog", false)
         _perfTracing.value = prefs.bool(PERF_TRACING_KEY, false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
+        _dimMapWhenIdle.value = prefs.bool("dim_map_when_idle", true)
         _fogRadiusMeters.value = prefs.float("fog_radius_m", FOG_RADIUS_DEFAULT)
         _defaultZoom.value = prefs.float("default_zoom", DEFAULT_ZOOM_DEFAULT)
         _geocoderPublicFallback.value = prefs.bool("geocoder_public_fallback", true)
@@ -740,6 +746,11 @@ object Settings {
     fun setFogEnabled(value: Boolean) {
         _fogEnabled.value = value
         prefs.put("fog_enabled", value)
+    }
+
+    fun setDimMapWhenIdle(value: Boolean) {
+        _dimMapWhenIdle.value = value
+        prefs.put("dim_map_when_idle", value)
     }
 
     fun setFogRadiusMeters(value: Float) {

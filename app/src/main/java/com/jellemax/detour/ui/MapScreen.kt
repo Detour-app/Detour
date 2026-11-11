@@ -1153,11 +1153,12 @@ fun MapScreen(
         }
     }
 
+    val idleDimmer = remember { MapIdleDimmer() } // #902: the idle dim's clock, off snapshot state
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { _ ->
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().then(idleDimmer.touchModifier)) {
             // The view is retained, so on a return it is still attached to the
             // parent the previous entry gave it, and addView would throw
             // "The specified child already has a parent".
@@ -1454,5 +1455,6 @@ fun MapScreen(
     // The two dialogs and the state they read live together in MapDialogs.kt;
     // this screen just says when they are up.
     MapScreenDialogs(s = s, permissions = permissions)
+    DimMapWhenIdle(idleDimmer, s)
 
 }
