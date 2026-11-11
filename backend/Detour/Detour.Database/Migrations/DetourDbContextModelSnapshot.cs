@@ -1387,6 +1387,10 @@ namespace Detour.Database.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 
+                    b.Property<DateTimeOffset?>("TraceSweptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("trace_swept_at");
+
                     b.Property<long>("TripStartTimeMs")
                         .HasColumnType("bigint")
                         .HasColumnName("trip_start_time_ms");
