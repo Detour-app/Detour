@@ -306,6 +306,18 @@ public class SavedRouteRepository(ICustomDbContextFactory<DetourDbContext> facto
     }
 }
 
+public class SavedRouteTombstoneRepository(ICustomDbContextFactory<DetourDbContext> factory)
+    : BaseRepository<SavedRouteTombstone, DetourDbContext>(factory), ISavedRouteTombstoneRepository
+{
+    public Task<List<long>> GetIdsForUserAsync(Guid userId, CancellationToken cancellationToken) =>
+        Set.AsNoTracking()
+            .TagWith(Tag(nameof(GetIdsForUserAsync)))
+            .Where(t => t.UserId == userId)
+            .OrderBy(t => t.ClientRouteId)
+            .Select(t => t.ClientRouteId)
+            .ToListAsync(cancellationToken);
+}
+
 public class TripTombstoneRepository(ICustomDbContextFactory<DetourDbContext> factory)
     : BaseRepository<TripTombstone, DetourDbContext>(factory), ITripTombstoneRepository
 {

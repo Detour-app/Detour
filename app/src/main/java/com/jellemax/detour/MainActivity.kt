@@ -71,6 +71,7 @@ import com.jellemax.detour.convoy.PendingConvoyInvite
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.CircleSyncWorker
 import com.jellemax.detour.notif.PendingCircleOpen
+import com.jellemax.detour.notif.PendingMapOpen
 import com.jellemax.detour.notif.PendingRideOpen
 import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PendingUpdateOpen
@@ -119,6 +120,7 @@ class MainActivity : ComponentActivity() {
         PendingTripOpen.take(intent)
         PendingRideOpen.take(intent)
         PendingUpdateOpen.take(intent)
+        PendingMapOpen.take(intent)
         // A fresh launch only: a recreated activity holds the same intent (see take()).
         if (savedInstanceState == null) PendingConvoyInvite.take(intent)
         // The app is open, so an offer to reopen it is stale — whether it was
@@ -182,6 +184,7 @@ class MainActivity : ComponentActivity() {
         PendingTripOpen.take(intent)
         PendingRideOpen.take(intent)
         PendingUpdateOpen.take(intent)
+        PendingMapOpen.take(intent)
         PendingConvoyInvite.take(intent)
     }
 
@@ -425,6 +428,9 @@ private fun AppRoot() {
         // Clearing is what lets a second tap navigate again.
         PendingUpdateOpen.clear()
     }
+
+    // A tapped convoy alert (#906) opens the map, where the pills and banner are.
+    MapOpener(backStack)
 
     // A tapped convoy invite link (#764) opens the join confirm screen.
     ConvoyInviteOpener(backStack)
@@ -674,6 +680,22 @@ private fun NavBackStack<NavKey>.resetTo(entries: List<Destination>) {
     Snapshot.withMutableSnapshot {
         clear()
         addAll(entries)
+    }
+}
+
+/**
+ * Opens the map when a tapped convoy alert (#906) asked [PendingMapOpen] to, whatever screen
+ * the app was left on. Its own composable, as [ConvoyInviteOpener] is, to keep AppRoot under
+ * detekt's complexity limit.
+ */
+@Composable
+private fun MapOpener(backStack: NavBackStack<NavKey>) {
+    val openMap by PendingMapOpen.open.collectAsStateWithLifecycle()
+    LaunchedEffect(openMap) {
+        if (!openMap) return@LaunchedEffect
+        backStack.resetTo(listOf(Destination.Map))
+        // Clearing is what lets a second tap navigate again.
+        PendingMapOpen.clear()
     }
 }
 

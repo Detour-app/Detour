@@ -1,4 +1,5 @@
 using Detour.Domain.Groups;
+using Detour.Domain.Routes;
 using Detour.Domain.Traces;
 using Detour.Domain.Trips;
 using Detour.Domain.Users;
@@ -96,6 +97,8 @@ public class SchemaTests(PostgresFixture fixture)
         db.TripTombstones.Add(tombstone);
         var (_, traceTombstone) = TraceTombstone.Create(user.Id, Trace.HashOf("[[1,2,3]]"));
         db.TraceTombstones.Add(traceTombstone);
+        var (_, routeTombstone) = SavedRouteTombstone.Create(user.Id, 42);
+        db.SavedRouteTombstones.Add(routeTombstone);
         await db.SaveChangesAsync();
 
         db.Users.Remove(user);
@@ -107,6 +110,7 @@ public class SchemaTests(PostgresFixture fixture)
         (await db.TripTitles.AnyAsync(t => t.UserId == user.Id)).Should().BeFalse();
         (await db.TripTombstones.AnyAsync(t => t.UserId == user.Id)).Should().BeFalse();
         (await db.TraceTombstones.AnyAsync(t => t.UserId == user.Id)).Should().BeFalse();
+        (await db.SavedRouteTombstones.AnyAsync(t => t.UserId == user.Id)).Should().BeFalse();
     }
 
     [Fact]
