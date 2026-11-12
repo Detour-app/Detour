@@ -93,4 +93,40 @@ class TraceStoreTest {
 
         assertTrue(after > 0.0 && after < before, "coverage went $before -> $after")
     }
+
+    @Test
+    fun aTornLineIsNotUploaded() {
+        // #942: what a kill mid-append left behind; one of these failed every /sync.
+        val good = line(1, 2)
+        val allNul = "\u0000".repeat(40)
+        val nulThenTail = "\u0000".repeat(20) + "4.1,7,50.0,null]]"
+
+        assertEquals(listOf(good), TraceStore.wellFormed(listOf(allNul, good, nulThenTail)))
+    }
+
+    @Test
+    fun aWholeLineAfterNulPaddingIsRecovered() {
+        val good = line(1, 2)
+
+        assertEquals(listOf(good), TraceStore.wellFormed(listOf("\u0000\u0000" + good)))
+    }
+
+    @Test
+    fun onlyWhatTheServerParsesAsAnArrayIsKept() {
+        // The lenient parser takes `[a]`; the server's System.Text.Json does not.
+        val kept = TraceStore.wellFormed(listOf("[a]", "[[1,b]]", "[01]", "{}", "\"x\"", "[[1,2]", "[1,]", "", "  ", "[]"))
+
+        assertEquals(listOf("[]"), kept)
+
+        val valid = listOf("[[-1.5e3,0,true,false,null,\"s\",{\"k\":2}]]")
+        assertEquals(valid, TraceStore.wellFormed(valid))
+    }
+
+    @Test
+    fun wellFormedLinesPassByteForByte() {
+        // Sync matches lines as strings; a rewritten line would upload as new.
+        val untouched = "[[50.1,4.1,5,12.34,null],[50.2,4.2,6,13.0,null]]"
+
+        assertEquals(listOf(untouched), TraceStore.wellFormed(listOf(untouched)))
+    }
 }
