@@ -28,9 +28,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Where the rider at [pos] is along [route]. A line through planned stops can
- * ride a road twice, so on one the rider is placed forward only, and a stop
- * passed drops off every later reroute (#736); how far off the line they are
+ * Where the rider at [pos] is along [route]. A line through planned stops or
+ * one that ends where it starts can ride a road twice, so on one the rider is
+ * placed forward only, and a stop passed drops off every later reroute (#736,
+ * #921); how far off the line they are
  * stays the global answer. The ride goes to [SpinResultHolder] every fix, so
  * a rotation carries on from it rather than from metre zero.
  */

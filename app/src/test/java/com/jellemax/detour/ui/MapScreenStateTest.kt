@@ -184,4 +184,21 @@ class MapScreenStateTest {
         again.route = null
         assertNull("#889: the ✕, a mode switch or the end of navigation clears it", again.turnaround)
     }
+
+    /** #921: Go on a loop that ends where it starts, with no stops, guided at
+     *  "0 m, arrive" off the global snap's pick of the way back. A closed line
+     *  is placed forward only from its first point instead. */
+    @Test
+    fun aClosedLineWithoutStopsIsFollowedFromItsStart() {
+        val s = MapScreenState(SpinResult(), null)
+        val out = (0..30).map { LatLon(52.0, 5.0 + it * 0.005) }
+        val line = out + out.reversed().drop(1)
+
+        val first = s.followPlanned(line, LatLon(52.0, 5.0))
+        assertNotNull("#921: a closed line is not left to the global snap", first)
+        assertEquals(0.0, first!!.meters, 1.0)
+        val mid = s.followPlanned(line, LatLon(52.0, 5.05))!!
+        assertTrue("still on the way out", mid.meters < first.lineMeters / 2)
+        assertNull("an open line is still placed globally", s.followPlanned(out, LatLon(52.0, 5.05)))
+    }
 }

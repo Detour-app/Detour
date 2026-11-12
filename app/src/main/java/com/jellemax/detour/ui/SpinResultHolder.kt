@@ -40,7 +40,8 @@ internal data class SpinResult(
     val vias: List<LatLon> = emptyList(),
     /**
      * Where the rider is along [route]'s line through [vias], forward only
-     * ([ViaStops.Ride]); null for any other line.
+     * ([ViaStops.Ride]), or along a line that ends where it starts
+     * ([ViaStops.closes], #921); null for any other line.
      *
      * Here for the reason [navigating] is: kept only in the screen's
      * `remember`, a rotation or a return to the map lost it, and the next fix

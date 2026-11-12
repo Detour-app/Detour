@@ -113,7 +113,8 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
 
     /**
      * The rider at [at] moved on along [line], forward only, while [line] is
-     * one fetched through planned stops: drops the [vias] they have passed and
+     * one fetched through planned stops or one that ends where it starts
+     * ([ViaStops.closes], #921): drops the [vias] they have passed and
      * returns where they are on it, for [NavEngine.progressAlong]. Null for
      * any other line, which [NavEngine.progress] places on its own.
      *
@@ -123,7 +124,7 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
      */
     fun followPlanned(line: List<LatLon>, at: LatLon): NavEngine.Along? {
         val ride = viaRide?.takeIf { it.line === line }
-        if (ride == null && vias.isEmpty()) {
+        if (ride == null && vias.isEmpty() && !ViaStops.closes(line)) {
             viaRide = null
             return null
         }
