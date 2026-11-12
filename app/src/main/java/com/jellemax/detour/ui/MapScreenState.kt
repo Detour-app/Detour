@@ -80,7 +80,21 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
      *  [destination] (#736), dropped as [followPlanned] sees them passed. */
     var vias: List<LatLon> by mutableStateOf(seed.vias)
         private set
-    var route: RouteResult? by mutableStateOf(seed.route)
+    private var routeState: RouteResult? by mutableStateOf(seed.route)
+
+    /** Any other route drops [turnaround]: the pin belongs to the loop built
+     *  through it, and the writers that clear or replace a route (the ✕, a
+     *  spin, a pick, a mode switch, the end of navigation) are many. */
+    var route: RouteResult?
+        get() = routeState
+        set(value) {
+            if (value !== routeState) turnaround = null
+            routeState = value
+        }
+
+    /** The pin a "Loop via here" loop was built through (#889), drawn as the
+     *  destination marker while [route] is that loop. Set after [route]. */
+    var turnaround: LatLon? by mutableStateOf(seed.turnaround)
     var spinning: Boolean by mutableStateOf(false)
     var spinJob: Job? by mutableStateOf(null)
 
@@ -99,7 +113,8 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
 
     /**
      * The rider at [at] moved on along [line], forward only, while [line] is
-     * one fetched through planned stops: drops the [vias] they have passed and
+     * one fetched through planned stops or one that ends where it starts
+     * ([ViaStops.closes], #921): drops the [vias] they have passed and
      * returns where they are on it, for [NavEngine.progressAlong]. Null for
      * any other line, which [NavEngine.progress] places on its own.
      *
@@ -109,7 +124,7 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
      */
     fun followPlanned(line: List<LatLon>, at: LatLon): NavEngine.Along? {
         val ride = viaRide?.takeIf { it.line === line }
-        if (ride == null && vias.isEmpty()) {
+        if (ride == null && vias.isEmpty() && !ViaStops.closes(line)) {
             viaRide = null
             return null
         }
