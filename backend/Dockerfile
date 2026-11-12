@@ -4,7 +4,7 @@
 #
 #   docker build -t detour-api backend
 #
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 
 # The whole tree at once rather than a hand-listed set of .csproj files. That
