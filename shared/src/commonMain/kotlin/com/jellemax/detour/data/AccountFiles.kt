@@ -128,6 +128,13 @@ internal object AccountFiles {
         return true
     }
 
+    /** Whether some account already owns data under [root] — [adopt]'s own
+     *  refusal test, for [HereKeySync]'s one-time upgrade (#905). */
+    fun hasAccountBucket(fs: FileSystem, root: Path): Boolean {
+        val accounts = root / AccountScope.ACCOUNTS_DIR
+        return fs.exists(accounts) && fs.list(accounts).any { it.isAccountBucket(fs) }
+    }
+
     /** Whether [this] is some other account's bucket, as opposed to anything
      *  else that has turned up in `accounts/`.
      *
