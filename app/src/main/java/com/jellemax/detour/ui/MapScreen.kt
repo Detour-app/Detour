@@ -848,6 +848,7 @@ fun MapScreen(
         // drive.
         s.tappedRider = null
         s.pendingRiderFrame = null
+        if (s.spinning) s.spinJob?.cancel() // #889: a build still running would land over the guided route
         fun beginGuidance(to: LatLon?) { // #422: no trip until there is a route to guide
             if (stats == null) permissions.recordTrip(to, FollowedRoute.claim(s.destination, s.route)) // #500, #590
             s.navigating = true
@@ -1019,13 +1020,13 @@ fun MapScreen(
                     serverConfig, loc,
                     SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg, timedLoopMinutes),
                 )
-                if (through != null && s.destination != through) return@launch // #456: ✕'d or re-picked
+                // Never over guidance (#889); a loop-via's pin ✕'d or re-picked (#456).
+                if (s.navigating || (through != null && s.destination != through)) return@launch
                 when (outcome) {
                     is SpinOutcome.Loop -> {
                         s.route = outcome.route
                         s.turnaround = through // after route, whose setter clears it
-                        // Only the spin sheet carries a loop's Go and Save loop.
-                        if (through != null) settingsCollapsed = false
+                        if (through != null) settingsCollapsed = false // the spin sheet has Go/Save loop
                         s.destination = null
                         s.destinationName = null
                         outcome.warning?.let { s.error = it }
@@ -1363,17 +1364,16 @@ fun MapScreen(
                 },
                 pin = PinActions(
                     onSave = { s.destination?.let { s.savePinTarget = it } },
-                    // The dock's ✕: drop the destination and everything derived
-                    // from it, a loop building through it too. `settingsCollapsed`
-                    // is left untouched, so the slot falls back to whatever the
-                    // Spin chip last set.
+                    // The dock's ✕: drop the destination, all derived from it and a loop
+                    // building through it. `settingsCollapsed` is kept: the Spin chip's call.
                     onClear = {
                         if (s.spinning) s.spinJob?.cancel()
                         s.destination = null
                         s.destinationName = null
                         s.route = null
                     },
-                    onLoopVia = if (s.vias.isEmpty()) ({ spin(through = s.destination) }) else null, // #736
+                    // Hidden for stops (#736) and while Go fetches (it would race the guidance).
+                    onLoopVia = if (s.vias.isEmpty() && !s.rerouting) ({ spin(through = s.destination) }) else null,
                     loopBuilding = s.spinning,
                 ),
                 bottomCard = bottomCard,
