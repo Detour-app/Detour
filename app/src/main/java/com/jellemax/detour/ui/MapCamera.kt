@@ -7,12 +7,14 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.withFrameNanos
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.RiderId
+import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.FriendPosition
@@ -26,6 +28,7 @@ import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.tracking.Fix
 import com.jellemax.detour.tracking.TripTrackingService
+import kotlinx.coroutines.flow.first
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -378,10 +381,16 @@ internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
         // seam — [NavEngine.advance] re-seeds itself from a null.
         var along: NavEngine.Along? = null
         var alongLine: List<LatLon>? = null
+        val snap = RouteSnapMemo()
         var lastNs = withFrameNanos { it }
         var lastDriveMs = clock.driveElapsedMs()
         while (true) {
             val ns = withFrameNanos { it }
+            // Everything outside this loop that can give it work, read before any of it
+            // is used. Captured first so a change landing mid-frame differs from it and
+            // wakes the sleep below at once, rather than being slept through.
+            val inputs = MarkerInputs(
+                liveFix, s.route, s.navigating, s.navProgress, retained.camTargetBearing)
             // Same clamp as the camera loop: a dropped frame or a stalled render must not
             // let one frame close the whole gap. Drive time, differenced — see
             // driveFrameDelta.
@@ -416,6 +425,9 @@ internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
             // and a snapshot read inside the body sees them anyway. Read once into
             // `r` so the two tests below cannot see different values.
             val r = s.route
+            // Whether the next frame's snap would be called exactly as this one was —
+            // the seam has stopped walking. Trivially so with no route to snap to.
+            var snapAtFixpoint = true
             if (!s.navigating || r == null) {
                 // Nothing to be on: the marker is the fix again, and the per-fix
                 // effect above takes the camera's heading back.
@@ -431,7 +443,9 @@ internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
                 // from one — cannot hop to the other leg where the route rides its
                 // own tarmac twice. A null `from` is still a full search, which is
                 // what the first frame of a drive and a route change pay.
-                val a = NavEngine.advance(r.polyline, here, along)
+                // Reused when nothing it reads has changed (RouteSnapMemo); the band,
+                // the chord reset and the bearing write below still run on it.
+                val a = snap.advance(r.polyline, here, along)
                 // Beyond the window — a resume, a jumped fix — drop it, so the
                 // next frame searches the whole line once instead of walking
                 // the seam forward a window a frame, each of those frames
@@ -460,6 +474,7 @@ internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
                 // changes at a vertex, so this is quiet in between (hazards §6);
                 // nothing reads either of these two from a composition.
                 if (snapped) a.bearingDeg?.let { retained.camTargetBearing = it.toFloat() }
+                snapAtFixpoint = snap.wouldRepeat(along)
             }
             // On the line while on it. A raw fix wanders off the drawn route by its
             // own error, which reads as the rider driving beside the road.
@@ -504,9 +519,83 @@ internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
                 lastLat = at.lat
                 lastLon = at.lon
             }
+            // Settled: stop awaiting frames until an input changes, instead of waking on
+            // every vsync to find nothing to do. A stopped rider still wakes this up to
+            // the fix rate, since every fix is a new `liveFix`.
+            //
+            // `here` is time-dependent as well as fix-dependent — [MapMotion.predict]
+            // extrapolates a moving fix until [MapMotion.MAX_PREDICT_MS] — but while it
+            // is still extrapolating `at` moves, or (snapped) the snap's input does, so
+            // the loop is not settled then; past the cap nothing time-dependent is left.
+            //
+            // `first { it != inputs }`, not `drop(1)`: snapshotFlow emits the current
+            // value first, so a change that landed between the capture above and the
+            // subscription is seen on that first emission rather than lost.
+            //
+            // The first snapshotFlow in the app (compose-state-hazards §6). Every field of
+            // [MarkerInputs] is snapshot state — collectAsStateWithLifecycle, or a
+            // mutableStateOf on MapScreenState / RetainedMap — which is what lets it see
+            // the writes; a plain field added there later would never wake it.
+            if (MapMotion.markerSettled(moved, markerBearing, retained.camTargetBearing,
+                    pushedBearing, snapAtFixpoint)) {
+                snapshotFlow {
+                    MarkerInputs(liveFix, s.route, s.navigating, s.navProgress,
+                        retained.camTargetBearing)
+                }.first { it != inputs }
+                // The frame clock and drive clock ran on while asleep; without a fresh
+                // seed the first frame back would be one huge dt (clamped, but still a
+                // jump in the heading ease).
+                lastNs = withFrameNanos { it }
+                lastDriveMs = clock.driveElapsedMs()
+            }
         }
     }
 }
+
+/**
+ * The marker loop's last route snap, inputs and result. [NavEngine.advance] is pure, so
+ * the same line, position and seam give the same answer: at a standstill, where all three
+ * stop changing once the seam has settled, a frame reuses it instead of searching again.
+ * The line is compared by identity, as the loop's own `alongLine` is.
+ */
+private class RouteSnapMemo {
+    private var line: List<LatLon>? = null
+    private var here: LatLon? = null
+    private var from: NavEngine.Along? = null
+    private var result: NavEngine.Along? = null
+
+    fun advance(line: List<LatLon>, here: LatLon, from: NavEngine.Along?): NavEngine.Along {
+        val cached = result
+        val same = line === this.line && here == this.here && from == this.from
+        if (cached != null && same) return cached
+        return NavEngine.advance(line, here, from).also {
+            this.line = line
+            this.here = here
+            this.from = from
+            result = it
+        }
+    }
+
+    /** Whether a next call continuing from [next], at the same position, would be this
+     *  one again — the seam has stopped walking. */
+    fun wouldRepeat(next: NavEngine.Along?): Boolean = result != null && next == from
+}
+
+/**
+ * What the position-marker loop reads from outside itself, as one value so a sleep can
+ * wait for any of it to change. Equality is what wakes the loop, and [route] and
+ * [navProgress] compare structurally: a replacement equal to what was drawn has
+ * nothing new to draw. (The loop itself compares the polyline by identity; a
+ * structurally equal new one only resets the seam on the next wake, which finds the
+ * same seam.)
+ */
+private data class MarkerInputs(
+    val fix: Fix?,
+    val route: RouteResult?,
+    val navigating: Boolean,
+    val navProgress: NavEngine.Progress?,
+    val camTargetBearing: Float?,
+)
 
 /**
  * Puts the map back to north-up, and only when there is a rotation to undo.
