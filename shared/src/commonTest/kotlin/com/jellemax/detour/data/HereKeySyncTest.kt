@@ -194,7 +194,7 @@ class HereKeySyncTest {
     fun theFirstSignInOnAPhoneWithNoRidesTakesTheDeviceKey() {
         val s = slots(signedIn = false, anyBucket = false).apply { edit("typed") }
         s.session(true)
-        s.claimDeviceKey()
+        s.startAccount()
         assertEquals("typed", s.key.value)
         assertEquals(HereKeyPending.ADOPTED, s.pending)
         assertEquals("", s.device)
@@ -204,15 +204,43 @@ class HereKeySyncTest {
     fun aSecondAccountDoesNotTakeTheDeviceKey() {
         val s = slots(signedIn = false).apply {
             session(true)
-            claimDeviceKey()
+            startAccount()
             session(false)
             clearAccount()
             edit("second rider's")
             session(true)
-            claimDeviceKey()
+            startAccount()
         }
         assertEquals("", s.key.value)
         assertEquals("second rider's", s.device)
+    }
+
+    @Test
+    fun aSignInWipesWhatAnEarlierSessionLeftInTheAccountSlot() {
+        // A kill between setSession("") and clearAccount(): account A's key and
+        // its pending upload are still in the bag when B signs in.
+        val bag = MemPrefs()
+        bag.put(HereKeySlots.MIGRATED, true)
+        bag.put(HereKeySlots.CLAIMED, true)
+        bag.put(HereKeySlots.ACCOUNT, "rider A's")
+        bag.put(HereKeySlots.PENDING, HereKeyPending.EDITED.name)
+        val s = HereKeySlots(bag).apply { launch(false) { true } }
+        s.session(true)
+        s.startAccount()
+        assertEquals("", s.key.value)
+        assertEquals(HereKeyPending.NONE, s.pending)
+        val server = FakeServer(HereKeyAnswer.Stored("rider B's"))
+        assertEquals(HereKeyOutcome.TOOK_SERVER, s.reconcile(server))
+        assertEquals(listOf("GET"), server.calls)
+        assertEquals("rider B's", s.key.value)
+    }
+
+    @Test
+    fun aTakeInFlightAcrossASignInIsDropped() {
+        val s = settledSlots("A's")
+        val server = FakeServer(HereKeyAnswer.Stored("A's server")).apply { duringCall = { s.startAccount() } }
+        assertEquals(HereKeyOutcome.DROPPED, s.reconcile(server))
+        assertEquals("", s.account)
     }
 
     @Test
@@ -249,7 +277,7 @@ class HereKeySyncTest {
         val s = HereKeySlots(bag).apply { launch(false) { true } }
         assertTrue(s.claimed)
         s.session(true)
-        s.claimDeviceKey()
+        s.startAccount()
         assertEquals("", s.key.value)
     }
 
@@ -271,7 +299,7 @@ class HereKeySyncTest {
         slots(signedIn = false).apply {
             edit(key)
             session(true)
-            claimDeviceKey()
+            startAccount()
         }
 
     private fun settledSlots(key: String) = slots().apply {

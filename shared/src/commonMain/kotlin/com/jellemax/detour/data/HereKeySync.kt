@@ -65,8 +65,8 @@ internal object HereKeySync {
     }
 
     /** From [Auth.exchangeCode], after the new session is stored. */
-    internal fun claimDeviceKey() {
-        slots?.claimDeviceKey()
+    internal fun startAccount() {
+        slots?.startAccount()
     }
 
     /** From [Auth.clear]. */
@@ -239,7 +239,7 @@ internal class HereKeySlots(
     /** The live slot: [account] signed in, [device] signed out. */
     val key: StateFlow<String> = live.asStateFlow()
 
-    /** Bumped by every edit and by [clearAccount]. In memory only: it guards a
+    /** Bumped by every edit, by [startAccount] and by [clearAccount]. In memory only: it guards a
      *  round trip, which does not outlive the process. */
     @Volatile
     var edits = 0
@@ -287,12 +287,23 @@ internal class HereKeySlots(
         refresh()
     }
 
-    /** On an establishing sign-in: the first account on this phone takes the
-     *  signed-out key; every later one leaves it where it is. */
-    fun claimDeviceKey() {
-        if (claimed) return
-        moveDeviceKeyToAccount()
-        bag.put(CLAIMED, true)
+    /**
+     * On an establishing sign-in. Whatever an earlier session left in the
+     * account slot goes first: a kill between `setSession("")` and
+     * [clearAccount], a [take] racing a sign-out, or a sign-in over a live
+     * session would otherwise carry account A's key (and its pending upload)
+     * into account B. The new account's key comes from the server on the
+     * reconcile that follows. Then the first account on this phone takes the
+     * signed-out key; every later one leaves it where it is.
+     */
+    fun startAccount() {
+        bag.remove(ACCOUNT)
+        bag.remove(PENDING)
+        edits++
+        if (!claimed) {
+            moveDeviceKeyToAccount()
+            bag.put(CLAIMED, true)
+        }
         refresh()
     }
 

@@ -257,8 +257,9 @@ object Auth {
         }
         store(response, establishesSession = true)
         // After the store, so the slots already read as signed in; before the
-        // reconcile, so a first rider's signed-out key is what it compares (#905).
-        HereKeySync.claimDeviceKey()
+        // reconcile, so a first rider's signed-out key is what it compares. Also
+        // wipes whatever an earlier session left in the account slot (#905).
+        HereKeySync.startAccount()
         resolveRiderId()
         HereKeySync.reconcile()
     }
