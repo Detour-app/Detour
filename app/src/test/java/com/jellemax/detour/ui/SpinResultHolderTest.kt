@@ -51,6 +51,7 @@ class SpinResultHolderTest {
                 candidates = candidates,
                 navigating = true,
                 vias = listOf(LatLon(51.1, 4.1)),
+                turnaround = LatLon(51.3, 4.3),
             )
         )
         val s = SpinResultHolder.state.value
@@ -60,6 +61,7 @@ class SpinResultHolderTest {
         assertEquals(1, s.candidates.size)
         assertTrue(s.navigating)
         assertEquals(listOf(LatLon(51.1, 4.1)), s.vias)
+        assertEquals("#889: a rotation keeps the loop's pin", LatLon(51.3, 4.3), s.turnaround)
     }
 
     /**

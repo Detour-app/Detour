@@ -47,8 +47,12 @@ object TurnaroundLoop {
      */
     private val RETURN_PENALTIES = listOf(0.2, 0.1, 0.03)
 
-    /** Share of the return that may repeat the way out and still count as a different road home. */
-    private const val MAX_GOOD_OVERLAP = 0.15
+    /**
+     * Share of the return that may repeat the way out and still count as a
+     * different road home. Public so the app's overlap note (#921) uses the
+     * same line rather than a copy of it.
+     */
+    const val MAX_GOOD_OVERLAP = 0.15
 
     /** The custom-model area name for the way out ([PenaltyArea.id]). */
     private const val OUTBOUND_AREA_ID = "outbound"
@@ -56,7 +60,7 @@ object TurnaroundLoop {
     /**
      * A built loop. [overlap] (0..1, [RouteOverlap.fraction]) is how much of the
      * return repeats the way out; the app words a note for the rider from it
-     * when it is over 15 %, in its own string resources rather than in shared.
+     * when it is over [MAX_GOOD_OVERLAP], in its own string resources rather than in shared.
      */
     data class Result(val route: RouteResult, val overlap: Double)
 
