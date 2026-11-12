@@ -213,4 +213,38 @@ class MapMotionTest {
             moved = false, markerBearing = 90f, targetBearing = 90f,
             pushedBearing = 90f, snapAtFixpoint = false))
     }
+
+    // extrapolating: must agree with predict, or a loop sleeps on a point still moving.
+
+    @Test
+    fun `a fresh moving fix is still being extrapolated`() {
+        assertTrue(MapMotion.extrapolating(0f, fast, t0, t0 + 200))
+    }
+
+    @Test
+    fun `a moving fix at the prediction cap is no longer extrapolated`() {
+        assertFalse(MapMotion.extrapolating(0f, fast, t0, t0 + MapMotion.MAX_PREDICT_MS))
+        // And predict agrees: past the cap it returns the same point at any later time.
+        val atCap = MapMotion.predict(brussels, 0f, fast, t0, t0 + MapMotion.MAX_PREDICT_MS, 0.0)
+        val later = MapMotion.predict(brussels, 0f, fast, t0, t0 + 60_000, 0.0)
+        assertEquals(atCap, later)
+    }
+
+    @Test
+    fun `just under the cap is still extrapolated`() {
+        assertTrue(MapMotion.extrapolating(0f, fast, t0, t0 + MapMotion.MAX_PREDICT_MS - 1))
+    }
+
+    @Test
+    fun `a slow or headingless fix is never extrapolated`() {
+        assertFalse(MapMotion.extrapolating(0f, MapMotion.MIN_PREDICT_MPS - 0.01, t0, t0))
+        assertFalse(MapMotion.extrapolating(null, fast, t0, t0))
+    }
+
+    @Test
+    fun `a fix stamped ahead of now still counts, its age has yet to grow`() {
+        // predict clamps a negative age to zero, so this point starts moving once the
+        // clock passes the fix: a loop must not sleep through that.
+        assertTrue(MapMotion.extrapolating(0f, fast, t0 + 500, t0))
+    }
 }

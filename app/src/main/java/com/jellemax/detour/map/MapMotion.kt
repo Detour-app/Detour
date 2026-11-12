@@ -71,6 +71,24 @@ object MapMotion {
     }
 
     /**
+     * True while [predict], given these same inputs and a later [nowElapsedMs], would return
+     * a different point — the fix is still being carried forward with time.
+     *
+     * A frame loop may stop awaiting frames only once nothing it draws depends on the clock,
+     * and a predicted point does until the fix is [MAX_PREDICT_MS] old (or has no bearing or
+     * speed to predict along). A fix stamped ahead of [nowElapsedMs] counts too: its age is
+     * clamped to zero now and starts growing once the clock passes it.
+     */
+    fun extrapolating(
+        bearingDeg: Float?,
+        speedMps: Double,
+        fixElapsedMs: Long,
+        nowElapsedMs: Long,
+    ): Boolean =
+        bearingDeg != null && speedMps >= MIN_PREDICT_MPS &&
+            nowElapsedMs - fixElapsedMs < MAX_PREDICT_MS
+
+    /**
      * True when [to] is too far from [from] to be continuous motion, so the camera should be
      * placed there rather than eased toward it.
      *
