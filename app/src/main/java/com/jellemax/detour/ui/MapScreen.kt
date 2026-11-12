@@ -104,7 +104,6 @@ import com.jellemax.detour.presentation.pushToTalkShown
 import com.jellemax.detour.presentation.reachMeters
 import com.jellemax.detour.presentation.RiderCardState
 import com.jellemax.detour.presentation.riderCardStateFrom
-import com.jellemax.detour.presentation.speedHudStateFrom
 import com.jellemax.detour.presentation.withTrafficDelay
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -958,7 +957,7 @@ fun MapScreen(
     // derivedStateOf bounds how often that work happens, not which scopes
     // recompose: the mapper runs — and the clock is read — once per progress
     // tick rather than once per frame. This screen's body still recomposes per
-    // tick, as it already does for liveFix and retained.displaySpeedKmh.
+    // tick, as it already does for liveFix.
     val navState by remember(retained) {
         derivedStateOf {
             navStateFrom(
@@ -984,6 +983,8 @@ fun MapScreen(
     val camNorthUpAvailable by remember(s) {
         derivedStateOf { s.camAuthority.northUpAvailable(s.navigating) }
     }
+
+    val speedHud by rememberSpeedHudState(retained) { navState.speedLimitKmh }
 
     fun spin() {
         val loc = s.myLocation ?: run {
@@ -1168,12 +1169,6 @@ fun MapScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            val speedHud = speedHudStateFrom(
-                speedKmh = retained.displaySpeedKmh,
-                limitKmh = navState.speedLimitKmh,
-                averageKmh = retained.sectionState.reading.averageKmh,
-                averageLimitKmh = retained.sectionState.reading.limitKmh,
-            )
             val obd2Lost = obd2FedThisTrip(stats?.startTimeMs, obd2LastDataAtMs) &&
                 obd2State != Obd2ConnectionState.CONNECTED
             // The banner drops in from the top edge when navigation starts; the

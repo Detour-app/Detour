@@ -188,8 +188,13 @@ struct SettingsScreen: View {
                 limited number of requests a month and may ask for a card at \
                 sign-up; check their pricing page for the current numbers. The app \
                 calls HERE directly with your key, so HERE sees your IP address, \
-                your key and the area around your route. The key stays on this \
-                phone: it is not synced, backed up or exported.
+                your key and the area around your route. Signed in, the key is \
+                stored on your Detour server, encrypted, and reaches your other \
+                phones; the server operator can decrypt it. Signing out removes \
+                it from this phone. Signed out, the key stays on this phone \
+                only, until the first account signs in here: that account takes \
+                it over and stores it on the server. It is never backed up or \
+                exported.
                 """)
         }
     }
