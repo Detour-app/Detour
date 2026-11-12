@@ -12,9 +12,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
-/** Share of the return repeating the way out above which the rider is told (#889). */
-private const val OVERLAP_NOTE_ABOVE = 0.15
-
 /** What "Loop via here" asks the router for: [from] out to [turnaround] and
  *  back on [mode]'s profile, with the dock's curvy preset on both legs. */
 fun turnaroundRequest(from: LatLon, turnaround: LatLon, mode: TravelMode) =
@@ -48,7 +45,9 @@ suspend fun runTurnaroundLoop(
     val loop = withContext(Dispatchers.IO) { build(serverConfig, request) }
     SpinOutcome.Loop(
         loop.route,
-        warning = loop.overlap.takeIf { it > OVERLAP_NOTE_ABOVE }?.let { overlapNote((it * 100).roundToInt()) },
+        warning = loop.overlap
+            .takeIf { it > TurnaroundLoop.MAX_GOOD_OVERLAP }
+            ?.let { overlapNote((it * 100).roundToInt()) },
     )
 } catch (e: CancellationException) {
     throw e
