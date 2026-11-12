@@ -203,6 +203,28 @@ tombstones, which drops its copy of each ride or route and stops it uploading
 them; an older client that ignores those fields still loses the ride or route,
 because the server no longer returns it.
 
+### 5.1 Saved routes one at a time
+
+The web planner (#636) reads and writes the same saved-route rows as the sync
+merge, one route at a time (#912), under the same rules:
+
+- **List** returns the caller's route documents exactly as stored, ascending by
+  identifier. Deleted routes are not listed.
+- **Put** stores one route document under its identifier. Stricter than sync,
+  which takes whatever a phone holds: the document's own identifier must be the
+  one it is stored under, it needs an edit stamp above 0, at least two stops (a
+  phone drops a route with fewer) and a mode (any name: a phone reads one it
+  does not know as a car), and the route payload cap. A breach is a **400**. The
+  newest stamp wins as in sync; a stamp older than the stored copy's is a
+  **409** carrying the stored copy, so a phone's newer edit is never
+  overwritten. A tombstoned identifier is a **410** and is not stored again.
+- **Delete** removes the stored route and keeps a tombstone, exactly as a
+  deletion uploaded by sync, so every device drops the route on its next sync.
+  Idempotent, including for an identifier never stored.
+
+Both writes take the same per-rider lock as a sync, so a planner write and a
+phone's merge of the same route run one after the other.
+
 ## 6. Friends
 
 - **Request** by handle. Requesting someone who already requested you accepts

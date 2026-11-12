@@ -1,0 +1,41 @@
+meta {
+  name: Create or edit one saved route
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{BASE_URL}}/api/routes/:clientId
+  body: json
+  auth: inherit
+}
+
+params:path {
+  clientId: {{clientId}}
+}
+
+body:json {
+  {
+    "id": 0,
+    "editedAtMs": 0,
+    "mode": "",
+    "stops": [
+      null
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  The body is the route document, stored as sent. It needs the id from the path, an editedAtMs above 0, at least two stops and a mode. The newest edit wins: a body whose editedAtMs is older than the stored copy's is refused with 409 and that copy, so a phone's newer edit is never overwritten. A route the rider deleted answers 410 and is not stored again.
+
+  Responses:
+  - 200: OK
+  - 400: Id mismatch, no edit stamp, too few stops, no mode, or too large.
+  - 409: Conflict
+  - 410: Gone
+  - 413: Payload Too Large
+}

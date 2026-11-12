@@ -155,6 +155,23 @@ public static class ValidationKeys
 
         public static readonly ValidationKeyDefinition PayloadRequired =
             ValidationKeyDefinition.Create($"{Base}.PayloadRequired");
+
+        public static readonly ValidationKeyDefinition IdMismatch =
+            ValidationKeyDefinition.Create($"{Base}.IdMismatch");
+
+        public static readonly ValidationKeyDefinition EditStampRequired =
+            ValidationKeyDefinition.Create($"{Base}.EditStampRequired");
+
+        public static readonly ValidationKeyDefinition NotEnoughStops =
+            ValidationKeyDefinition.Create($"{Base}.NotEnoughStops")
+                .WithIntParameter("minimum");
+
+        public static readonly ValidationKeyDefinition ModeRequired =
+            ValidationKeyDefinition.Create($"{Base}.ModeRequired");
+
+        public static readonly ValidationKeyDefinition PayloadTooLarge =
+            ValidationKeyDefinition.Create($"{Base}.PayloadTooLarge")
+                .WithIntParameter("maxBytes");
     }
 
     public static class Friendship

@@ -120,7 +120,7 @@ class ArchitectureTest {
             // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
             // +3: #647 convoy gap voice and banner (both in MapConvoyGap.kt)
             // +1: #590 FollowedRoute import (the claim is on the existing recordTrip line)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1463,
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1458,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             // +7: #823 problem-report spoke's title, dispatch and the onNavigate the Diagnostics row needs
