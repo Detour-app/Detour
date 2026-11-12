@@ -119,6 +119,7 @@ import com.jellemax.detour.map.modeSwitch
 import com.jellemax.detour.map.fetchStartRoute
 import com.jellemax.detour.map.navStart
 import com.jellemax.detour.map.runSpin
+import com.jellemax.detour.map.loopViaPinKept
 import com.jellemax.detour.map.runTurnaroundLoop
 import com.jellemax.detour.map.turnaroundRequest
 import com.jellemax.detour.map.NavPolicy
@@ -1021,7 +1022,7 @@ fun MapScreen(
                     SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg, timedLoopMinutes),
                 )
                 // Never over guidance (#889); a loop-via's pin ✕'d or re-picked (#456).
-                if (s.navigating || (through != null && s.destination != through)) return@launch
+                if (s.navigating || !loopViaPinKept(through, s.destination, s.turnaround)) return@launch
                 when (outcome) {
                     is SpinOutcome.Loop -> {
                         s.route = outcome.route
@@ -1406,7 +1407,7 @@ fun MapScreen(
                 },
                 onSaveCandidate = { c -> s.saveSpinDraft = spinCandidateDraft(context, c, mode, s.myLocation) },
                 loop = LoopResultActions(
-                    onRespin = if (s.turnaround == null) ({ spin() }) else null, // #889: no roll to repeat
+                    onRespin = { spin(through = s.turnaround) }, // #922: a loop via a pin rebuilds through it
                     onSave = s.route?.takeIf { s.destination == null }
                         ?.let { r -> { s.saveSpinDraft = spinLoopDraft(context, r, mode) } },
                 ),

@@ -167,8 +167,8 @@ internal fun loopLengthKm(timedMinutes: Float?, radiusKm: Float): Double =
  *  spin sheet and `MapBottomSlot` take one value for both
  *  (`docs/guidelines/boundaries.md` §8.4). */
 internal data class LoopResultActions(
-    /** The card's Re-spin. Null hides it: a "Loop via here" loop (#889) has
-     *  no random roll to repeat, and Spin would roll an unrelated one. */
+    /** The card's Re-spin; null hides it. On a "Loop via here" loop (#889)
+     *  it rebuilds through the same pin (#922), not an unrelated random roll. */
     val onRespin: (() -> Unit)?,
     /** Keeps the loop on screen in Routes (#589); null when there is none. */
     val onSave: (() -> Unit)?,
