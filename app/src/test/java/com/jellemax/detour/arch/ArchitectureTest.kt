@@ -132,7 +132,7 @@ class ArchitectureTest {
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             // +10: #653 traffic layers held and refilled on a replacement surface, as cameras are
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1016,
-            // +9 net: #902 dimMapWhenIdle (flow, load, setter); the file is one bag of
+            // +11: #902 dimMapWhenIdle (flow, load, setter), 9 over the limit; one bag of
             // independent prefs with no second owner to hand a slice to yet
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt" to 1009,
         )

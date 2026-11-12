@@ -151,4 +151,66 @@ class MapMotionTest {
             tgtLat = brussels.lat, tgtLon = brussels.lon, tgtZoom = 16.0, tgtBearing = 0.5f,
             targetMoved = false, neverPushed = false))
     }
+
+    // markerSettled — when the position-marker loop may stop awaiting frames (#898).
+
+    @Test
+    fun `a still marker at its target, drawn as eased, with the seam at rest is settled`() {
+        assertTrue(MapMotion.markerSettled(
+            moved = false, markerBearing = 90f, targetBearing = 90.05f,
+            pushedBearing = 90f, snapAtFixpoint = true))
+    }
+
+    @Test
+    fun `a marker with no heading yet and nothing moving is settled`() {
+        assertTrue(MapMotion.markerSettled(
+            moved = false, markerBearing = null, targetBearing = null,
+            pushedBearing = null, snapAtFixpoint = true))
+    }
+
+    @Test
+    fun `a moved marker is not settled`() {
+        assertFalse(MapMotion.markerSettled(
+            moved = true, markerBearing = 90f, targetBearing = 90f,
+            pushedBearing = 90f, snapAtFixpoint = true))
+    }
+
+    @Test
+    fun `just pushed but still easing toward the target is not settled`() {
+        // The push this frame drew the eased nose, so pushed == eased; the ease still has
+        // 30 degrees to close. "Nothing left to push" would say settled here and freeze it.
+        assertFalse(MapMotion.markerSettled(
+            moved = false, markerBearing = 60f, targetBearing = 90f,
+            pushedBearing = 60f, snapAtFixpoint = true))
+    }
+
+    @Test
+    fun `an eased nose that was never pushed is not settled`() {
+        assertFalse(MapMotion.markerSettled(
+            moved = false, markerBearing = 90f, targetBearing = 90f,
+            pushedBearing = null, snapAtFixpoint = true))
+    }
+
+    @Test
+    fun `a pushed nose behind the eased one is not settled`() {
+        assertFalse(MapMotion.markerSettled(
+            moved = false, markerBearing = 90f, targetBearing = 90f,
+            pushedBearing = 89f, snapAtFixpoint = true))
+    }
+
+    @Test
+    fun `the eased bearing compares across north`() {
+        assertTrue(MapMotion.markerSettled(
+            moved = false, markerBearing = 359.95f, targetBearing = 0.02f,
+            pushedBearing = 359.95f, snapAtFixpoint = true))
+    }
+
+    @Test
+    fun `a seam still walking is not settled even with the marker at rest`() {
+        // Back from the background on a stopped vehicle: the fix is still, the drawn point
+        // did not move this frame, but the snap has a gap left to walk.
+        assertFalse(MapMotion.markerSettled(
+            moved = false, markerBearing = 90f, targetBearing = 90f,
+            pushedBearing = 90f, snapAtFixpoint = false))
+    }
 }
