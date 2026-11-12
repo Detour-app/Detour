@@ -84,6 +84,9 @@
     <string name="nav_navigate_to">Navigeren naar</string>
     <string name="nav_save_pin">Pin opslaan</string>
     <string name="nav_clear_destination">Bestemming wissen</string>
+    <string name="nav_loop_via">Lus via hier</string>
+    <string name="nav_loop_via_building">Lus maken…</string>
+    <string name="nav_loop_via_overlap">%1$d%% van de terugweg herhaalt de heenweg: er zijn weinig andere wegen naar deze pin.</string>
     <string name="nav_destination">Bestemming</string>
     <string name="nav_mode">Modus</string>
     <string name="nav_mode_selected">Vervoerswijze, %1$s gekozen</string>

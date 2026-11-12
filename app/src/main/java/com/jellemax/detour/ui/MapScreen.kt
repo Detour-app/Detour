@@ -119,6 +119,8 @@ import com.jellemax.detour.map.modeSwitch
 import com.jellemax.detour.map.fetchStartRoute
 import com.jellemax.detour.map.navStart
 import com.jellemax.detour.map.runSpin
+import com.jellemax.detour.map.runTurnaroundLoop
+import com.jellemax.detour.map.turnaroundRequest
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.needsBackgroundDisclosure
 import com.jellemax.detour.map.requiredStartupPermissions
@@ -262,9 +264,10 @@ fun MapScreen(
     // pick, a cancel, or navigation ending and clearing the result. Declared
     // here rather than beside `destination` because it now also reads
     // `navigating`, and Kotlin resolves local declarations in order.
-    LaunchedEffect(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias) {
+    LaunchedEffect(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.turnaround) {
         SpinResultHolder.publish(
-            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.viaRide)
+            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.viaRide,
+                s.turnaround)
         )
     }
     // Following is the resting state of the map. `camSuspended` is what a pan,
@@ -619,11 +622,11 @@ fun MapScreen(
     // Push overlay state to the map whenever anything drawable changes. The
     // layers are created once per style; here we only swap their GeoJSON data.
     LaunchedEffect(mapOverlays, s.myLocation, s.destination, s.route, radiusKm, mode,
-        directionDeg, s.navigating, visibleCandidates, timedLoopMinutes) {
+        directionDeg, s.navigating, visibleCandidates, timedLoopMinutes, s.turnaround) {
         val overlays = mapOverlays ?: return@LaunchedEffect
         overlays.render(
             myLocation = s.myLocation,
-            destination = s.destination,
+            destination = s.destination ?: s.turnaround, // #889: a "Loop via here" loop keeps its pin
             routePolyline = s.route?.polyline,
             reachMeters = reachMeters(
                 hasLocation = s.myLocation != null,
@@ -988,7 +991,8 @@ fun MapScreen(
 
     val speedHud by rememberSpeedHudState(retained) { navState.speedLimitKmh }
 
-    fun spin() {
+    /** A spin; with [through], "Loop via here" (#889): out to that pin and back on other roads. */
+    fun spin(through: LatLon? = null) {
         val loc = s.myLocation ?: run {
             if (permissions.offerLocationIfDenied()) return // #499: "waiting" would wait forever
             s.error = context.getString(R.string.map_waiting_location)
@@ -1007,13 +1011,21 @@ fun MapScreen(
                 // Producing the result lives in map/SpinRun, with its tests.
                 // What stays here is what a *screen* does with one: the buzz,
                 // the framing, and which var it lands in.
-                val outcome = runSpin(
+                val outcome = if (through != null) {
+                    runTurnaroundLoop(serverConfig, turnaroundRequest(loc, through, mode)) {
+                        context.getString(R.string.nav_loop_via_overlap, it)
+                    }
+                } else runSpin(
                     serverConfig, loc,
                     SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg, timedLoopMinutes),
                 )
+                if (through != null && s.destination != through) return@launch // #456: ✕'d or re-picked
                 when (outcome) {
                     is SpinOutcome.Loop -> {
                         s.route = outcome.route
+                        s.turnaround = through // after route, whose setter clears it
+                        // Only the spin sheet carries a loop's Go and Save loop.
+                        if (through != null) settingsCollapsed = false
                         s.destination = null
                         s.destinationName = null
                         outcome.warning?.let { s.error = it }
@@ -1349,7 +1361,21 @@ fun MapScreen(
                     mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                         LatLng(p.location.lat, p.location.lon), 14.0), 600)
                 },
-                onSavePin = { s.destination?.let { s.savePinTarget = it } },
+                pin = PinActions(
+                    onSave = { s.destination?.let { s.savePinTarget = it } },
+                    // The dock's ✕: drop the destination and everything derived
+                    // from it, a loop building through it too. `settingsCollapsed`
+                    // is left untouched, so the slot falls back to whatever the
+                    // Spin chip last set.
+                    onClear = {
+                        if (s.spinning) s.spinJob?.cancel()
+                        s.destination = null
+                        s.destinationName = null
+                        s.route = null
+                    },
+                    onLoopVia = if (s.vias.isEmpty()) ({ spin(through = s.destination) }) else null, // #736
+                    loopBuilding = s.spinning,
+                ),
                 bottomCard = bottomCard,
                 navState = navState,
                 onExitNavigation = {
@@ -1379,8 +1405,11 @@ fun MapScreen(
                     }
                 },
                 onSaveCandidate = { c -> s.saveSpinDraft = spinCandidateDraft(context, c, mode, s.myLocation) },
-                onSaveLoop = s.route?.takeIf { s.destination == null }
-                    ?.let { r -> { s.saveSpinDraft = spinLoopDraft(context, r, mode) } },
+                loop = LoopResultActions(
+                    onRespin = if (s.turnaround == null) ({ spin() }) else null, // #889: no roll to repeat
+                    onSave = s.route?.takeIf { s.destination == null }
+                        ?.let { r -> { s.saveSpinDraft = spinLoopDraft(context, r, mode) } },
+                ),
                 mode = mode,
                 // A refusal goes to the snackbar, not to `error`: that field
                 // renders as a red line inside the sheet, which a "not right
@@ -1418,16 +1447,6 @@ fun MapScreen(
                 onNavigateInApp = { if (!s.rerouting) startNavigation() },
                 onNavigate = {
                     if (stats == null) permissions.recordHandedOffTrip(s.destination) // #500: never asks
-                },
-                // The navigation dock's ✕: drop the destination and everything
-                // derived from it. `settingsCollapsed` is left untouched, so
-                // the slot falls back to whatever the Spin chip last set —
-                // COLLAPSED at rest, the spin sheet only if the rider had it
-                // open before picking.
-                onClearDestination = {
-                    s.destination = null
-                    s.destinationName = null
-                    s.route = null
                 },
             )
 

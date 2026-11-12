@@ -50,6 +50,12 @@ internal data class SpinResult(
      * (#736).
      */
     val ride: ViaStops.Ride? = null,
+    /**
+     * The pin a "Loop via here" [route] was built through (#889); null for
+     * every other route. Here so a rotation or a trip to the Hub and back
+     * keeps the pin marked on the loop it shaped.
+     */
+    val turnaround: LatLon? = null,
 )
 
 internal object SpinResultHolder {

@@ -156,4 +156,32 @@ class MapScreenStateTest {
         s.destination = null
         assertTrue(s.vias.isEmpty())
     }
+
+    private fun loop() = RouteResult(
+        polyline = listOf(work, store, work),
+        waypoints = emptyList(),
+        distanceMeters = 30_000.0,
+        timeMs = 1_800_000L,
+    )
+
+    @Test
+    fun aSeededTurnaroundStaysWithTheLoopItShaped() {
+        val route = loop()
+        val s = MapScreenState(SpinResult(route = route, turnaround = store), null)
+
+        assertEquals(store, s.turnaround)
+        s.route = route
+        assertEquals("the same loop written back keeps its pin", store, s.turnaround)
+    }
+
+    @Test
+    fun anyOtherRouteDropsTheTurnaroundPin() {
+        val s = MapScreenState(SpinResult(route = loop(), turnaround = store), null)
+        s.route = loop()
+        assertNull("#889: a new spin or pick must not keep the last loop's pin", s.turnaround)
+
+        val again = MapScreenState(SpinResult(route = loop(), turnaround = store), null)
+        again.route = null
+        assertNull("#889: the ✕, a mode switch or the end of navigation clears it", again.turnaround)
+    }
 }

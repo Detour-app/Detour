@@ -80,7 +80,21 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
      *  [destination] (#736), dropped as [followPlanned] sees them passed. */
     var vias: List<LatLon> by mutableStateOf(seed.vias)
         private set
-    var route: RouteResult? by mutableStateOf(seed.route)
+    private var routeState: RouteResult? by mutableStateOf(seed.route)
+
+    /** Any other route drops [turnaround]: the pin belongs to the loop built
+     *  through it, and the writers that clear or replace a route (the ✕, a
+     *  spin, a pick, a mode switch, the end of navigation) are many. */
+    var route: RouteResult?
+        get() = routeState
+        set(value) {
+            if (value !== routeState) turnaround = null
+            routeState = value
+        }
+
+    /** The pin a "Loop via here" loop was built through (#889), drawn as the
+     *  destination marker while [route] is that loop. Set after [route]. */
+    var turnaround: LatLon? by mutableStateOf(seed.turnaround)
     var spinning: Boolean by mutableStateOf(false)
     var spinJob: Job? by mutableStateOf(null)
 
