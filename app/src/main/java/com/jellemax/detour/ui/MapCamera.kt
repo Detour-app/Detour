@@ -11,6 +11,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.withFrameNanos
 import com.jellemax.detour.data.ConvoysStore
+import com.jellemax.detour.data.GroupMember
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.RiderId
@@ -26,6 +27,7 @@ import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.net.ConvoyLiveClient
+import com.jellemax.detour.tracking.DriveClock
 import com.jellemax.detour.tracking.Fix
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.flow.first
@@ -54,7 +56,8 @@ import kotlin.math.exp
  * The speedometer, eased per frame toward the display speed.
  *
  * Keyed on nothing: it runs for as long as the map is composed, so the number
- * is always gliding rather than stepping once per fix. It reads
+ * is always gliding rather than stepping once per fix — and sleeps while the
+ * number already equals its target. It reads
  * `displaySpeedMps` rather than the fix's own speed because a paired OBD2
  * adapter refreshes that between GPS fixes.
  */
@@ -80,6 +83,14 @@ internal fun MapSpeedEase(retained: RetainedMap) {
             retained.displaySpeedKmh =
                 if (abs(gap) < SPEED_EPS_KMH) target
                 else retained.displaySpeedKmh + gap * (1.0 - exp(-dt / SPEED_TAU))
+            // Settled on the target: nothing to ease until it changes, so stop awaiting
+            // frames (#899). `speedTarget` is a State, so awaitChange sees its writes.
+            if (retained.displaySpeedKmh == target) {
+                awaitChange(target) { speedTarget.value }
+                // The frame clock ran on while asleep; re-seed it or the first frame
+                // back eases with a clamped quarter-second dt.
+                lastNs = withFrameNanos { it }
+            }
         }
     }
 }
@@ -112,37 +123,63 @@ internal fun MapConvoyPeerMotion(mapOverlays: MapOverlays?) {
         // frame actually changes the fix, so a settled peer's extrapolation
         // clock isn't reset every render.
         val anchors = mutableMapOf<RiderId, PeerAnchor>()
-        var wasEmpty = false
+        // What the layer last showed; null until the first push. A frame whose
+        // markers equal it pushes nothing.
+        var pushed: List<NamedFriendPosition>? = null
+        fun inputs() = PeerInputs(
+            peers, convoysState.convoys.firstOrNull { it.id == activeConvoyId }?.members.orEmpty())
         while (true) {
             withFrameNanos { }
-            val current = peers
+            // Read before any of it is used, so a change landing mid-frame differs
+            // from it and wakes the sleep below at once (the marker loop's rule).
+            val captured = inputs()
+            val current = captured.peers
             if (current.isEmpty()) {
                 anchors.clear()
-                // One push to clear the layer, not one a frame while idle —
-                // the common case is no convoy at all.
-                if (!wasEmpty) overlays.setFriends(emptyList())
-                wasEmpty = true
+                // One push to clear the layer, then sleep until a peer appears —
+                // the common case is no convoy at all, which used to tick every
+                // frame to find nothing (#899).
+                if (pushed?.isEmpty() != true) {
+                    overlays.setFriends(emptyList())
+                    pushed = emptyList()
+                }
+                snapshotFlow { peers }.first { it.isNotEmpty() }
                 continue
             }
-            wasEmpty = false
             val now = SystemClock.elapsedRealtime()
             anchors.keys.retainAll(current.keys)
-            val members = convoysState.convoys.firstOrNull { it.id == activeConvoyId }?.members.orEmpty()
-            overlays.setFriends(
-                current.map { (id, fix) ->
-                    val anchor = anchors[id]?.takeIf { it.fix == fix }
-                        ?: PeerAnchor(fix, now).also { anchors[id] = it }
-                    val here = MapMotion.predict(
-                        at = LatLon(fix.lat, fix.lon),
-                        bearingDeg = fix.headingDeg?.toFloat(),
-                        speedMps = (fix.speedKmh ?: 0.0) / 3.6,
-                        fixElapsedMs = anchor.arrivalElapsedMs,
-                        nowElapsedMs = now,
-                        leadSeconds = 0.0,
-                    )
-                    NamedFriendPosition(fix.copy(lat = here.lat, lon = here.lon), members.handleFor(id))
-                },
-            )
+            var extrapolating = false
+            val markers = current.map { (id, fix) ->
+                val anchor = anchors[id]?.takeIf { it.fix == fix }
+                    ?: PeerAnchor(fix, now).also { anchors[id] = it }
+                val bearing = fix.headingDeg?.toFloat()
+                val speedMps = (fix.speedKmh ?: 0.0) / 3.6
+                val here = MapMotion.predict(
+                    at = LatLon(fix.lat, fix.lon),
+                    bearingDeg = bearing,
+                    speedMps = speedMps,
+                    fixElapsedMs = anchor.arrivalElapsedMs,
+                    nowElapsedMs = now,
+                    leadSeconds = 0.0,
+                )
+                if (MapMotion.extrapolating(bearing, speedMps, anchor.arrivalElapsedMs, now)) {
+                    extrapolating = true
+                }
+                NamedFriendPosition(fix.copy(lat = here.lat, lon = here.lon), captured.members.handleFor(id))
+            }
+            // Only a moved marker or a changed handle is worth a GeoJSON rewrite.
+            if (markers != pushed) {
+                overlays.setFriends(markers)
+                pushed = markers
+            }
+            // Every peer is past MapMotion.MAX_PREDICT_MS (or too slow to predict):
+            // nothing drawn depends on the clock any more, so sleep until a new
+            // `positions` frame or a membership change. Every field of PeerInputs
+            // comes off a collectAsStateWithLifecycle, which is what lets the
+            // snapshotFlow see it.
+            if (!extrapolating) {
+                awaitChange(captured) { inputs() }
+            }
         }
     }
 }
@@ -209,12 +246,19 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
         // applied — which is what stops the per-frame GL redraw + fog invalidate from
         // running once the ease has settled and the target has stopped moving.
         var neverPushed = true
+        fun cameraInputs() = CameraInputs(
+            liveFix, retained.camTarget, retained.camTargetZoom, retained.camTargetBearing,
+            retained.snappedAt, defaultZoom, cameraActive)
         var lastTargetLat = Double.NaN
         var lastTargetLon = Double.NaN
         var lastNs = withFrameNanos { it }
         var lastDriveMs = clock.driveElapsedMs()
         while (true) {
             val ns = withFrameNanos { it }
+            // Everything outside this loop that can give it work, read before any of it
+            // is used, as the marker loop does: a change landing mid-frame then differs
+            // from it and wakes the sleep at the bottom at once.
+            val inputs = cameraInputs()
             // Clamp dt so a dropped frame or a stalled render doesn't teleport us.
             val wallRaw = (ns - lastNs) / 1_000_000_000.0
             val dtWall = wallRaw.coerceIn(0.0, MAX_FRAME_WALL_S)
@@ -230,46 +274,12 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
             lastNs = ns
             lastDriveMs = driveNow
 
-            // Where the vehicle is now, plus CAM_POS_TAU of lead. The lead is what
-            // cancels the ease's own steady-state error: a first-order lag driven at
-            // constant velocity settles v*tau behind its input, so aiming tau ahead
-            // leaves the camera on the true position instead of behind it.
             // Re-read every frame: the fix effect rewrites it, and a null means
             // no fix has set one yet, so the rider's current default applies.
             val targetZoom = retained.camTargetZoom ?: defaultZoom.toDouble()
-            val f = liveFix
-            val nowElapsed = SystemClock.elapsedRealtime()
-            // While the marker is on the route, aim at the point it is drawn at
-            // rather than at the fix. The two differ by the whole off-route
-            // distance — most of a screen at navigation zoom — so aiming at the
-            // fix leaves the rider's own icon sitting well off the crosshair.
-            // The lead is still applied, along the *segment* bearing this time:
-            // the snapped point already carries the fix's age (the marker loop
-            // predicts before it snaps), so this call adds only the tau, and the
-            // road is the honest direction to add it along.
-            val snapped = retained.snappedAt
-            val camTargetNow = when {
-                snapped != null && f != null -> MapMotion.predict(
-                    at = snapped,
-                    bearingDeg = retained.camTargetBearing,
-                    speedMps = f.speedMps,
-                    fixElapsedMs = nowElapsed,
-                    nowElapsedMs = nowElapsed,
-                    leadSeconds = CAM_POS_TAU,
-                )
-                f != null -> MapMotion.predict(
-                    at = LatLon(f.lat, f.lon),
-                    bearingDeg = f.bearingDeg,
-                    speedMps = f.speedMps,
-                    fixElapsedMs = f.elapsedRealtimeMs,
-                    // Drive time, not wall time: the fix's speed is the drive's,
-                    // so the age it is multiplied by has to be too. Identical to
-                    // nowElapsed at 1x — see DriveClock.predictionNowMs.
-                    nowElapsedMs = clock.predictionNowMs(f.elapsedRealtimeMs),
-                    leadSeconds = CAM_POS_TAU,
-                )
-                else -> retained.camTarget
-            }
+            // Where to aim this frame, and whether that point is still moving with time.
+            val aim = cameraAim(inputs, clock)
+            val camTargetNow = aim.target
             camTargetNow?.let { target ->
                 if (MapMotion.shouldSnap(LatLon(lat, lon), target)) {
                     // Too far to be continuous motion — a resume from background, a
@@ -320,8 +330,83 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
                 setCamera(map, lat, lon, zoom, bearing)
                 neverPushed = false
             }
+            // Settled: converged on a target that did not move (shouldPush already
+            // covers both, bearing included), and nothing in that target depends on the
+            // clock (CameraAim.predicting). Sleep until an input changes instead of
+            // waking on every vsync to push nothing (#899).
+            if (!moved && !aim.predicting) {
+                awaitChange(inputs) { cameraInputs() }
+                // Both clocks ran on while asleep; re-seed them, or the first frame back
+                // is one clamped dt of ease in one step.
+                lastNs = withFrameNanos { it }
+                lastDriveMs = clock.driveElapsedMs()
+            }
         }
     }
+}
+
+/** Where the camera aims this frame, and whether [target] moves with the clock alone. */
+private class CameraAim(val target: LatLon?, val predicting: Boolean)
+
+/**
+ * The camera loop's target for this frame, read off the inputs it captured at the top
+ * of the frame. Where the vehicle is now, plus CAM_POS_TAU of lead. The lead is what
+ * cancels the ease's own steady-state error: a first-order lag driven at constant
+ * velocity settles v*tau behind its input, so aiming tau ahead leaves the camera on the
+ * true position instead of behind it.
+ *
+ * While the marker is on the route, aim at the point it is drawn at rather than at the
+ * fix. The two differ by the whole off-route distance — most of a screen at navigation
+ * zoom — so aiming at the fix leaves the rider's own icon sitting well off the
+ * crosshair. The lead is still applied, along the *segment* bearing this time: the
+ * snapped point already carries the fix's age (the marker loop predicts before it
+ * snaps), so this call adds only the tau, and the road is the honest direction to add
+ * it along. That point moves only when the marker loop writes `snappedAt`, so only the
+ * unsnapped branch is [CameraAim.predicting] — it carries the fix forward by its age
+ * until [MapMotion.MAX_PREDICT_MS].
+ */
+private fun cameraAim(inputs: CameraInputs, clock: DriveClock): CameraAim {
+    val f = inputs.fix
+    val snapped = inputs.snappedAt
+    return when {
+        snapped != null && f != null -> {
+            val nowElapsed = SystemClock.elapsedRealtime()
+            CameraAim(MapMotion.predict(
+                at = snapped,
+                bearingDeg = inputs.camTargetBearing,
+                speedMps = f.speedMps,
+                fixElapsedMs = nowElapsed,
+                nowElapsedMs = nowElapsed,
+                leadSeconds = CAM_POS_TAU,
+            ), predicting = false)
+        }
+        f != null -> {
+            // Drive time, not wall time: the fix's speed is the drive's, so the age it
+            // is multiplied by has to be too. Identical to elapsedRealtime at 1x — see
+            // DriveClock.predictionNowMs.
+            val now = clock.predictionNowMs(f.elapsedRealtimeMs)
+            CameraAim(MapMotion.predict(
+                at = LatLon(f.lat, f.lon),
+                bearingDeg = f.bearingDeg,
+                speedMps = f.speedMps,
+                fixElapsedMs = f.elapsedRealtimeMs,
+                nowElapsedMs = now,
+                leadSeconds = CAM_POS_TAU,
+            ), predicting = MapMotion.extrapolating(f.bearingDeg, f.speedMps, f.elapsedRealtimeMs, now))
+        }
+        else -> CameraAim(inputs.camTarget, predicting = false)
+    }
+}
+
+/**
+ * Suspends until [read] returns something other than [captured] — a frame loop's sleep
+ * once it has nothing left to do (#898, #899). `first { it != captured }`, not `drop(1)`:
+ * snapshotFlow emits the current value first, so a change that landed between the
+ * capture and this call is seen at once rather than lost. [read] must read only snapshot
+ * state; a plain field in it would never wake the loop.
+ */
+private suspend fun <T> awaitChange(captured: T, read: () -> T) {
+    snapshotFlow(read).first { it != captured }
 }
 
 /**
@@ -595,6 +680,31 @@ private data class MarkerInputs(
     val navigating: Boolean,
     val navProgress: NavEngine.Progress?,
     val camTargetBearing: Float?,
+)
+
+/**
+ * What the camera loop reads from outside itself, as one value its sleep can wait on —
+ * the same shape as [MarkerInputs]. Every field is snapshot state (a
+ * collectAsStateWithLifecycle, a mutableStateOf on [RetainedMap], or the derivedStateOf
+ * `cameraActive`); a plain field added here would never wake the loop. `cameraActive` is
+ * also the effect's key, so a flip restarts the loop anyway; it is here so a sleep never
+ * outlives the value it was captured under.
+ */
+private data class CameraInputs(
+    val fix: Fix?,
+    val camTarget: LatLon?,
+    val camTargetZoom: Double?,
+    val camTargetBearing: Float?,
+    val snappedAt: LatLon?,
+    val defaultZoom: Float,
+    val cameraActive: Boolean,
+)
+
+/** What the convoy peer loop reads from outside itself: the peers' last fixes and the
+ *  active convoy's members (for handles). Both come off collectAsStateWithLifecycle. */
+private data class PeerInputs(
+    val peers: Map<RiderId, FriendPosition>,
+    val members: List<GroupMember>,
 )
 
 /**
