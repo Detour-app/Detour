@@ -29,6 +29,9 @@ jobs:
       - name: group-realm
         run: sh docker/prod/scripts/group-realm.test.sh
 
+      - name: detour CLI
+        run: sh docker/prod/scripts/detour.test.sh
+
       - name: compose config — every COMPOSE_FILE combination
         working-directory: docker/prod
         run: |
@@ -58,7 +61,9 @@ jobs:
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml:docker-compose.proxy.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml:docker-compose.cloudflare.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.proxy.yml:docker-compose.caddy.yml" \
-            "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.proxy.yml:docker-compose.caddy.yml" ; do
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.proxy.yml:docker-compose.caddy.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.group.yml:docker-compose.proxy.yml:docker-compose.caddy.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.group.yml:docker-compose.routing.yml:docker-compose.proxy.yml:docker-compose.caddy.yml" ; do
             echo "::group::$combo"
             if COMPOSE_FILE="$combo" docker compose config -q ; then
               echo "OK   $combo"
