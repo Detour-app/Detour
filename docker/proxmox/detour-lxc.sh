@@ -192,7 +192,7 @@ Next:
 DONE
 }
 
-# Sourcing (the test) defines INNER and main without running anything.
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-    main "$@"
-fi
+# Sourcing (the test) defines INNER and main without running anything. `return`
+# succeeds only when sourced; BASH_SOURCE is unset under the documented
+# `bash -c "$(curl ...)" --` form, so it can't be the test.
+(return 0 2>/dev/null) || main "$@"

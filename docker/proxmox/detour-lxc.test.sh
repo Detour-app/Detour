@@ -92,6 +92,12 @@ done
 STUB_EXISTING=150 expect_refused --host a.example.com --ctid 150
 STUB_UID=1000 expect_refused --host a.example.com
 
+# --- the documented `bash -c "$(curl ...)" -- <args>` form runs main.
+if bash -c "$(cat "$HERE/detour-lxc.sh")" -- --bogus > "$WORK/out" 2>&1; then
+    fail "bash -c form accepted --bogus"
+fi
+grep -q 'unknown argument: --bogus' "$WORK/out" || fail "bash -c form did not run main: $(cat "$WORK/out")"
+
 # --- the default install.
 OUT="$(run --host a.example.com --email ops@example.com)"
 expect_call "pvesh get /cluster/nextid"
