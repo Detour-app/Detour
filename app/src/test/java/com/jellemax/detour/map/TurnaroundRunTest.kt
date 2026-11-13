@@ -11,8 +11,10 @@ import com.jellemax.detour.data.TurnaroundRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -70,5 +72,31 @@ class TurnaroundRunTest {
         } catch (e: CancellationException) {
             assertEquals("rider left", e.message)
         }
+    }
+
+    @Test
+    fun aPlainSpinHasNoPinToLose() {
+        assertTrue(loopViaPinKept(through = null, destination = null, turnaround = null))
+        assertTrue(loopViaPinKept(through = null, destination = pin, turnaround = null))
+    }
+
+    @Test
+    fun theDockBuildKeepsItsPinWhileItIsStillTheDestination() {
+        assertTrue(loopViaPinKept(through = pin, destination = pin, turnaround = null))
+        assertTrue(loopViaPinKept(through = pin, destination = LatLon(pin.lat, pin.lon), turnaround = null))
+    }
+
+    @Test
+    fun aRespinKeepsItsPinWhileTheLandedLoopStillHoldsIt() {
+        // #922: the landed loop cleared the destination; the pin lives in turnaround.
+        assertTrue(loopViaPinKept(through = pin, destination = null, turnaround = pin))
+    }
+
+    @Test
+    fun aPinClearedOrRepickedMeanwhileDropsTheBuild() {
+        val other = LatLon(51.9, 4.8)
+        assertFalse(loopViaPinKept(through = pin, destination = null, turnaround = null)) // ✕
+        assertFalse(loopViaPinKept(through = pin, destination = other, turnaround = null)) // re-picked
+        assertFalse(loopViaPinKept(through = pin, destination = other, turnaround = pin))
     }
 }

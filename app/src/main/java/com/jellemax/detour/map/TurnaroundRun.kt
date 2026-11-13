@@ -18,6 +18,18 @@ fun turnaroundRequest(from: LatLon, turnaround: LatLon, mode: TravelMode) =
     TurnaroundRequest(from, turnaround, mode.ghProfile, Settings.navRoutePreferences())
 
 /**
+ * Whether a "Loop via here" build through [through] still has its pin when
+ * it lands, given the map's [destination] and [turnaround] at that moment.
+ * From the dock the pin is the [destination] (#921); a Re-spin of a landed
+ * turnaround loop (#922) starts with [destination] already cleared and the
+ * pin held in [turnaround]. Either way, a pin ✕'d or re-picked meanwhile
+ * (#456) no longer matches, and the stale loop is dropped. A plain spin
+ * ([through] null) has no pin to lose.
+ */
+fun loopViaPinKept(through: LatLon?, destination: LatLon?, turnaround: LatLon?): Boolean =
+    through == null || (destination ?: turnaround) == through
+
+/**
  * Builds the loop [request] asks for — out to the rider's pin and back on
  * other roads (#889, "Loop via here" on the navigation dock) — and reports it
  * the way [runSpin] reports a loop spin, so the map lands it on the same path:
