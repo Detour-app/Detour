@@ -95,12 +95,18 @@ internal data class GoTarget(
     val routeFetching: Boolean,
 )
 
-/** The dock's two header buttons, both acting on the destination pin: save it
- *  as a place, or drop it. Grouped to keep `NavigationDock` under the
- *  parameter limit (`docs/guidelines/state-holders.md` §14.2). */
+/** What the dock can do with the destination pin: save it as a place, drop
+ *  it, or build a loop through it ("Loop via here", #889). Grouped to keep
+ *  `NavigationDock` and `MapBottomSlot` from growing a parameter per action
+ *  (`docs/guidelines/boundaries.md` §8.4). */
 internal data class PinActions(
     val onSave: () -> Unit,
     val onClear: () -> Unit,
+    /** Null hides the button: a planned route with stops already has its own
+     *  way through (#736). */
+    val onLoopVia: (() -> Unit)?,
+    /** A loop (or a spin) is building; the button waits, as Spin does. */
+    val loopBuilding: Boolean,
 )
 
 /** A trip being recorded with nothing to navigate to. Closed: elapsed time

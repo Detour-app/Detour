@@ -87,6 +87,9 @@
     <string name="nav_navigate_to">Navigate to</string>
     <string name="nav_save_pin">Save pin</string>
     <string name="nav_clear_destination">Clear destination</string>
+    <string name="nav_loop_via">Loop via here</string>
+    <string name="nav_loop_via_building">Building loop…</string>
+    <string name="nav_loop_via_overlap">%1$d%% of the way back repeats the way out: there are few other roads to this pin.</string>
     <string name="nav_destination">Destination</string>
     <string name="nav_mode">Mode</string>
     <string name="nav_mode_selected">Travel mode, %1$s selected</string>
