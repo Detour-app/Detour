@@ -158,6 +158,24 @@ server {
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
     }
 
+    # The web planner (#913): static files the API serves under /planner, on
+    # this one hostname so its calls to /api, /route and /info are same-origin
+    # (no CORS). The prefix form, because every page path below it is the
+    # planner's (the API falls back to its index for them).
+    location /planner/ {
+        proxy_pass http://api:7500/planner/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    }
+
+    # The bare path, as typed. Relative, because this nginx sits behind TLS it
+    # cannot see: an absolute redirect would name http:// and its own port.
+    location = /planner {
+        absolute_redirect off;
+        return 301 /planner/;
+    }
+
     # GraphHopper. RoutingClient calls /route (GET and POST) and RoutingSupport
     # reads /info for the graph's encoded values (#586) — no /isochrone,
     # /nearest or /health from the app, so nothing else is routed.

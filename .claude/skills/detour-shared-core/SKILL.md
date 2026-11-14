@@ -49,11 +49,17 @@ is either a separate build or not a Gradle project at all.
 | iOS | `iosApp/Detour/` (SwiftUI) | yes, as a static framework | `iosApp/project.yml` `FRAMEWORK_SEARCH_PATHS` + `OTHER_LDFLAGS: -framework DetourShared`, built by the `packForXcode` preBuild script |
 | .NET backend | `backend/` (18 `.csproj`) | no — HTTP only | `backend/README.md:3` calls it "The .NET replacement for `server/sync/sync_server.py`" |
 | Legacy sync server | `server/sync/sync_server.py` | no — **superseded by `backend/`** | same line |
+| Web planner | `web/` (TypeScript, Vite) | no — **copies** the rules it needs, pinned by fixtures | `web/src/routes.ts` header; `testdata/web-parity/README.md` |
 
 Two consequences that change decisions:
 
 - **"Shared" means phone + Android Auto + iOS**, and today that is every client surface the
   repo has — the Wear OS module, which had no `:shared` edge, was removed in #57.
+- **`web/` is a client that cannot link `shared/`.** It talks HTTP like the backend, and the
+  few rules it needs (route JSON today; the GraphHopper request and GPX with #914/#915) are
+  copied into TypeScript. Each copy has a fixture pair under `testdata/web-parity/`, checked
+  by a `shared/src/androidHostTest` test and by `vitest`. Changing a copied rule in
+  `commonMain` means updating the fixture, which then fails `web/` until its copy follows.
 - **`app/` ↔ `car/` needs no port and no `shared/` move at all.** They are the same module and
   the same package root. De-duplicating between them is a plain extraction into a new file
   under `app/`. Do not reach for `shared/` (or an interface) to solve an `app/`↔`car/` copy.
@@ -262,13 +268,14 @@ the one to keep.
 
 ## 7. Which test source set CI actually gates
 
-Three workflows. Getting this right decides where a test is worth putting.
+Four workflows. Getting this right decides where a test is worth putting.
 
 | Workflow | Trigger | Runs Kotlin tests? |
 |---|---|---|
 | `.github/workflows/build.yml` | push to `main`, **every** pull request, manual — **not path-gated** | **Yes**: `:app:testDebugUnitTest :shared:testDebugUnitTest` (`:117-118`), before the assemble step |
 | `.github/workflows/ios.yml` | push to `main`/`ios` and PRs, **path-gated on `shared/**` and `iosApp/**`** (`:11-20`) | **Yes, and more**: `:shared:compileCommonMainKotlinMetadata` (`:59`), `:shared:testDebugUnitTest` (`:65`), `:shared:iosSimulatorArm64Test` (`:68`) |
 | `.github/workflows/backend.yml` | path-gated on `backend/**` | **No Kotlin test at all** — .NET only (`dotnet test` on `Detour.Domain.Tests` and `Detour.InfraTests`) |
+| `.github/workflows/web.yml` | path-gated on `web/**` and `testdata/web-parity/**` | No — `tsc`, `vitest` (the TS half of the parity fixtures) and `vite build`. The Kotlin half runs in `build.yml`'s `:shared:testDebugUnitTest` |
 
 What follows from that:
 

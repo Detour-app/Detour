@@ -115,3 +115,13 @@ tasks.register("testDebugUnitTest") {
     description = "Alias of testAndroidHostTest, the task name before the KMP library plugin."
     dependsOn("testAndroidHostTest")
 }
+
+// testdata/web-parity/ holds the fixtures the web planner's copies of shared
+// rules are tested against (WebParityRoutesTest here, vitest in web/). An
+// input, so a fixture-only change re-runs the host tests instead of being
+// skipped as up to date.
+tasks.withType<Test>().configureEach {
+    val webParity = rootProject.layout.projectDirectory.dir("testdata/web-parity")
+    inputs.dir(webParity).withPathSensitivity(PathSensitivity.RELATIVE).withPropertyName("webParity")
+    systemProperty("detour.webParityDir", webParity.asFile.absolutePath)
+}

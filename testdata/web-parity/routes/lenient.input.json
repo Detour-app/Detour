@@ -1,0 +1,16 @@
+{
+  "id": 1731500000003,
+  "name": "Lenient",
+  "createdMs": 1731500000003,
+  "mode": "BICYCLE",
+  "stops": [
+    { "lat": 51.05, "lon": 3.72 },
+    "not a stop",
+    { "lat": "51.21", "lon": 4.40, "name": "Antwerp" }
+  ],
+  "polyline": [51.05, 3.72, null, 4.0, 51.1, "x", 51.21, 4.40, 51.3],
+  "distanceMeters": null,
+  "timeMs": null,
+  "origin": "SOMETHING_NEWER",
+  "sharedBy": null
+}

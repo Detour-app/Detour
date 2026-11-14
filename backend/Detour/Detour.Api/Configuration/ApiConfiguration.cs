@@ -26,6 +26,7 @@ public class ApiConfiguration
     public AccountDeletionSettings AccountDeletion { get; set; } = new();
     public ProblemReportSettings ProblemReports { get; set; } = new();
     public DataProtectionSettings DataProtection { get; set; } = new();
+    public PlannerSettings Planner { get; set; } = new();
 }
 
 /// <summary>
@@ -257,4 +258,21 @@ public class AndroidAppLink
     /// <summary>Colon-separated hex SHA-256 fingerprints (<c>keytool -list -v</c>'s form); several
     /// may be given separated by commas, for a signing-key rotation.</summary>
     public string Sha256 { get; set; } = "";
+}
+
+/// <summary>
+/// The web planner (#913), served from this process under <c>/planner</c> so it shares the
+/// API's origin: no CORS, and the one hostname the proxy already routes.
+/// </summary>
+public class PlannerSettings
+{
+    public const string SectionName = "Planner";
+
+    /// <summary>
+    /// The directory holding the planner's built files (<c>web/</c>'s <c>vite build</c>). The
+    /// container image sets it to where its <c>node</c> stage copied them. Blank, or a directory
+    /// without an <c>index.html</c>, serves nothing: <c>/planner</c> answers 404 like any other
+    /// unknown path, which is what a <c>dotnet run</c> without a web build should do.
+    /// </summary>
+    public string Path { get; set; } = "";
 }

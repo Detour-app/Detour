@@ -35,12 +35,13 @@ in development only.
 There is a container too, for anywhere that is not a development machine:
 
 ```bash
-docker build -t detour-api backend
+docker build --build-context web=web -t detour-api backend
 ```
 
-The context is `backend/` rather than the repository root, because the API
-references projects across `Shared/` and nothing outside `backend/` is needed to
-build it. [INSTALL.md](INSTALL.md) covers what it needs around it.
+From the repository root. The context is `backend/` rather than the repository
+root, because the API references projects across `Shared/`; the web planner's
+source comes in as a second, named context `web`, built into the image and served
+under `/planner`. [INSTALL.md](INSTALL.md) covers what it needs around it.
 
 ## Building and testing
 

@@ -1,0 +1,16 @@
+{
+  "id": 0,
+  "name": "",
+  "createdMs": 0,
+  "mode": "CAR",
+  "stops": [
+    { "lat": 51.05, "lon": 3.72, "name": "" },
+    { "lat": 51.21, "lon": 4.40, "name": "" }
+  ],
+  "polyline": [],
+  "distanceMeters": null,
+  "timeMs": null,
+  "sharedBy": "",
+  "origin": "PLANNED",
+  "editedAtMs": 0
+}

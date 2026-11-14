@@ -27,6 +27,10 @@ services:
   api:
     build:
       context: ${RIG_REPO:?run tools/dev-rig/up.sh}/backend
+      # The web planner's source, which backend/Dockerfile builds into the image
+      # (#913). Without it the image build fails at the planner stage.
+      additional_contexts:
+        web: ${RIG_REPO}/web
     image: detour-rig-api:local
     restart: unless-stopped
     networks:

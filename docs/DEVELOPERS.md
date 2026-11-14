@@ -242,11 +242,13 @@ dotnet format style backend/Detour.slnx --severity info --verify-no-changes
 There is a container too:
 
 ```bash
-docker build -t detour-api backend
+docker build --build-context web=web -t detour-api backend
 ```
 
 The context is `backend/`, not the repository root — the API references projects
-across `Shared/` and nothing outside `backend/` is needed to build it. You rarely
+across `Shared/` — plus `web/` as a named context `web`, which the Dockerfile builds
+the web planner from (#913). Leave the `--build-context` off and the build fails at
+the planner stage. You rarely
 need to: every push to `main` publishes `ghcr.io/detour-app/detour-api:latest`, and
 a tag per commit sha for a deployment you can roll back.
 

@@ -3,6 +3,7 @@ using Detour.Api.Authorization;
 using Detour.Api.Configuration;
 using Detour.Api.Live;
 using Detour.Api.Notifications;
+using Detour.Api.Planner;
 using Detour.Api.Services;
 using Detour.Api.Translations;
 using Detour.Database;
@@ -205,6 +206,11 @@ public class Startup(IConfiguration configuration)
         // they key on. Before the transaction middleware, so a throttled request never opens a
         // database transaction.
         app.UseRateLimiter();
+
+        // The web planner's static files (#913). After the limiter so they share the per-IP
+        // budget; before the transaction middleware so a file request never opens one. A
+        // branch, so nothing below sees a /planner request.
+        app.UsePlanner(MappedConfiguration.Planner, MappedConfiguration.Idp.Authority);
 
         // After authentication for the same reason: an unauthenticated request must not be
         // able to open a transaction, which is otherwise a cheap way to exhaust the pool.
