@@ -1,6 +1,6 @@
 plugins {
-    id("com.android.application") version "8.5.2"
-    id("org.jetbrains.kotlin.android") version "2.4.21"
+    // AGP 9 compiles Kotlin itself; org.jetbrains.kotlin.android must not be applied.
+    id("com.android.application") version "9.5.1"
 }
 
 android {
