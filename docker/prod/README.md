@@ -49,6 +49,7 @@ The rest of what you may need:
 | Document | Covers |
 | --- | --- |
 | [backend/INSTALL.md](../../backend/INSTALL.md) | Every configuration key, the container, the reverse-proxy trap, what is still missing |
+| [docker/proxmox/README.md](../proxmox/README.md) | One command on a Proxmox VE host: an LXC with Docker and this kit set up and running |
 | [CLOUDFLARE.md](CLOUDFLARE.md) | Exposing it through a tunnel — and why nothing may sit behind Access |
 | [docker/dev/README.md](../../docker/dev/README.md) | The local stack: canonical ports, the realm, dev credentials |
 | [docker/dev/config/keycloak/REALM.md](../../docker/dev/config/keycloak/REALM.md) | Why the realm is configured the way it is |
