@@ -22,8 +22,8 @@ Not run: the Docker image, Postgres, a reverse proxy, a phone.
 ## Commands
 
 Inside the stack, `kcadm.sh` runs in the Keycloak container against its own
-port, signed in as the administrator you created in the master realm
-(README, "The realm is not created for you", step 7):
+port, signed in as the bootstrap administrator from `KC_ADMIN_*` in `.env`, or one
+you created in the master realm (README, "The realm"):
 
 ```sh
 docker compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \

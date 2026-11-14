@@ -88,6 +88,15 @@ have an audience to name, and so the API can reject a token minted for something
 else. The audience mapper on `detour-app` is what puts `detour-api` in the `aud`
 claim.
 
+**`detour-web`** — the browser planner (#636). Public with PKCE S256 for the
+same reason as the app: a page cannot keep a secret. `use.refresh.tokens` is
+off, so the browser only ever holds a short access token and nothing long-lived
+sits in its storage; "Sign in again" is one click while the Keycloak session
+lives. It carries the same `detour-api` audience mapper as `detour-app`. Here
+its redirects are the Vite dev server (`http://localhost:5173`) and the API's
+own `/planner` (`http://localhost:7500`); the prod and group realms fill them
+from `DETOUR_HOSTNAME` instead.
+
 ## The dev rider
 
 `rider` / `detour-dev`, holding both roles.
