@@ -1,7 +1,8 @@
 # docker/prod/docker-compose.group.yml
 #
 # Invite-only group server: imports config/keycloak/group-realm.json into the
-# bundled Keycloak on first start. Needs the idp overlay underneath it:
+# bundled Keycloak on first start, in place of the idp overlay's prod realm (same
+# mount target, so this one wins). Needs the idp overlay underneath it:
 #
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml:docker-compose.group.yml
 #

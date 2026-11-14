@@ -109,8 +109,10 @@ See [`docker/prod/README.md`](../docker/prod/README.md). Nothing in it has a
 default password: compose refuses to start until every secret is set, which is the
 one thing `docker/dev/` deliberately gets wrong. That stack ships working
 defaults in `.env.example` and runs Keycloak in dev mode — copy its shape, never
-its values, and note that the production stack imports no realm at all, because
-the dev one contains a user whose password is in this repository.
+its values. The production stack never imports the dev realm, because it contains
+a user whose password is in this repository; its `+idp` layer imports
+`docker/prod/config/keycloak/prod-realm.json` instead, which has no users
+(README "The realm").
 
 ## Configuration
 

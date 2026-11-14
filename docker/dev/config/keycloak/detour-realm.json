@@ -87,6 +87,37 @@
       ]
     },
     {
+      "clientId": "detour-web",
+      "name": "Detour web planner",
+      "description": "The browser planner at /planner. Public with PKCE, no refresh tokens.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:5173/*", "http://localhost:7500/planner/*"],
+      "webOrigins": ["http://localhost:5173", "http://localhost:7500"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/##http://localhost:7500/planner/",
+        "use.refresh.tokens": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "detour-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "detour-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "detour-api",
       "name": "Detour backend",
       "description": "The audience the API validates. Never logged into.",

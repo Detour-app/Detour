@@ -34,6 +34,9 @@ Usage: ./detour <command>
   delete <user>       Delete the Keycloak account. A rider's in-app deletion leaves
                       this login behind until you run this.
   reset <user>        Give a rider a new one-time password; logs out their sessions.
+  add-planner         Add the web planner's sign-in client to an existing realm, or
+                      point it at DETOUR_HOSTNAME again. Run once on a server set
+                      up before the planner; new servers already have it.
 USAGE
 }
 
@@ -155,22 +158,40 @@ cmd_setup() {
 # --- Keycloak ----------------------------------------------------------------
 
 kc() { docker compose exec -T keycloak "$KCADM" "$@" </dev/null; }
+# As kc, with this script's stdin passed through (kcadm's `-f -`).
+kc_stdin() { docker compose exec -T keycloak "$KCADM" "$@"; }
 
 # Single-quoted: the container fills in its own env. kcadm reads the password from
 # KC_CLI_PASSWORD, because an argument would show in ps on this host: a container's
 # processes are the host's.
-kc_login() {
-    # kcadm says "Logging into..." on success, and why it couldn't on failure.
+# kcadm says "Logging into..." on success, and why it couldn't on failure; either
+# way it lands in login_output.
+kc_try_login() {
     # shellcheck disable=SC2016
     login_output="$(docker compose exec -T keycloak sh -c '
         export KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD"
         exec "$0" config credentials --realm master \
             --server "http://localhost:8080${KC_HTTP_RELATIVE_PATH%/}" \
             --user "$KC_BOOTSTRAP_ADMIN_USERNAME"
-    ' "$KCADM" </dev/null 2>&1)" || {
-        printf '%s\n' "$login_output" >&2
-        die "can't sign in to Keycloak; is the stack up? (docker compose ps)"
-    }
+    ' "$KCADM" </dev/null 2>&1)"
+}
+
+kc_login_failed() {
+    printf '%s\n' "$login_output" >&2
+    die "can't sign in to Keycloak; is the stack up? (docker compose ps)"
+}
+
+kc_login() { kc_try_login || kc_login_failed; }
+
+# kc_login, as an administrator named here: $1, with the password in the host's
+# KC_CLI_PASSWORD. `-e NAME` without a value hands the container this shell's
+# value, so the password is on no command line.
+# shellcheck disable=SC2016
+kc_login_as() {
+    docker compose exec -T -e KC_CLI_PASSWORD keycloak sh -c '
+        exec "$0" config credentials --realm master \
+            --server "http://localhost:8080${KC_HTTP_RELATIVE_PATH%/}" --user "$1"
+    ' "$KCADM" "$1" </dev/null
 }
 
 need_env() { [ -f .env ] || die "no .env here; run ./detour setup first"; }
@@ -320,12 +341,128 @@ cmd_reset() {
     print_sign_in "$1" "$code" "a new password"
 }
 
+# --- web planner -------------------------------------------------------------
+
+# The planner's client as prod-realm.json and group-realm.json ship it, for host $1.
+planner_client() {
+    cat <<JSON
+{
+  "clientId": "detour-web",
+  "name": "Detour web planner",
+  "description": "The browser planner at /planner. Public with PKCE, no refresh tokens.",
+  "enabled": true,
+  "publicClient": true,
+  "standardFlowEnabled": true,
+  "implicitFlowEnabled": false,
+  "directAccessGrantsEnabled": false,
+  "serviceAccountsEnabled": false,
+  "redirectUris": ["https://$1/planner/*"],
+  "webOrigins": ["https://$1"],
+  "attributes": {
+    "pkce.code.challenge.method": "S256",
+    "post.logout.redirect.uris": "https://$1/planner/",
+    "use.refresh.tokens": "false"
+  },
+  "protocolMappers": [
+    {
+      "name": "detour-api-audience",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-audience-mapper",
+      "consentRequired": false,
+      "config": {
+        "included.client.audience": "detour-api",
+        "id.token.claim": "false",
+        "access.token.claim": "true"
+      }
+    }
+  ]
+}
+JSON
+}
+
+TEMP_ADMIN=''
+
+# Deletes the temporary administrator, signed in as it: the last call it makes.
+drop_temp_admin() {
+    [ -n "$TEMP_ADMIN" ] || return 0
+    name="$TEMP_ADMIN"
+    TEMP_ADMIN=''
+    temp_id="$(kc get users -r master -q "username=$name" -q exact=true \
+        --fields id --format csv --noquotes 2>/dev/null | tr -d '\r' | head -n 1)" || temp_id=''
+    if [ -n "$temp_id" ] && kc delete "users/$temp_id" -r master >/dev/null 2>&1; then
+        echo "Deleted the temporary administrator $name"
+    else
+        echo "detour: could not delete the temporary administrator $name;" \
+            "remove it from the master realm in the admin console" >&2
+    fi
+}
+
+# Signs in with KC_ADMIN_*, as the other commands do. When Keycloak refuses those
+# (the bootstrap admin was deleted, or its password changed), makes a temporary
+# administrator with Keycloak's own bootstrap-admin command in a one-off container
+# beside the running one, and signs in as that; drop_temp_admin removes it.
+planner_login() {
+    kc_try_login && return 0
+    case "$login_output" in
+        *invalid_grant* | *"Invalid user credentials"*) ;;
+        *) kc_login_failed ;;
+    esac
+
+    echo "Keycloak refused KC_ADMIN_USERNAME from .env; making a temporary administrator."
+    echo "This starts a second Keycloak container for about a minute."
+    name="detour-add-planner-$(openssl rand -hex 3)"
+    KC_CLI_PASSWORD="$(openssl rand -hex 24)"
+    export KC_CLI_PASSWORD
+    # Set before it exists, so an interrupted run still tries to delete it.
+    TEMP_ADMIN="$name"
+    trap 'drop_temp_admin' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    docker compose run --rm --no-deps -T -e KC_CLI_PASSWORD keycloak \
+        bootstrap-admin user --username "$name" --password:env KC_CLI_PASSWORD \
+        </dev/null >/dev/null 2>&1 \
+        || { TEMP_ADMIN=''; die "Keycloak's bootstrap-admin command failed"; }
+    login_output="$(kc_login_as "$name" 2>&1)" || {
+        printf '%s\n' "$login_output" >&2
+        die "can't sign in as the temporary administrator $name"
+    }
+}
+
+cmd_add_planner() {
+    [ "$#" -eq 0 ] || die "usage: ./detour add-planner"
+    host="$(sed -n 's/^DETOUR_HOSTNAME=//p' .env | tail -n 1)"
+    [ -n "$host" ] || die "add-planner: set DETOUR_HOSTNAME in .env first; the planner lives at https://<it>/planner"
+    case "$host" in
+        *[!A-Za-z0-9.-]* | -* | .* | *.) die "add-planner: DETOUR_HOSTNAME is not a bare domain: $host" ;;
+    esac
+    planner_login
+    found="$(kc get clients -r "$REALM" -q clientId=detour-web --fields id --format csv --noquotes)" \
+        || die "can't read clients from realm $REALM; does it exist?"
+    found="$(printf '%s\n' "$found" | tr -d '\r' | head -n 1)"
+    if [ -n "$found" ]; then
+        kc update "clients/$found" -r "$REALM" \
+            -s "redirectUris=[\"https://$host/planner/*\"]" \
+            -s "webOrigins=[\"https://$host\"]" \
+            -s "attributes.\"post.logout.redirect.uris\"=https://$host/planner/"
+        echo "Pointed the planner's client at https://$host/planner"
+    else
+        # kcadm reports the new id on stderr; show its output only when it failed.
+        create_output="$(planner_client "$host" | kc_stdin create clients -r "$REALM" -f - 2>&1)" || {
+            printf '%s\n' "$create_output" >&2
+            die "can't create the planner's client"
+        }
+        echo "Added the planner's client for https://$host/planner"
+    fi
+    drop_temp_admin
+}
+
 [ "$#" -gt 0 ] || { usage; exit 1; }
 cmd="$1"
 shift
 case "$cmd" in
     setup) cmd_setup "$@" ;;
     invite | invites | revoke | disable | enable | delete | reset) need_env; "cmd_$cmd" "$@" ;;
+    add-planner) need_env; cmd_add_planner "$@" ;;
     -h | --help | help) usage ;;
     *) usage >&2; die "unknown command: $cmd" ;;
 esac
