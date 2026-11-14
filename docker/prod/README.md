@@ -1,5 +1,8 @@
 # Running Detour somewhere real
 
+**Running it for a group of friends?** [GROUP.md](GROUP.md) is the short
+version: one server, `./detour setup`, and invites.
+
 The whole stack from published images, rather than a development machine with an
 IDE attached. For what each configuration key means, see
 [`backend/INSTALL.md`](../../backend/INSTALL.md); this covers standing it up.

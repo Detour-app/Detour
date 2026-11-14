@@ -20,7 +20,7 @@ them is a real location.</sub>
 | --- | --- |
 | **A rider** | **[Install](docs/USER_GUIDE.md#install)**, then the **[user guide](docs/USER_GUIDE.md)**: every screen, every setting |
 | **A developer** | **[docs/DEVELOPERS.md](docs/DEVELOPERS.md)** for prerequisites, layout, build and running the stack; [CONTRIBUTING.md](CONTRIBUTING.md) for branches, PRs, versioning, review and style |
-| **A hoster** | **[docker/prod/README.md](docker/prod/README.md)** to stand the server up; [backend/INSTALL.md](backend/INSTALL.md) for every configuration key |
+| **A hoster** | **[docker/prod/GROUP.md](docker/prod/GROUP.md)** to run one for your group of friends; **[docker/prod/README.md](docker/prod/README.md)** to stand the server up; [backend/INSTALL.md](backend/INSTALL.md) for every configuration key |
 
 How it all fits together is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). For
 anything else, [docs/README.md](docs/README.md) is the full index.
