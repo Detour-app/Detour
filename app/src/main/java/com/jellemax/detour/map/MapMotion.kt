@@ -71,6 +71,24 @@ object MapMotion {
     }
 
     /**
+     * True while [predict], given these same inputs and a later [nowElapsedMs], would return
+     * a different point — the fix is still being carried forward with time.
+     *
+     * A frame loop may stop awaiting frames only once nothing it draws depends on the clock,
+     * and a predicted point does until the fix is [MAX_PREDICT_MS] old (or has no bearing or
+     * speed to predict along). A fix stamped ahead of [nowElapsedMs] counts too: its age is
+     * clamped to zero now and starts growing once the clock passes it.
+     */
+    fun extrapolating(
+        bearingDeg: Float?,
+        speedMps: Double,
+        fixElapsedMs: Long,
+        nowElapsedMs: Long,
+    ): Boolean =
+        bearingDeg != null && speedMps >= MIN_PREDICT_MPS &&
+            nowElapsedMs - fixElapsedMs < MAX_PREDICT_MS
+
+    /**
      * True when [to] is too far from [from] to be continuous motion, so the camera should be
      * placed there rather than eased toward it.
      *
@@ -111,5 +129,39 @@ object MapMotion {
             abs(camZoom - tgtZoom) <= CAM_ZOOM_EPS &&
             bearingDelta(camBearing, tgtBearing) <= CAM_BEARING_EPS_DEG
         return !converged
+    }
+
+    /**
+     * True when the position marker's frame loop has nothing left to do until one of its
+     * inputs changes, so it may stop awaiting frames.
+     *
+     * "Nothing was pushed this frame" is not enough. The `turned` gate compares the eased
+     * nose against the last *pushed* bearing, so a marker stopped mid-rotation can skip a
+     * push while its ease still has degrees to close; sleeping then would freeze the nose
+     * short of the road. So all four must hold:
+     * - [moved] is false: the drawn point did not change this frame;
+     * - the eased [markerBearing] is within [CAM_BEARING_EPS_DEG] of [targetBearing];
+     * - what was last pushed ([pushedBearing]) is within the same epsilon of the eased one,
+     *   so the screen shows what the ease holds;
+     * - [snapAtFixpoint]: the next frame's route snap would be called with the inputs this
+     *   one was, so it would return the same seam again. A seam still walking after a
+     *   background gap fails this, and keeps the loop awake until it has caught up.
+     *
+     * A null bearing on either side of a comparison has nothing to ease toward or show, so
+     * it does not hold the loop awake.
+     */
+    fun markerSettled(
+        moved: Boolean,
+        markerBearing: Float?,
+        targetBearing: Float?,
+        pushedBearing: Float?,
+        snapAtFixpoint: Boolean,
+    ): Boolean {
+        if (moved || !snapAtFixpoint) return false
+        if (markerBearing == null) return true
+        if (targetBearing != null && bearingDelta(markerBearing, targetBearing) > CAM_BEARING_EPS_DEG) {
+            return false
+        }
+        return pushedBearing != null && bearingDelta(pushedBearing, markerBearing) <= CAM_BEARING_EPS_DEG
     }
 }

@@ -4,7 +4,7 @@
 
 | Document | Read it when |
 | --- | --- |
-| [../README.md](../README.md) | You want the shape of the whole system — every service, and how they connect. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | You want the shape of the whole system — every service, and how they connect. |
 | [USER_GUIDE.md](USER_GUIDE.md) | You are riding with the app: install, every screen, every setting. |
 | [DEVELOPERS.md](DEVELOPERS.md) | You are building or changing it: prerequisites, layout, build commands, the local stack. |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | You are landing a change: branches, PRs, versioning, review, style. |
@@ -39,6 +39,7 @@
 | [STORE_LISTING.md](STORE_LISTING.md) | Filling in the Play Console listing and App content answers. |
 | [PLAY_LOCATION_DECLARATION.md](PLAY_LOCATION_DECLARATION.md) | Declaring background location and foreground-service types, and recording the videos Play requires. |
 | [privacy.html](privacy.html) | The published privacy policy. Change it whenever what leaves the device changes. |
+| [delete-account.html](delete-account.html) | The published account-deletion page Play links to. Change it with the Delete account flow or the self-host layout. |
 
 ## Running a server
 

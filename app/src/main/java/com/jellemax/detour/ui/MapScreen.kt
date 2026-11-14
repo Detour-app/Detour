@@ -104,7 +104,6 @@ import com.jellemax.detour.presentation.pushToTalkShown
 import com.jellemax.detour.presentation.reachMeters
 import com.jellemax.detour.presentation.RiderCardState
 import com.jellemax.detour.presentation.riderCardStateFrom
-import com.jellemax.detour.presentation.speedHudStateFrom
 import com.jellemax.detour.presentation.withTrafficDelay
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -120,6 +119,9 @@ import com.jellemax.detour.map.modeSwitch
 import com.jellemax.detour.map.fetchStartRoute
 import com.jellemax.detour.map.navStart
 import com.jellemax.detour.map.runSpin
+import com.jellemax.detour.map.loopViaPinKept
+import com.jellemax.detour.map.runTurnaroundLoop
+import com.jellemax.detour.map.turnaroundRequest
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.needsBackgroundDisclosure
 import com.jellemax.detour.map.requiredStartupPermissions
@@ -133,6 +135,8 @@ import com.jellemax.detour.tracking.MapSurface
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.tracking.hasLocationPermission
+import com.jellemax.detour.ui.map.DimMapWhenIdle
+import com.jellemax.detour.ui.map.MapIdleDimmer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -261,9 +265,10 @@ fun MapScreen(
     // pick, a cancel, or navigation ending and clearing the result. Declared
     // here rather than beside `destination` because it now also reads
     // `navigating`, and Kotlin resolves local declarations in order.
-    LaunchedEffect(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias) {
+    LaunchedEffect(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.turnaround) {
         SpinResultHolder.publish(
-            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.viaRide)
+            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.viaRide,
+                s.turnaround)
         )
     }
     // Following is the resting state of the map. `camSuspended` is what a pan,
@@ -618,11 +623,11 @@ fun MapScreen(
     // Push overlay state to the map whenever anything drawable changes. The
     // layers are created once per style; here we only swap their GeoJSON data.
     LaunchedEffect(mapOverlays, s.myLocation, s.destination, s.route, radiusKm, mode,
-        directionDeg, s.navigating, visibleCandidates, timedLoopMinutes) {
+        directionDeg, s.navigating, visibleCandidates, timedLoopMinutes, s.turnaround) {
         val overlays = mapOverlays ?: return@LaunchedEffect
         overlays.render(
             myLocation = s.myLocation,
-            destination = s.destination,
+            destination = s.destination ?: s.turnaround, // #889: a "Loop via here" loop keeps its pin
             routePolyline = s.route?.polyline,
             reachMeters = reachMeters(
                 hasLocation = s.myLocation != null,
@@ -844,6 +849,7 @@ fun MapScreen(
         // drive.
         s.tappedRider = null
         s.pendingRiderFrame = null
+        if (s.spinning) s.spinJob?.cancel() // #889: a build still running would land over the guided route
         fun beginGuidance(to: LatLon?) { // #422: no trip until there is a route to guide
             if (stats == null) permissions.recordTrip(to, FollowedRoute.claim(s.destination, s.route)) // #500, #590
             s.navigating = true
@@ -958,7 +964,7 @@ fun MapScreen(
     // derivedStateOf bounds how often that work happens, not which scopes
     // recompose: the mapper runs — and the clock is read — once per progress
     // tick rather than once per frame. This screen's body still recomposes per
-    // tick, as it already does for liveFix and retained.displaySpeedKmh.
+    // tick, as it already does for liveFix.
     val navState by remember(retained) {
         derivedStateOf {
             navStateFrom(
@@ -985,7 +991,10 @@ fun MapScreen(
         derivedStateOf { s.camAuthority.northUpAvailable(s.navigating) }
     }
 
-    fun spin() {
+    val speedHud by rememberSpeedHudState(retained) { navState.speedLimitKmh }
+
+    /** A spin; with [through], "Loop via here" (#889): out to that pin and back on other roads. */
+    fun spin(through: LatLon? = null) {
         val loc = s.myLocation ?: run {
             if (permissions.offerLocationIfDenied()) return // #499: "waiting" would wait forever
             s.error = context.getString(R.string.map_waiting_location)
@@ -1004,13 +1013,21 @@ fun MapScreen(
                 // Producing the result lives in map/SpinRun, with its tests.
                 // What stays here is what a *screen* does with one: the buzz,
                 // the framing, and which var it lands in.
-                val outcome = runSpin(
+                val outcome = if (through != null) {
+                    runTurnaroundLoop(serverConfig, turnaroundRequest(loc, through, mode)) {
+                        context.getString(R.string.nav_loop_via_overlap, it)
+                    }
+                } else runSpin(
                     serverConfig, loc,
                     SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg, timedLoopMinutes),
                 )
+                // Never over guidance (#889); a loop-via's pin ✕'d or re-picked (#456).
+                if (s.navigating || !loopViaPinKept(through, s.destination, s.turnaround)) return@launch
                 when (outcome) {
                     is SpinOutcome.Loop -> {
                         s.route = outcome.route
+                        s.turnaround = through // after route, whose setter clears it
+                        if (through != null) settingsCollapsed = false // the spin sheet has Go/Save loop
                         s.destination = null
                         s.destinationName = null
                         outcome.warning?.let { s.error = it }
@@ -1152,11 +1169,12 @@ fun MapScreen(
         }
     }
 
+    val idleDimmer = remember { MapIdleDimmer() } // #902: the idle dim's clock, off snapshot state
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { _ ->
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().then(idleDimmer.touchModifier)) {
             // The view is retained, so on a return it is still attached to the
             // parent the previous entry gave it, and addView would throw
             // "The specified child already has a parent".
@@ -1168,12 +1186,6 @@ fun MapScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            val speedHud = speedHudStateFrom(
-                speedKmh = retained.displaySpeedKmh,
-                limitKmh = navState.speedLimitKmh,
-                averageKmh = retained.sectionState.reading.averageKmh,
-                averageLimitKmh = retained.sectionState.reading.limitKmh,
-            )
             val obd2Lost = obd2FedThisTrip(stats?.startTimeMs, obd2LastDataAtMs) &&
                 obd2State != Obd2ConnectionState.CONNECTED
             // The banner drops in from the top edge when navigation starts; the
@@ -1351,7 +1363,20 @@ fun MapScreen(
                     mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                         LatLng(p.location.lat, p.location.lon), 14.0), 600)
                 },
-                onSavePin = { s.destination?.let { s.savePinTarget = it } },
+                pin = PinActions(
+                    onSave = { s.destination?.let { s.savePinTarget = it } },
+                    // The dock's ✕: drop the destination, all derived from it and a loop
+                    // building through it. `settingsCollapsed` is kept: the Spin chip's call.
+                    onClear = {
+                        if (s.spinning) s.spinJob?.cancel()
+                        s.destination = null
+                        s.destinationName = null
+                        s.route = null
+                    },
+                    // Hidden for stops (#736) and while Go fetches (it would race the guidance).
+                    onLoopVia = if (s.vias.isEmpty() && !s.rerouting) ({ spin(through = s.destination) }) else null,
+                    loopBuilding = s.spinning,
+                ),
                 bottomCard = bottomCard,
                 navState = navState,
                 onExitNavigation = {
@@ -1381,8 +1406,11 @@ fun MapScreen(
                     }
                 },
                 onSaveCandidate = { c -> s.saveSpinDraft = spinCandidateDraft(context, c, mode, s.myLocation) },
-                onSaveLoop = s.route?.takeIf { s.destination == null }
-                    ?.let { r -> { s.saveSpinDraft = spinLoopDraft(context, r, mode) } },
+                loop = LoopResultActions(
+                    onRespin = { spin(through = s.turnaround) }, // #922: a loop via a pin rebuilds through it
+                    onSave = s.route?.takeIf { s.destination == null }
+                        ?.let { r -> { s.saveSpinDraft = spinLoopDraft(context, r, mode) } },
+                ),
                 mode = mode,
                 // A refusal goes to the snackbar, not to `error`: that field
                 // renders as a red line inside the sheet, which a "not right
@@ -1421,16 +1449,6 @@ fun MapScreen(
                 onNavigate = {
                     if (stats == null) permissions.recordHandedOffTrip(s.destination) // #500: never asks
                 },
-                // The navigation dock's ✕: drop the destination and everything
-                // derived from it. `settingsCollapsed` is left untouched, so
-                // the slot falls back to whatever the Spin chip last set —
-                // COLLAPSED at rest, the spin sheet only if the rider had it
-                // open before picking.
-                onClearDestination = {
-                    s.destination = null
-                    s.destinationName = null
-                    s.route = null
-                },
             )
 
             // Drawn last, so it floats over the bottom slot: a tap on a rider
@@ -1459,5 +1477,6 @@ fun MapScreen(
     // The two dialogs and the state they read live together in MapDialogs.kt;
     // this screen just says when they are up.
     MapScreenDialogs(s = s, permissions = permissions)
+    DimMapWhenIdle(idleDimmer, s)
 
 }

@@ -5,8 +5,12 @@ public static class ServiceInstaller
     public static IServiceCollection AddDetourServices(this IServiceCollection services)
     {
         services.AddScoped<ISyncService, SyncService>();
+        services.AddScoped<IDeletedRideTraceRemover, DeletedRideTraceRemover>();
+        services.AddSingleton<DeletedRideTraceSweep>();
+        services.AddHostedService<DeletedRideTraceSweepWorker>();
         services.AddScoped<IFriendshipService, FriendshipService>();
         services.AddScoped<IRouteSharingService, RouteSharingService>();
+        services.AddScoped<ISavedRouteService, SavedRouteService>();
         services.AddScoped<IPlannedRideService, PlannedRideService>();
         services.AddScoped<IGroupService, GroupService>();
         services.AddScoped<IConvoyInviteService, ConvoyInviteService>();
@@ -17,6 +21,7 @@ public static class ServiceInstaller
         services.AddHttpClient(AccountDeletionNotifier.HttpClientName, client =>
             client.Timeout = AccountDeletionNotifier.Timeout);
         services.AddSingleton<IAccountDeletionNotifier, AccountDeletionNotifier>();
+        services.AddSingleton<IHereTrafficKeyProtector, HereTrafficKeyProtector>();
 
         return services;
     }

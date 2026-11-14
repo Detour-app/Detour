@@ -13,6 +13,49 @@ IDE attached. For what each configuration key means, see
 > correct. Upgrading an existing install: dump `keycloak-db` first — see
 > [Upgrading](#upgrading).
 
+## Before you start
+
+Be honest about the shape first: this is **five processes minimum** — the API,
+its Postgres, Keycloak, Keycloak's Postgres, and a reverse proxy — plus routing
+(GraphHopper) and search (Photon), which `docker/prod/` now ships as opt-in
+layers rather than leaving to you. Accounts, passwords and resets stop being this
+project's job, which is the point, but it is not a smaller thing to run than the
+single-file Python server it replaced. There is no importer for an old
+`detour.db`, and passwords cannot be carried across at all.
+
+**A development machine** — working passwords on purpose, Keycloak in dev mode,
+the realm imported, and GraphHopper included. From the repo root:
+
+```bash
+docker compose -f docker/dev/docker-compose.yml up -d
+```
+
+**Anywhere real** — no default passwords anywhere; compose refuses to start until
+every secret is set, and no realm is imported, because the dev realm ships a user
+whose password is in this repository. `.env` carries a `COMPOSE_FILE` line that
+picks which layers run (API only, `+idp`, `+routing`, `+search`); every command
+after that needs no `-f` flags:
+
+```bash
+cp docker/prod/.env.example docker/prod/.env
+docker compose up -d          # from docker/prod/
+```
+
+The rest of what you may need:
+
+| Document | Covers |
+| --- | --- |
+| [backend/INSTALL.md](../../backend/INSTALL.md) | Every configuration key, the container, the reverse-proxy trap, what is still missing |
+| [docker/proxmox/README.md](../proxmox/README.md) | One command on a Proxmox VE host: an LXC with Docker and this kit set up and running |
+| [CLOUDFLARE.md](CLOUDFLARE.md) | Exposing it through a tunnel — and why nothing may sit behind Access |
+| [docker/dev/README.md](../../docker/dev/README.md) | The local stack: canonical ports, the realm, dev credentials |
+| [docker/dev/config/keycloak/REALM.md](../../docker/dev/config/keycloak/REALM.md) | Why the realm is configured the way it is |
+| [backend/README.md](../../backend/README.md) | The service itself: layout, conventions, what is deliberately absent |
+| [bruno/README.md](../../bruno/README.md) | Poking at every endpoint by hand |
+
+How the services fit together, and what breaks without each, is
+[docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md).
+
 ## Quick start
 
 ```bash
@@ -39,7 +82,7 @@ again.
 | `:docker-compose.routing.yml` | `osm-extract` (one-shot), `graphhopper` | you want in-app turn-by-turn and routed spin distances/ETAs. Without it, "Navigate in app" is absent and spins fall back to crow-flies |
 | `:docker-compose.search.yml` | `photon` | you want address search on your own hardware. Without it, the app uses the public `photon.komoot.io` (Settings can forbid that) |
 | `:docker-compose.cloudflare.yml` | `cloudflared` | you expose the stack through a Cloudflare tunnel — see [CLOUDFLARE.md](CLOUDFLARE.md) |
-| `:docker-compose.proxy.yml` | `proxy` (nginx) | you want one public hostname path-routed to API + GraphHopper + Photon instead of one address per service. Without `+routing` or `+search` in the list, nginx still boots and only `/route` or `/api/` answers 502 |
+| `:docker-compose.proxy.yml` | `proxy` (nginx) | you want one public hostname path-routed to API + GraphHopper + Photon instead of one address per service. Without `+routing` or `+search` in the list, nginx still boots and only `/route` or `/api/` answers 502. With `+routing`, needs `ROUTING_BASE_URL` set to that hostname as a full `https://` URL (`https://detour.example`, not `detour.example` or `http://`: the app refuses those without telling anyone), or riders get no in-app navigation (see below) |
 | `:docker-compose.caddy.yml` | `caddy` | you want TLS on one public hostname with an automatic Let's Encrypt certificate: Keycloak under `/auth` (`/auth/admin` is 403, use an SSH tunnel), everything else through `proxy`. Needs `+idp` and `+proxy` before it, ports 80/443 open, and Docker Compose 2.24.4+. Binds `proxy` to loopback. Not with `cloudflare` — see the [file header](docker-compose.caddy.yml) and `.env.example` |
 
 The order is the colon-separated list in `.env`, e.g.
@@ -50,6 +93,17 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.ym
 
 `cloudflare` / `proxy` / `caddy` go on the end of whatever list you chose
 (`caddy` after `proxy`).
+
+**Breaking since app 4.9.0 (#854): announce routing or riders lose it.** The app
+used to send route requests to the server address a rider typed whenever the
+server announced no routing. It no longer does: once `/api/capabilities` answers,
+the app routes only through the `routing.baseUrl` it announces (or an address the
+rider typed under Routing). Any deployment that serves `/route` on the API's own
+address without announcing it (the `proxy` layer, `caddy` in front of it, your
+own reverse proxy, Cloudflare path rules) must set `ROUTING_BASE_URL` in `.env`
+to a full `https://` URL, or its riders lose "Navigate in app" and routed spins once they update. A routing
+address announced on another host waits for the rider to accept it in Settings;
+declined, it means no in-app navigation either.
 
 ## First boot
 
@@ -134,7 +188,10 @@ After the stack is up, at `https://idp.example.com/admin`:
    keep it that way: relationships key on the account id, so a rename changes the label
    riders see and nothing else. Turn it on if you want riders renaming themselves. Note that
    handles remain unique per realm, so a rename into a handle someone else holds is refused.
-7. Create your own administrator, then clear `KC_ADMIN_*` from `.env`.
+7. Create your own administrator, and keep `KC_ADMIN_*` in `.env`: Compose won't start
+   without them, and `./detour` signs in with them on a kit install. Keep the bootstrap
+   admin *user* in the `master` realm too, even when Keycloak's console suggests deleting
+   it: `./detour` signs in as that user, and every command fails once it is gone.
 
 `docker/dev/config/keycloak/detour-realm.json` is a useful shape to copy from.
 Copy the clients and roles; never the users.
@@ -155,6 +212,19 @@ has already moved.
 
 The API applies migrations on startup, so a `pull` that crosses a schema change
 applies it the moment the container comes up. Back up `postgres-data` first.
+
+This release adds a third stateful volume, `api-dataprotection`, mounted on the
+API at `/keys` (see [Backups](#backups)). Update the compose file and the image
+together. A `DETOUR_IMAGE_TAG` pinned to an older build does no harm: that API
+never writes to `/keys`, so the volume stays empty, and the first newer image
+to mount it hands it to the API's user. If `PUT /api/me/here-key` answers 500
+with a permission error in `docker compose logs api` anyway, the volume is not
+writable by that user. Give it back and restart:
+
+```bash
+docker compose run --rm --no-deps --user root --entrypoint chown api -R 1654 /keys
+docker compose restart api
+```
 
 This release moves `keycloak-db` from Postgres 17 to 18. Postgres does not
 upgrade its data directory across a major version in place. Before `pull`ing,
@@ -261,6 +331,15 @@ Two volumes matter and losing either is unrecoverable:
 - `keycloak-db-data` — every account. There is no local registration to fall back
   on, so losing this means nobody can log in, and the rows in `postgres-data`
   belong to subjects that no longer exist.
+
+Back up a third, with the same care as your secrets:
+
+- `api-dataprotection` — the key ring that encrypts riders' stored HERE traffic
+  keys (#802). Losing it is recoverable: a rider whose phone still holds the key
+  uploads it again on the next sync, and one whose phones don't types it again.
+  A `postgres-data` dump alone cannot decrypt those keys. The ring is plain XML
+  with no key encryptor, so anyone who can read this volume can decrypt every
+  stored HERE key: treat it, and any backup of it, as sensitive as the keys.
 
 `keycloak-data`, `redis-data`, `osm-data`, `graphhopper-data` and `photon-data`
 are caches and downloads — safe to drop. GraphHopper and Photon rebuild them on

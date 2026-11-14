@@ -27,9 +27,13 @@ public class SyncService(
     ITripRepository trips,
     ITripTombstoneRepository tripTombstones,
     ITraceRepository traces,
+    ITraceTombstoneRepository traceTombstones,
     ITrackPointRepository trackPoints,
+    IDeletedRideTraceRemover deletedRideTraces,
+    IRiderLock riderLock,
     ISavedPlaceRepository savedPlaces,
     ISavedRouteRepository savedRoutes,
+    ISavedRouteTombstoneRepository savedRouteTombstones,
     IBadgeAwardRepository badges,
     ITripTitleRepository tripTitles,
     ILogger<SyncService> logger) : ISyncService
@@ -48,8 +52,14 @@ public class SyncService(
         if (validation.IsFailure)
             return validation;
 
-        await MergeTripsAsync(user.Id, request, cancellationToken);
+        // Before the first read: the deleted-ride sweep (#895) cuts this rider's lines in its own
+        // transaction, and a merge that read the trace tombstones before it committed would
+        // store a cut line again. Held until the request's transaction ends.
+        await riderLock.AcquireAsync(user.Id, cancellationToken);
+
+        var rowWindows = await MergeTripsAsync(user.Id, request, cancellationToken);
         await MergeTracesAsync(user.Id, request.Traces, cancellationToken);
+        await RemoveDeletedRidesTracesAsync(user.Id, rowWindows, ReportedWindows(request), cancellationToken);
         await MergeSavedPlacesAsync(user.Id, request, cancellationToken);
         await MergeSavedRoutesAsync(user.Id, request, cancellationToken);
         await MergeBadgesAsync(user.Id, request.Badges, cancellationToken);
@@ -104,13 +114,31 @@ public class SyncService(
         return messages.Count > 0 ? Result.Create(messages) : Result.Ok();
     }
 
-    private async Task MergeTripsAsync(Guid userId, SyncRequest request, CancellationToken cancellationToken)
+    private static IReadOnlyList<TimeWindow> ReportedWindows(SyncRequest request) =>
+        [.. (request.DeletedTripWindows ?? [])
+            .Where(w => w.StartTimeMs > 0 && IsPlausibleRide(w.StartTimeMs, w.EndTimeMs))
+            .Select(w => new TimeWindow(w.StartTimeMs, w.EndTimeMs))
+            .Distinct()];
+
+    /// <summary>Whether a deleted ride's span may be removed: see <see cref="DetourLimits.MaxDeletedRideWindow"/>.</summary>
+    private static bool IsPlausibleRide(long startMs, long endMs) =>
+        endMs >= startMs && endMs - startMs <= (long)DetourLimits.MaxDeletedRideWindow.TotalMilliseconds;
+
+    /// <summary>Returns the time window of each stored ride this request deleted, for its trace to go too.</summary>
+    private async Task<IReadOnlyList<TimeWindow>> MergeTripsAsync(
+        Guid userId,
+        SyncRequest request,
+        CancellationToken cancellationToken)
     {
         // A ride deleted on any device — earlier, or in this very request — is never taken back
         // from an upload. The device uploading it has not heard of the deletion yet; it hears of
         // it in the response instead (#778).
         var tombstoned = (await tripTombstones.GetStartsForUserAsync(userId, cancellationToken)).ToHashSet();
-        var deleted = (request.DeletedTripStartTimes ?? []).Where(s => s > 0).Distinct().ToArray();
+        var deleted = (request.DeletedTripStartTimes ?? [])
+            .Concat((request.DeletedTripWindows ?? []).Select(w => w.StartTimeMs))
+            .Where(s => s > 0)
+            .Distinct()
+            .ToArray();
 
         var incoming = (request.Trips ?? [])
             .Where(t => !tombstoned.Contains(t.StartTimeMs) && !deleted.Contains(t.StartTimeMs))
@@ -162,7 +190,16 @@ public class SyncService(
         }
 
         if (deleted.Length == 0)
-            return;
+            return [];
+
+        // Read before the row goes: a trace line carries no trip reference, so the row's window
+        // is the only thing that says which points were this ride's. A ride with no recorded end
+        // or an implausible span has no window, and keeps its points.
+        var removed = await trips.GetByStartsAsync(userId, deleted, cancellationToken);
+        var windows = removed
+            .Where(t => t.EndTimeMs is { } end && IsPlausibleRide(t.StartTimeMs, end))
+            .Select(t => new TimeWindow(t.StartTimeMs, t.EndTimeMs!.Value))
+            .ToList();
 
         // The row goes, and a tombstone stays in its place. A hard delete alone let the next
         // device still holding the ride upload it again, so the server copy flipped between
@@ -176,6 +213,44 @@ public class SyncService(
 
             await tripTombstones.SaveAsync(tombstone, cancellationToken);
         }
+
+        return windows;
+    }
+
+    /// <summary>
+    /// Takes a deleted ride's location off the server (#780), through
+    /// <see cref="IDeletedRideTraceRemover"/>.
+    ///
+    /// Runs after <see cref="MergeTracesAsync"/> so this request's own lines are covered too: an
+    /// older client deletes a ride without cutting its trace, and uploads the line alongside.
+    ///
+    /// <paramref name="rowWindows"/> come from rows this request deleted, so they apply once.
+    /// <paramref name="reportedWindows"/> come back on every sync (#877), so each only applies
+    /// while a stored sample sits inside it: an indexed lookup rather than re-parsing the whole
+    /// history per sync. Looking at the data rather than at the trip tombstone also covers a line
+    /// that reaches the server after the deletion, and a deletion an older server already buried
+    /// without its window.
+    /// </summary>
+    private async Task RemoveDeletedRidesTracesAsync(
+        Guid userId,
+        IReadOnlyList<TimeWindow> rowWindows,
+        IReadOnlyList<TimeWindow> reportedWindows,
+        CancellationToken cancellationToken)
+    {
+        if (rowWindows.Count == 0 && reportedWindows.Count == 0)
+            return;
+
+        // The lookups below go straight to the database, past anything still pending.
+        await traces.FlushChangesAsync(cancellationToken);
+
+        var windows = rowWindows.ToList();
+        foreach (var window in reportedWindows)
+        {
+            if (await trackPoints.AnyInWindowAsync(userId, window.FromMs, window.ToMs, cancellationToken))
+                windows.Add(window);
+        }
+
+        await deletedRideTraces.RemoveAsync(userId, windows, cancellationToken);
     }
 
     private async Task MergeTracesAsync(
@@ -196,6 +271,9 @@ public class SyncService(
         // One round trip to find out which lines are already held. Every sync re-sends the whole
         // history, so asking per line would make the hot path O(history) queries.
         var known = await traces.GetExistingHashesAsync(userId, [.. byHash.Keys], cancellationToken);
+
+        // A line removed with a deleted ride is not new, however many devices still hold it (#780).
+        known.UnionWith(await traceTombstones.GetExistingHashesAsync(userId, [.. byHash.Keys], cancellationToken));
 
         // Points are gathered across every new line and added once, rather than per line.
         // Consecutive lines deliberately share their boundary sample: the device flushes its
@@ -295,24 +373,43 @@ public class SyncService(
         SyncRequest request,
         CancellationToken cancellationToken)
     {
-        await UpsertSavedRoutesAsync(userId, request.SavedRoutes, cancellationToken);
+        // A route deleted anywhere — on another device, in the planner, or in this very request —
+        // is never taken back from an upload; the uploading device hears of the deletion in the
+        // response instead (#909), as for rides (#778).
+        var tombstoned = (await savedRouteTombstones.GetIdsForUserAsync(userId, cancellationToken)).ToHashSet();
+        var deleted = (request.DeletedSavedRouteIds ?? [])
+            .Where(id => id != 0)
+            .Distinct()
+            .ToArray();
 
-        // After the upserts, as for saved places: a route saved and deleted between two syncs is
-        // sent in both lists and has to end up gone.
-        var deleted = request.DeletedSavedRouteIds ?? [];
-        if (deleted.Count > 0)
+        var incoming = (request.SavedRoutes ?? [])
+            .Where(r => !tombstoned.Contains(r.Id) && !deleted.Contains(r.Id))
+            .ToList();
+        await UpsertSavedRoutesAsync(userId, incoming, cancellationToken);
+
+        if (deleted.Length == 0)
+            return;
+
+        // Phones resend all of deleted_routes.json on every sync, so most of these are already
+        // buried: delete is a no-op for them, and only the new ones get a tombstone.
+        await savedRoutes.FlushChangesAsync(cancellationToken);
+        await savedRoutes.DeleteByClientIdsAsync(userId, deleted, cancellationToken);
+        foreach (var id in deleted.Where(id => !tombstoned.Contains(id)))
         {
-            await savedRoutes.FlushChangesAsync(cancellationToken);
-            await savedRoutes.DeleteByClientIdsAsync(userId, [.. deleted.Distinct()], cancellationToken);
+            var (result, tombstone) = SavedRouteTombstone.Create(userId, id);
+            if (result.IsFailure)
+                continue; // filtered above; a zero id has no route to bury
+
+            await savedRouteTombstones.SaveAsync(tombstone, cancellationToken);
         }
     }
 
     private async Task UpsertSavedRoutesAsync(
         Guid userId,
-        IReadOnlyList<SavedRoutePayload>? incoming,
+        IReadOnlyList<SavedRoutePayload> incoming,
         CancellationToken cancellationToken)
     {
-        if (incoming is not { Count: > 0 })
+        if (incoming.Count == 0)
             return;
 
         var ids = incoming.Select(r => r.Id).Distinct().ToArray();
@@ -322,15 +419,16 @@ public class SyncService(
         foreach (var payload in incoming)
         {
             var document = JsonSerializer.Serialize(payload, PayloadOptions);
+            var editedAtMs = payload.EditedAtMs ?? 0;
 
-            // Last upload wins, as for saved places: a route carries no edit stamp to compare.
+            // Newest edit wins, so a phone that never saw a planner edit cannot revert it (#909).
             if (existing.TryGetValue(payload.Id, out var stored))
             {
-                stored.Replace(document);
+                stored.ReplaceIfNewer(document, editedAtMs);
                 continue;
             }
 
-            var (result, route) = SavedRoute.Create(userId, payload.Id, document);
+            var (result, route) = SavedRoute.Create(userId, payload.Id, document, editedAtMs);
             if (result.IsFailure)
                 continue;
 
@@ -416,6 +514,7 @@ public class SyncService(
         var storedTraces = await traces.GetForUserAsync(user.Id, cancellationToken);
         var storedPlaces = await savedPlaces.GetForUserAsync(user.Id, cancellationToken);
         var storedRoutes = await savedRoutes.GetForUserAsync(user.Id, cancellationToken);
+        var storedRouteTombstones = await savedRouteTombstones.GetIdsForUserAsync(user.Id, cancellationToken);
         var storedBadges = await badges.GetForUserAsync(user.Id, cancellationToken);
         var storedTitles = await tripTitles.GetForUserAsync(user.Id, cancellationToken);
 
@@ -427,7 +526,8 @@ public class SyncService(
             [.. storedRoutes.Select(r => JsonSerializer.Deserialize<JsonElement>(r.Payload))],
             storedBadges.ToDictionary(b => b.BadgeId, b => b.EarnedAtMs),
             [.. storedTitles.Select(t => new TripTitlePayload(t.TripStartTimeMs, t.Title, t.EditedAtMs))],
-            user.ShareFog);
+            user.ShareFog,
+            storedRouteTombstones);
     }
 
     private static RiderStats ToDomain(RiderStatsPayload payload) => RiderStats.Sanitize(

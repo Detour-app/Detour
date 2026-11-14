@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.fadeIn
@@ -71,6 +72,7 @@ import com.jellemax.detour.convoy.PendingConvoyInvite
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.CircleSyncWorker
 import com.jellemax.detour.notif.PendingCircleOpen
+import com.jellemax.detour.notif.PendingMapOpen
 import com.jellemax.detour.notif.PendingRideOpen
 import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PendingUpdateOpen
@@ -119,6 +121,7 @@ class MainActivity : ComponentActivity() {
         PendingTripOpen.take(intent)
         PendingRideOpen.take(intent)
         PendingUpdateOpen.take(intent)
+        PendingMapOpen.take(intent)
         // A fresh launch only: a recreated activity holds the same intent (see take()).
         if (savedInstanceState == null) PendingConvoyInvite.take(intent)
         // The app is open, so an offer to reopen it is stale — whether it was
@@ -182,6 +185,7 @@ class MainActivity : ComponentActivity() {
         PendingTripOpen.take(intent)
         PendingRideOpen.take(intent)
         PendingUpdateOpen.take(intent)
+        PendingMapOpen.take(intent)
         PendingConvoyInvite.take(intent)
     }
 
@@ -267,6 +271,30 @@ private fun KeepScreenOn() {
         onDispose { view.keepScreenOn = false }
     }
 }
+
+/**
+ * Asks the system to run the window at [hz] for as long as the caller is
+ * composed (#901). The map follows the rider with MapLibre and four
+ * `withFrameNanos` loops that otherwise run at the panel's rate - 120 Hz on a
+ * high-refresh phone - for eases that look the same at 60. Scoped to the map
+ * entry like [KeepScreenOn], so History, Settings and the rest keep the panel
+ * rate, and the previous preference comes back on dispose. A request, not a
+ * cap: the system may still pick another rate, and a 60 Hz panel sees no change.
+ */
+@Composable
+private fun PreferRefreshRate(hz: Float) {
+    val window = LocalActivity.current?.window ?: return
+    DisposableEffect(window, hz) {
+        val previous = window.attributes.preferredRefreshRate
+        window.attributes = window.attributes.apply { preferredRefreshRate = hz }
+        onDispose {
+            window.attributes = window.attributes.apply { preferredRefreshRate = previous }
+        }
+    }
+}
+
+/** What the map entry asks for through [PreferRefreshRate] (#892 owner decision 1A). */
+private const val MAP_REFRESH_RATE_HZ = 60f
 
 @Composable
 private fun AppRoot() {
@@ -426,6 +454,9 @@ private fun AppRoot() {
         PendingUpdateOpen.clear()
     }
 
+    // A tapped convoy alert (#906) opens the map, where the pills and banner are.
+    MapOpener(backStack)
+
     // A tapped convoy invite link (#764) opens the join confirm screen.
     ConvoyInviteOpener(backStack)
 
@@ -463,6 +494,7 @@ private fun AppRoot() {
             entryProvider = entryProvider {
                 entry<Destination.Map> {
                     KeepScreenOn()
+                    PreferRefreshRate(MAP_REFRESH_RATE_HZ)
                     MapScreen(
                         onOpenHub = { backStack.push(Destination.Hub) },
                         // The home sheet's two cards. Both destinations already
@@ -674,6 +706,22 @@ private fun NavBackStack<NavKey>.resetTo(entries: List<Destination>) {
     Snapshot.withMutableSnapshot {
         clear()
         addAll(entries)
+    }
+}
+
+/**
+ * Opens the map when a tapped convoy alert (#906) asked [PendingMapOpen] to, whatever screen
+ * the app was left on. Its own composable, as [ConvoyInviteOpener] is, to keep AppRoot under
+ * detekt's complexity limit.
+ */
+@Composable
+private fun MapOpener(backStack: NavBackStack<NavKey>) {
+    val openMap by PendingMapOpen.open.collectAsStateWithLifecycle()
+    LaunchedEffect(openMap) {
+        if (!openMap) return@LaunchedEffect
+        backStack.resetTo(listOf(Destination.Map))
+        // Clearing is what lets a second tap navigate again.
+        PendingMapOpen.clear()
     }
 }
 

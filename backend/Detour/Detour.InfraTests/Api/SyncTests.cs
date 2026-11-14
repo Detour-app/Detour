@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Detour.Domain;
 using Detour.InfraTests.Database;
 using Microsoft.EntityFrameworkCore;
 
@@ -253,6 +254,113 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_newer_route_edit_replaces_the_stored_copy()
+    {
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { StampedRoute(20, "Planner", 5_000) } });
+
+        var merged = await Sync(client, new { savedRoutes = new[] { StampedRoute(20, "Phone", 6_000) } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].GetProperty("name").GetString().Should().Be("Phone");
+        merged.SavedRoutes[0].GetProperty("editedAtMs").GetInt64().Should().Be(6_000);
+    }
+
+    [Fact]
+    public async Task An_older_route_edit_is_ignored()
+    {
+        // #909: the planner edited the route; a phone that never saw that edit re-uploads its copy.
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { StampedRoute(21, "Planner edit", 6_000) } });
+
+        var merged = await Sync(client, new { savedRoutes = new[] { StampedRoute(21, "Stale phone copy", 5_000) } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].GetProperty("name").GetString().Should().Be("Planner edit");
+    }
+
+    [Fact]
+    public async Task An_unstamped_route_cannot_replace_a_stamped_one()
+    {
+        // An app from before #910 sends no stamp at all.
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { StampedRoute(22, "Planner edit", 6_000) } });
+
+        var merged = await Sync(client, new { savedRoutes = new[] { Route(22, "Old app copy") } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].GetProperty("name").GetString().Should().Be("Planner edit");
+    }
+
+    [Fact]
+    public async Task Equal_route_stamps_keep_last_upload_wins()
+    {
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { StampedRoute(23, "First", 6_000) } });
+
+        var merged = await Sync(client, new { savedRoutes = new[] { StampedRoute(23, "Second", 6_000) } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].GetProperty("name").GetString().Should().Be("Second");
+    }
+
+    [Fact]
+    public async Task An_unstamped_route_is_stored_without_a_stamp_field()
+    {
+        // Absent stays absent: the stored document is the one the app sent, not one with a null added.
+        var client = NewRider();
+
+        var merged = await Sync(client, new { savedRoutes = new[] { Route(24, "Old app") } });
+
+        merged.SavedRoutes.Should().ContainSingle();
+        merged.SavedRoutes[0].TryGetProperty("editedAtMs", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_deleted_route_re_uploaded_by_another_device_stays_gone_and_is_listed()
+    {
+        var deviceA = NewRider();
+        await Sync(deviceA, new { savedRoutes = new[] { Route(25, "Keep"), Route(26, "Drop") } });
+
+        var afterDelete = await Sync(deviceA, new { deletedSavedRouteIds = new[] { 26L } });
+        afterDelete.DeletedSavedRouteIds.Should().Equal(26L);
+
+        // The second device still holds both and uploads them, newer stamp and all.
+        var deviceB = await Sync(deviceA, new
+        {
+            savedRoutes = new[] { Route(25, "Keep"), StampedRoute(26, "Drop", 9_000) },
+        });
+
+        deviceB.SavedRoutes.Select(r => r.GetProperty("id").GetInt64()).Should().Equal(25L);
+        deviceB.DeletedSavedRouteIds.Should().Equal(26L);
+    }
+
+    [Fact]
+    public async Task Resending_the_same_deleted_route_id_is_harmless()
+    {
+        // Phones resend all of deleted_routes.json on every sync.
+        var client = NewRider();
+        await Sync(client, new { savedRoutes = new[] { Route(27, "Drop") } });
+
+        await Sync(client, new { deletedSavedRouteIds = new[] { 27L } });
+        var again = await Sync(client, new { deletedSavedRouteIds = new[] { 27L, 27L } });
+
+        again.SavedRoutes.Should().BeEmpty();
+        again.DeletedSavedRouteIds.Should().Equal(27L);
+    }
+
+    [Fact]
+    public async Task Route_tombstones_are_never_returned_to_another_rider()
+    {
+        var owner = NewRider();
+        await Sync(owner, new { deletedSavedRouteIds = new[] { 28L } });
+
+        var other = await Sync(NewRider(), new { });
+
+        other.DeletedSavedRouteIds.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_route_without_an_id_fails_the_sync()
     {
         var client = NewRider();
@@ -455,6 +563,318 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_deleted_rides_location_leaves_the_server()
+    {
+        var client = NewRider();
+        var ride = Line(5_000);
+        var other = Line(90_000);
+        await Sync(client, new { trips = new[] { Ride(5_000, 7_000), Ride(90_000, 91_000) }, traces = new[] { ride, other } });
+
+        var merged = await Sync(client, new { deletedTripStartTimes = new[] { 5_000L } });
+
+        merged.Traces.Should().Equal(other);
+        (await StoredInstants(client)).Should().Equal(90_000L, 91_000L);
+    }
+
+    [Fact]
+    public async Task A_device_still_holding_a_deleted_rides_line_does_not_bring_it_back()
+    {
+        var deviceA = NewRider();
+        var line = Line(5_000);
+        await Sync(deviceA, new { trips = new[] { Ride(5_000, 7_000) }, traces = new[] { line } });
+        await Sync(deviceA, new { deletedTripStartTimes = new[] { 5_000L } });
+
+        // Same account, so same rider: device B uploads its copy of the whole history.
+        var deviceB = await Sync(deviceA, new { trips = new[] { Ride(5_000, 7_000) }, traces = new[] { line } });
+
+        deviceB.Traces.Should().BeEmpty("device B replaces its lines with these, which is how it loses the ride");
+        (await StoredInstants(deviceA)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_line_straddling_a_deleted_ride_keeps_the_points_either_side()
+    {
+        var client = NewRider();
+        var straddling = Points(1_000, 2_000, 5_000, 6_000, 9_000, 10_000);
+        await Sync(client, new { trips = new[] { Ride(5_000, 6_000) }, traces = new[] { straddling } });
+
+        var merged = await Sync(client, new { deletedTripStartTimes = new[] { 5_000L } });
+
+        merged.Traces.Should().BeEquivalentTo(Points(1_000, 2_000), Points(9_000, 10_000));
+        (await StoredInstants(client)).Should().Equal(1_000L, 2_000L, 9_000L, 10_000L);
+
+        // Device B re-uploads the old whole line: it stays out, the pieces stay in.
+        var later = await Sync(client, new { traces = new[] { straddling } });
+        later.Traces.Should().BeEquivalentTo(Points(1_000, 2_000), Points(9_000, 10_000));
+    }
+
+    [Fact]
+    public async Task The_deleting_devices_own_cut_lines_are_not_stored_twice()
+    {
+        var client = NewRider();
+        var straddling = Points(1_000, 2_000, 5_000, 6_000, 9_000, 10_000);
+        await Sync(client, new { trips = new[] { Ride(5_000, 6_000) }, traces = new[] { straddling } });
+
+        // What TraceStore.removeWindow leaves on the device that deleted the ride.
+        var merged = await Sync(client, new
+        {
+            deletedTripStartTimes = new[] { 5_000L },
+            traces = new[] { Points(1_000, 2_000), Points(9_000, 10_000) },
+        });
+
+        merged.Traces.Should().HaveCount(2);
+        merged.Traces.Should().BeEquivalentTo(Points(1_000, 2_000), Points(9_000, 10_000));
+    }
+
+    [Fact]
+    public async Task A_line_uploaded_alongside_the_deletion_loses_the_ride_too()
+    {
+        // An older client deletes a ride without cutting its trace, and may flush a line the
+        // server has not seen before the sync that carries the deletion.
+        var client = NewRider();
+        await Sync(client, new { trips = new[] { Ride(5_000, 7_000) } });
+
+        var merged = await Sync(client, new
+        {
+            deletedTripStartTimes = new[] { 5_000L },
+            traces = new[] { Line(5_000) },
+        });
+
+        merged.Traces.Should().BeEmpty();
+        (await StoredInstants(client)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_deletion_re_sent_on_every_sync_changes_nothing_more()
+    {
+        // The device uploads its whole tombstone list each time, with its whole trace history.
+        var client = NewRider();
+        var ride = Line(5_000);
+        var other = Line(90_000);
+        await Sync(client, new { trips = new[] { Ride(5_000, 7_000) }, traces = new[] { ride, other } });
+        await Sync(client, new { deletedTripStartTimes = new[] { 5_000L }, traces = new[] { ride, other } });
+
+        var again = await Sync(client, new { deletedTripStartTimes = new[] { 5_000L }, traces = new[] { ride, other } });
+
+        again.Traces.Should().Equal(other);
+        again.DeletedTripStartTimes.Should().Equal(5_000L);
+    }
+
+    [Fact]
+    public async Task A_deleted_ride_with_no_recorded_end_keeps_its_points()
+    {
+        // No end, no window: nothing says which points were this ride's.
+        var client = NewRider();
+        var line = Line(5_000);
+        var noEnd = new { startTimeMs = 5_000L, mode = "motorcycle", distanceMeters = 1_000.0, topSpeedKmh = 80.0 };
+        await Sync(client, new { trips = new[] { noEnd }, traces = new[] { line } });
+
+        var merged = await Sync(client, new { deletedTripStartTimes = new[] { 5_000L } });
+
+        merged.Trips.Should().BeEmpty();
+        merged.Traces.Should().Equal(line);
+    }
+
+    [Fact]
+    public async Task A_deleted_ride_leaves_another_riders_points_alone()
+    {
+        var rider = NewRider();
+        var other = NewRider();
+        await Sync(other, new { traces = new[] { Line(5_000) } });
+        await Sync(rider, new { trips = new[] { Ride(5_000, 7_000) }, traces = new[] { Line(5_000) } });
+
+        await Sync(rider, new { deletedTripStartTimes = new[] { 5_000L } });
+
+        (await Sync(other, new { })).Traces.Should().Equal(Line(5_000));
+        (await StoredInstants(other)).Should().Equal(5_000L, 6_000L);
+    }
+
+    [Fact]
+    public async Task A_deleted_ride_with_no_row_loses_its_location_by_the_window_the_device_sent()
+    {
+        // A mid-ride sync uploaded a line, the sync at the end failed, and the rider deleted the
+        // ride offline: the server never had a row, so the device's window is all it has.
+        var client = NewRider();
+        var line = Line(5_000);
+        var other = Line(90_000);
+        await Sync(client, new { traces = new[] { line, other } });
+
+        var merged = await Sync(client, new
+        {
+            deletedTripStartTimes = new[] { 5_000L },
+            deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } },
+            traces = new[] { other },
+        });
+
+        merged.Traces.Should().Equal(other);
+        merged.DeletedTripStartTimes.Should().Equal(5_000L);
+        (await StoredInstants(client)).Should().Equal(90_000L, 91_000L);
+
+        // Another device still holding the line can't bring it back.
+        (await Sync(client, new { traces = new[] { line, other } })).Traces.Should().Equal(other);
+    }
+
+    [Fact]
+    public async Task A_window_with_no_row_keeps_the_points_either_side_of_it()
+    {
+        var client = NewRider();
+        var straddling = Points(1_000, 2_000, 5_000, 6_000, 9_000, 10_000);
+        await Sync(client, new { traces = new[] { straddling } });
+
+        var merged = await Sync(client, new
+        {
+            deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 6_000L } },
+            traces = new[] { Points(1_000, 2_000), Points(9_000, 10_000) },
+        });
+
+        merged.DeletedTripStartTimes.Should().Equal(5_000L);
+        merged.Traces.Should().HaveCount(2);
+        merged.Traces.Should().BeEquivalentTo(Points(1_000, 2_000), Points(9_000, 10_000));
+        (await StoredInstants(client)).Should().Equal(1_000L, 2_000L, 9_000L, 10_000L);
+    }
+
+    [Fact]
+    public async Task A_re_sent_window_takes_a_line_that_arrived_after_the_deletion()
+    {
+        var client = NewRider();
+        var windows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } };
+        await Sync(client, new { deletedTripWindows = windows });
+
+        // Device B flushed this line mid-ride and only uploads it now.
+        await Sync(client, new { traces = new[] { Line(5_000) } });
+        var merged = await Sync(client, new { deletedTripWindows = windows });
+
+        merged.Traces.Should().BeEmpty();
+        (await StoredInstants(client)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_window_covers_a_deletion_an_older_server_already_tombstoned()
+    {
+        // The app can update first: the server buried the start and ignored the window it didn't
+        // know, and the line stayed. Once upgraded, the device's next sync still sends it.
+        var client = NewRider();
+        await Sync(client, new { traces = new[] { Line(5_000) } });
+        await Sync(client, new { deletedTripStartTimes = new[] { 5_000L } });
+        (await Sync(client, new { })).Traces.Should().ContainSingle("a start alone says nothing about where the ride went");
+
+        var merged = await Sync(client, new
+        {
+            deletedTripStartTimes = new[] { 5_000L },
+            deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } },
+        });
+
+        merged.Traces.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_re_sent_window_leaves_everything_outside_it_alone()
+    {
+        var client = NewRider();
+        var windows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } };
+        var other = Line(90_000);
+        await Sync(client, new { deletedTripWindows = windows });
+
+        var again = await Sync(client, new { deletedTripWindows = windows, traces = new[] { other } });
+        var third = await Sync(client, new { deletedTripWindows = windows, traces = new[] { other } });
+
+        again.Traces.Should().Equal(other);
+        third.Traces.Should().Equal(other);
+        third.DeletedTripStartTimes.Should().Equal(5_000L);
+        (await StoredInstants(client)).Should().Equal(90_000L, 91_000L);
+    }
+
+    [Fact]
+    public async Task A_window_ending_before_it_starts_removes_no_location()
+    {
+        var client = NewRider();
+        var line = Line(5_000);
+        await Sync(client, new { traces = new[] { line } });
+
+        var merged = await Sync(client, new { deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 0L } } });
+
+        merged.Traces.Should().Equal(line);
+        merged.DeletedTripStartTimes.Should().Equal(5_000L);
+    }
+
+    [Theory]
+    [InlineData(9_000_000_000_000L)]
+    [InlineData(long.MaxValue)]
+    public async Task An_implausible_window_never_takes_a_later_rides_location(long end)
+    {
+        // A clock correction mid-ride makes the deleted ride look years long, and the device
+        // re-sends that window on every sync. The start still counts as deleted.
+        var client = NewRider();
+        var windows = new[] { new { startTimeMs = 5_000L, endTimeMs = end } };
+        var stored = Line(90_000);
+        await Sync(client, new { trips = new[] { Ride(90_000, 91_000) }, traces = new[] { stored } });
+
+        var merged = await Sync(client, new { deletedTripWindows = windows });
+
+        merged.DeletedTripStartTimes.Should().Equal(5_000L);
+        merged.Traces.Should().Equal(stored);
+
+        var later = Line(200_000);
+        var after = await Sync(client, new
+        {
+            deletedTripWindows = windows,
+            trips = new[] { Ride(200_000, 201_000) },
+            traces = new[] { later },
+        });
+
+        after.Traces.Should().BeEquivalentTo(stored, later);
+        (await StoredInstants(client)).Should().Equal(90_000L, 91_000L, 200_000L, 201_000L);
+    }
+
+    [Fact]
+    public async Task A_window_at_the_span_cap_applies_and_one_past_it_does_not()
+    {
+        var cap = (long)DetourLimits.MaxDeletedRideWindow.TotalMilliseconds;
+        var client = NewRider();
+        var atCap = Line(5_000);
+        var pastCap = Line(5_000 + cap + 10_000);
+        await Sync(client, new { traces = new[] { atCap, pastCap } });
+
+        var merged = await Sync(client, new
+        {
+            deletedTripWindows = new[]
+            {
+                new { startTimeMs = 5_000L, endTimeMs = 5_000 + cap },
+                new { startTimeMs = 5_000 + cap + 10_000, endTimeMs = 5_000 + cap + 10_000 + cap + 1 },
+            },
+        });
+
+        merged.Traces.Should().Equal(pastCap);
+    }
+
+    [Fact]
+    public async Task A_deleted_row_with_an_implausible_span_keeps_later_rides_location()
+    {
+        var client = NewRider();
+        var later = Line(90_000);
+        await Sync(client, new { trips = new[] { Ride(5_000, 9_000_000_000_000) }, traces = new[] { Line(5_000), later } });
+
+        var merged = await Sync(client, new { deletedTripStartTimes = new[] { 5_000L } });
+
+        merged.Trips.Should().BeEmpty();
+        merged.Traces.Should().BeEquivalentTo(Line(5_000), later);
+    }
+
+    [Fact]
+    public async Task A_window_leaves_another_riders_points_alone()
+    {
+        var rider = NewRider();
+        var other = NewRider();
+        await Sync(other, new { traces = new[] { Line(5_000) } });
+        await Sync(rider, new { traces = new[] { Line(5_000) } });
+
+        await Sync(rider, new { deletedTripWindows = new[] { new { startTimeMs = 5_000L, endTimeMs = 7_000L } } });
+
+        (await Sync(other, new { })).Traces.Should().Equal(Line(5_000));
+        (await StoredInstants(other)).Should().Equal(5_000L, 6_000L);
+    }
+
+    [Fact]
     public async Task A_point_with_no_instant_draws_fog_but_stores_no_sample()
     {
         // Two-element points predate timestamps. They are skipped rather than stored with a
@@ -560,6 +980,20 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
         timeMs = 3_600_000L,
     };
 
+    /// <summary>The same route as <see cref="Route"/>, carrying the edit stamp an app from #910 on writes.</summary>
+    private static object StampedRoute(long id, string name, long editedAtMs) => new
+    {
+        id,
+        name,
+        createdMs = 1_700_000_000_000L,
+        mode = "MOTO",
+        stops = new[] { new { lat = 50.8, lon = 3.2, name = "Home" }, new { lat = 50.9, lon = 3.3, name = "Work" } },
+        polyline = new[] { 50.8, 3.2, 50.9, 3.3 },
+        distanceMeters = 15_234.5,
+        timeMs = 3_600_000L,
+        editedAtMs,
+    };
+
     private static string Line(long startMs) =>
         $"[[51.05,3.72,{startMs},50.0,12.5],[51.06,3.73,{startMs + 1000},55.0,18.0]]";
 
@@ -570,6 +1004,28 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     private static string Segment(long firstMs, long lastMs) =>
         $"[[51.05,3.72,{firstMs},50.0,12.5],[51.06,3.73,{lastMs},55.0,18.0]]";
 
+    /// <summary>The instants of this rider's stored track points, ascending.</summary>
+    private async Task<List<long>> StoredInstants(HttpClient client)
+    {
+        var me = await client.GetFromJsonAsync<JsonElement>("/api/me");
+        var id = me.GetProperty("id").GetGuid();
+
+        await using var db = postgres.CreateContext();
+        return await db.TrackPoints
+            .Where(p => p.UserId == id)
+            .OrderBy(p => p.TimestampMs)
+            .Select(p => p.TimestampMs)
+            .ToListAsync();
+    }
+
+    /// <summary>A line with one sample per instant, in the client's number format.</summary>
+    private static string Points(params long[] instants) =>
+        $"[{string.Join(',', instants.Select(t => $"[51.05,3.72,{t},50.0,12.5]"))}]";
+
+    /// <summary>A trip that recorded an end, so it has a window to delete.</summary>
+    private static object Ride(long startTimeMs, long endTimeMs) =>
+        new { startTimeMs, endTimeMs, mode = "motorcycle", distanceMeters = 1_000.0, topSpeedKmh = 80.0 };
+
     private sealed record SyncPayload(
         IReadOnlyList<JsonElement> Trips,
         IReadOnlyList<long> DeletedTripStartTimes,
@@ -578,7 +1034,8 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
         IReadOnlyList<JsonElement> SavedRoutes,
         IReadOnlyDictionary<string, long> Badges,
         IReadOnlyList<SyncedTitle> TripTitles,
-        bool ShareFog);
+        bool ShareFog,
+        IReadOnlyList<long> DeletedSavedRouteIds);
 
     private sealed record SyncedTitle(long StartTimeMs, string Title, long EditedAtMs);
 }

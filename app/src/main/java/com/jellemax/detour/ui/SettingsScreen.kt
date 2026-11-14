@@ -90,6 +90,7 @@ import com.jellemax.detour.data.RoutingEncodedValue
 import com.jellemax.detour.data.RoutingSupport
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.presentation.formatFixed
+import com.jellemax.detour.ui.settings.DimMapWhenIdleRow
 import com.jellemax.detour.ui.settings.LicencesScreen
 import com.jellemax.detour.ui.settings.ProblemReportScreen
 import com.jellemax.detour.data.SyncClient
@@ -725,6 +726,7 @@ private fun MapSection() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OfflineTilesRow()
+        DimMapWhenIdleRow()
     }
 }
 
@@ -1212,8 +1214,8 @@ private fun LeanCalibrationSection() {
                 override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
             }
             sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
-            delay(2000)
-            sensorManager.unregisterListener(listener)
+            // finally: leaving Settings cancels the effect at the delay (#897).
+            try { delay(2000) } finally { sensorManager.unregisterListener(listener) }
             status = if (samples.isNotEmpty()) {
                 val avg = samples.average()
                 Settings.setLeanOffsetDeg(avg.toFloat())

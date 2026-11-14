@@ -128,6 +128,13 @@ internal object AccountFiles {
         return true
     }
 
+    /** Whether some account already owns data under [root] — [adopt]'s own
+     *  refusal test, for [HereKeySync]'s one-time upgrade (#905). */
+    fun hasAccountBucket(fs: FileSystem, root: Path): Boolean {
+        val accounts = root / AccountScope.ACCOUNTS_DIR
+        return fs.exists(accounts) && fs.list(accounts).any { it.isAccountBucket(fs) }
+    }
+
     /** Whether [this] is some other account's bucket, as opposed to anything
      *  else that has turned up in `accounts/`.
      *
@@ -170,6 +177,28 @@ internal object AccountFiles {
         val adopted = adopt(fs, root, key)
         AccountScope.set(key)
         return adopted
+    }
+
+    /**
+     * Erases the bucket of an account that no longer exists (#700): its trips,
+     * traces, badges, saved places and routes, everything [SCOPED_NAMES] lists.
+     *
+     * Only ever a real account bucket. [AccountScope.ANONYMOUS] is refused
+     * because it holds rides recorded with nobody signed in, which belong to
+     * whoever holds the phone and not to the account being deleted; anything
+     * else that is not a bucket name is refused for the reason
+     * [isAccountBucket] gives. A refused or absent bucket returns `false` and
+     * touches nothing.
+     *
+     * The caller must have moved the scope off [key] first ([Auth.clear]
+     * does), or the next store write recreates the directory this just
+     * removed.
+     */
+    fun discard(fs: FileSystem, root: Path, key: String): Boolean {
+        val bucket = root / AccountScope.ACCOUNTS_DIR / key
+        if (!bucket.isAccountBucket(fs)) return false
+        fs.deleteRecursively(bucket)
+        return true
     }
 
     /** Puts the [migrated] guard back, so a test that ran [migrate] does not

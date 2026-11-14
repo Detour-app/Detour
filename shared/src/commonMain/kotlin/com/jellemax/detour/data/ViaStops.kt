@@ -13,9 +13,26 @@ package com.jellemax.detour.data
  * planned route the same way.
  *
  * A saved spin loop is not ridden through this: it has its own join choice
- * ([SavedSpins.loopRoutingPoints]) and no destination to arrive at.
+ * ([SavedSpins.loopRoutingPoints]) and no destination to arrive at. Its line
+ * is still placed forward only ([follow], when [closes] says so), for the
+ * same reason a round trip is (#921).
  */
 object ViaStops {
+
+    /** How near a line's last point may be to its first for [closes]. GPS and
+     *  road-snap noise keep the two ends of one loop apart by metres; at this
+     *  distance a fix near the start is already as near the end. */
+    const val CLOSED_WITHIN_METERS = 100.0
+
+    /**
+     * True when [line] ends where it starts: a loop from the rider, round or
+     * out-and-back ("Loop via here", #921). Every point of such a line is near
+     * another leg's at the start, so a global nearest-point snap on the first
+     * fix can land on the way back and guide at "0 m, arrive"; it is placed
+     * with [follow] instead, like a line through stops.
+     */
+    fun closes(line: List<LatLon>): Boolean =
+        line.size >= 2 && NavEngine.lengthMeters(listOf(line.first(), line.last())) <= CLOSED_WITHIN_METERS
 
     /**
      * The stops Go routes through on the way to [route]'s last one: all but

@@ -22,6 +22,9 @@ public static class DetourLimits
     /// <summary>Keycloak subject identifiers are UUIDs today; sized for an opaque issuer id.</summary>
     public const int SubjectMaxLength = 128;
 
+    /// <summary>A HERE API key is about 43 characters; this leaves room without inviting abuse.</summary>
+    public const int HereTrafficKeyMaxLength = 256;
+
     // --- badges -------------------------------------------------------------------------
     public const int MaxBadgesPerUser = 200;
     public const int BadgeIdMaxLength = 40;
@@ -162,6 +165,26 @@ public static class DetourLimits
 
     /// <summary>A regroup pin's label is a place name, read off a banner at a glance.</summary>
     public const int RegroupPinLabelMaxLength = 80;
+
+    // --- deleted rides ------------------------------------------------------------------
+
+    /// <summary>
+    /// Longest span the server believes of a deleted ride (#877). A trip's times come from the
+    /// device's wall clock, so a clock correction mid-ride can make one look years long, and
+    /// removing that span would take the rider's other rides with it. Longer than this, the ride
+    /// still counts as deleted but its location stays. The cost is a real ride this long keeping
+    /// its location, which is the recoverable side of that choice.
+    /// </summary>
+    public static readonly TimeSpan MaxDeletedRideWindow = TimeSpan.FromHours(48);
+
+    /// <summary>
+    /// The longest silence inside one ride, for inferring where a deleted ride ended when nothing
+    /// recorded it (#895). Client/server mirror: <c>TripTrackingService.STATIONARY_END_MS</c> in
+    /// <c>app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt</c> ends a ride
+    /// after 5 min stationary, and the 25 m decimation records no point while stationary, so a
+    /// longer gap between two points is a gap between two rides. Change both together.
+    /// </summary>
+    public static readonly TimeSpan DeletedRideGap = TimeSpan.FromMinutes(5);
 
     // --- dashboard ----------------------------------------------------------------------
     public const int MaxDashboardRides = 500;

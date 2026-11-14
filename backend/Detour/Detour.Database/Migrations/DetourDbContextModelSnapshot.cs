@@ -1098,6 +1098,10 @@ namespace Detour.Database.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("client_route_id");
 
+                    b.Property<long>("EditedAtMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("edited_at_ms");
+
                     b.Property<string>("Payload")
                         .IsRequired()
                         .HasColumnType("jsonb")
@@ -1119,6 +1123,34 @@ namespace Detour.Database.Migrations
                         .HasDatabaseName("ix_saved_routes_user_id_client_route_id");
 
                     b.ToTable("saved_routes", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Routes.SavedRouteTombstone", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long>("ClientRouteId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("client_route_id");
+
+                    b.Property<DateTimeOffset>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_saved_route_tombstones");
+
+                    b.HasIndex("UserId", "ClientRouteId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_saved_route_tombstones_user_id_client_route_id");
+
+                    b.ToTable("saved_route_tombstones", "detour");
                 });
 
             modelBuilder.Entity("Detour.Domain.Routes.SharedRoute", b =>
@@ -1221,6 +1253,36 @@ namespace Detour.Database.Migrations
                         .HasDatabaseName("ix_traces_user_id_line_hash");
 
                     b.ToTable("traces", "detour");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Traces.TraceTombstone", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("LineHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("line_hash");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_trace_tombstones");
+
+                    b.HasIndex("UserId", "LineHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_trace_tombstones_user_id_line_hash");
+
+                    b.ToTable("trace_tombstones", "detour");
                 });
 
             modelBuilder.Entity("Detour.Domain.Traces.TrackPoint", b =>
@@ -1357,6 +1419,10 @@ namespace Detour.Database.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 
+                    b.Property<DateTimeOffset?>("TraceSweptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("trace_swept_at");
+
                     b.Property<long>("TripStartTimeMs")
                         .HasColumnType("bigint")
                         .HasColumnName("trip_start_time_ms");
@@ -1419,6 +1485,10 @@ namespace Detour.Database.Migrations
                         .HasMaxLength(254)
                         .HasColumnType("citext")
                         .HasColumnName("email");
+
+                    b.Property<string>("HereTrafficKeyProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("here_traffic_key_protected");
 
                     b.Property<bool>("IsAdministrator")
                         .ValueGeneratedOnAdd()
@@ -1688,6 +1758,16 @@ namespace Detour.Database.Migrations
                         .HasConstraintName("fk_saved_routes_users_user_id");
                 });
 
+            modelBuilder.Entity("Detour.Domain.Routes.SavedRouteTombstone", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_saved_route_tombstones_users_user_id");
+                });
+
             modelBuilder.Entity("Detour.Domain.Routes.SharedRoute", b =>
                 {
                     b.HasOne("Detour.Domain.Users.User", null)
@@ -1713,6 +1793,16 @@ namespace Detour.Database.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_traces_users_user_id");
+                });
+
+            modelBuilder.Entity("Detour.Domain.Traces.TraceTombstone", b =>
+                {
+                    b.HasOne("Detour.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_trace_tombstones_users_user_id");
                 });
 
             modelBuilder.Entity("Detour.Domain.Traces.TrackPoint", b =>

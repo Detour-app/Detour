@@ -106,10 +106,18 @@ object TripStore {
 
     private const val FILE_NAME = "trips.json"
     private const val DELETED_FILE_NAME = "deleted_trips.json"
+    private const val DELETED_WINDOWS_FILE_NAME = "deleted_trip_windows.json"
     private const val EDITED_FILE_NAME = "edited_modes.json"
+
+    /** Longest ride whose window is removed, here and on the server, the same cap
+     *  it applies itself (`DetourLimits.MaxDeletedRideWindow`). The times are wall clock,
+     *  so a clock correction mid-ride can make one look years long, and that
+     *  span would take later rides' location with it on every sync (#877). */
+    internal const val MAX_DELETED_WINDOW_MS = 48L * 60 * 60 * 1000
 
     fun save(trip: Trip) {
         val t = Perf.start()
+        setAsideIfUnreadable()
         val existing = load()
         writeAll(listOf(trip) + existing)
         // Before recordSaved, so the number is this function's own cost — a full
@@ -128,6 +136,7 @@ object TripStore {
      * server echoes the same mode back, the override clears itself.
      */
     fun updateMode(startTimeMs: Long, mode: TravelMode) {
+        setAsideIfUnreadable()
         val trips = load()
         if (trips.none { it.startTimeMs == startTimeMs }) return
         val overrides = modeOverrides()
@@ -152,6 +161,7 @@ object TripStore {
      * one.
      */
     fun updateDrivingStats(startTimeMs: Long, drivingStats: DrivingStats) {
+        setAsideIfUnreadable()
         val trips = load()
         if (trips.none { it.startTimeMs == startTimeMs }) return
         writeAll(trips.map { if (it.startTimeMs == startTimeMs) it.copy(drivingStats = drivingStats) else it })
@@ -164,21 +174,41 @@ object TripStore {
      * sync. Tombstones are honoured in [replaceRaw].
      *
      * Its trace goes with it (owner decision on #696), which is what shrinks the
-     * fog and the coverage percentages it fed.
+     * fog and the coverage percentages it fed. The window is kept for the server,
+     * which has nothing else to find the trace by if it never got the ride's row
+     * (#877), so it is written before the trip that knows it goes.
+     *
+     * A ride with an implausible span ([isPlausibleRide]) keeps its trace and
+     * records no window: that span would cut every later ride out of the file.
      */
     fun delete(startTimeMs: Long) {
+        setAsideIfUnreadable()
+        val trips = load()
+        val trip = trips.firstOrNull { it.startTimeMs == startTimeMs }
+        val window = trip?.takeIf { isPlausibleRide(it.startTimeMs, it.endTimeMs) }
+        if (window != null) writeDeletedWindows(deletedWindows() + (window.startTimeMs to window.endTimeMs))
         val tombstones = tombstones()
         tombstones.add(startTimeMs)
         writeTombstones(tombstones)
-        val trips = load()
         writeAll(trips.filterNot { it.startTimeMs == startTimeMs })
-        trips.firstOrNull { it.startTimeMs == startTimeMs }?.let {
-            TraceStore.removeWindow(it.startTimeMs, it.endTimeMs)
-        }
+        window?.let { TraceStore.removeWindow(it.startTimeMs, it.endTimeMs) }
         // The removed trip may have held the top speed, the longest ride or
         // the deepest lean, and a maximum cannot be walked backwards from the
         // record alone. A recompute is the only correct answer.
         RiderTotals.invalidate()
+    }
+
+    /**
+     * Keep a trips.json that does not parse instead of letting the next write
+     * replace it with a list built from [load]'s empty fallback (#694). The
+     * bytes land in `trips.json.unreadable-<ms>` for manual recovery; sync
+     * refills a signed-in rider's file from the server as before. Never throws
+     * on bad content: the callers run in a service scope with no handler. A
+     * failed read does throw and leaves the file alone, as [load] does anyway.
+     */
+    private fun setAsideIfUnreadable() {
+        val f = accountFile(FILE_NAME)
+        f.setAsideIfUnreadable(nowMs()) { decodeAll(it) }
     }
 
     private fun writeAll(trips: List<Trip>) {
@@ -323,6 +353,19 @@ object TripStore {
      *  out of the merge here. See [delete]. */
     fun deletedStartTimes(): Set<Long> = tombstones()
 
+    /** Start to end of each ride deleted on this device since windows were
+     *  recorded (#877). A ride deleted earlier, or only on another device, has
+     *  no entry. Uploaded with [deletedStartTimes]. */
+    fun deletedWindows(): Map<Long, Long> {
+        val f = accountFile(DELETED_WINDOWS_FILE_NAME)
+        if (!f.exists()) return emptyMap()
+        return try {
+            decodeDeletedWindows(f.readText())
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
     /** Fold rides deleted on another device into this one's tombstones (#778),
      *  so [replaceRaw] drops this device's copy and the next sync stops
      *  uploading it. Rewrites the file only when something is new. */
@@ -451,6 +494,24 @@ object TripStore {
 
     internal fun encodeTombstones(ids: Set<Long>): String =
         buildJsonArray { ids.forEach { add(it) } }.string()
+
+    private fun writeDeletedWindows(windows: Map<Long, Long>) {
+        accountFile(DELETED_WINDOWS_FILE_NAME).writeText(encodeDeletedWindows(windows))
+    }
+
+    /** Whether a deleted ride's span may be removed, here and on the server. When
+     *  it may not, the start tombstone alone records the deletion. */
+    internal fun isPlausibleRide(startTimeMs: Long, endTimeMs: Long): Boolean =
+        endTimeMs >= startTimeMs && endTimeMs - startTimeMs <= MAX_DELETED_WINDOW_MS
+
+    /** deleted_trip_windows.json: an object of startTimeMs (as a string key) → endTimeMs. */
+    internal fun decodeDeletedWindows(text: String): Map<Long, Long> {
+        val windows = jsonObjectOf(text)
+        return windows.keys.associate { it.toLong() to windows.optLong(it) }
+    }
+
+    internal fun encodeDeletedWindows(windows: Map<Long, Long>): String =
+        buildJsonObject { windows.forEach { (start, end) -> put(start.toString(), end) } }.string()
 
     /** Local vehicle-mode corrections, startTimeMs → mode name, pending until
      *  the server echoes them back. */

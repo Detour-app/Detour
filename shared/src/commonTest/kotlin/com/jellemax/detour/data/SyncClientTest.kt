@@ -74,6 +74,15 @@ class SyncClientTest {
         assertNull(SyncClient.shareFogFromServer(server = null, editsAtUpload = 0, editsNow = 0))
     }
 
+    // --- deletedTripWindows: a deleted ride with no server row (#877) -------
+
+    @Test
+    fun aDeletedRidesWindowUploadsInTheShapeTheServerReads() {
+        val uploaded = SyncClient.deletedTripWindows(mapOf(1000L to 2000L))
+
+        assertEquals(jsonArrayOf("""[{"startTimeMs":1000,"endTimeMs":2000}]"""), uploaded)
+    }
+
     // --- deletedTripStartTimes: rides deleted on another device (#778) ------
 
     @Test
@@ -102,5 +111,20 @@ class SyncClientTest {
         val merged = jsonObjectOf("""{"deletedTripStartTimes":[0,"x",3000]}""")
 
         assertEquals(setOf(3000L), SyncClient.deletedTripStarts(merged))
+    }
+
+    // --- deletedSavedRouteIds: routes deleted elsewhere (#910) ---------------
+
+    @Test
+    fun routeTombstonesAreReadFromTheResponse() {
+        val merged = jsonObjectOf("""{"savedRoutes":[],"deletedSavedRouteIds":[26,0,"x",27]}""")
+
+        assertEquals(setOf(26L, 27L), SyncClient.deletedRouteIds(merged))
+    }
+
+    @Test
+    fun aResponseWithoutRouteTombstonesAddsNone() {
+        // A server that predates #909 omits the field.
+        assertEquals(emptySet(), SyncClient.deletedRouteIds(jsonObjectOf("""{"savedRoutes":[]}""")))
     }
 }

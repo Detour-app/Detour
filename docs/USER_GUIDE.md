@@ -4,7 +4,7 @@ Everything the app does, from the outside. Nothing here needs a server unless a
 section says so.
 
 Building it or changing it is [DEVELOPERS.md](DEVELOPERS.md); the shape of the
-system is the [README](../README.md).
+system is [ARCHITECTURE.md](ARCHITECTURE.md).
 
 <sub>Every screenshot below was taken on a phone running a throwaway profile:
 synthetic trips, invented saved places and a mocked GPS position. Nothing in
@@ -538,7 +538,7 @@ The APKs published on the releases page are built by CI with **no** server
 configuration baked in, deliberately: a public release should not ship someone
 else's server address. That does not disable sign-in, only preconfigure it.
 
-Standing those services up is [../README.md](../README.md) and
+Standing those services up is [../docker/prod/README.md](../docker/prod/README.md) and
 [../backend/INSTALL.md](../backend/INSTALL.md).
 
 ## On the car screen
@@ -607,9 +607,17 @@ off until you paste a HERE API key into Settings → Navigation → HERE traffic
 it passes **Test key**. From then on Detour asks HERE directly — never through
 your Detour server — so HERE sees your IP address, your key (which ties the
 requests to your HERE account) and the area along the route you are navigating.
-The test itself asks about a fixed spot in Brussels, not where you are. The key
-is kept in the phone's secure storage and is not synced, backed up or exported;
-**Remove key** turns traffic off again.
+The test itself asks about a fixed spot in Brussels, not where you are. Signed
+in, the key is stored on your Detour server, encrypted, and your other phones
+pick it up on their next sync; the server operator can decrypt it. Signing out
+removes the key you saved while signed in from the phone. Signed out, a key
+stays in the phone's secure storage only, until the first account signs in on
+that phone: that account takes the key over and stores it on the server (a
+later account does not). A key already on the phone when you update to this
+version while signed in is uploaded the same way. It is never backed up or
+exported.
+**Remove key** turns traffic off again — signed in, on every phone of the
+account.
 
 **Android backup copies your trips to Google Drive.** Detour opts in to
 Android's automatic backup, so if backup is on for your phone, your trips and

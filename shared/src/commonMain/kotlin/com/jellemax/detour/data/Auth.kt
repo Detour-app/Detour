@@ -256,7 +256,12 @@ object Auth {
             )
         }
         store(response, establishesSession = true)
+        // After the store, so the slots already read as signed in; before the
+        // reconcile, so a first rider's signed-out key is what it compares. Also
+        // wipes whatever an earlier session left in the account slot (#905).
+        HereKeySync.startAccount()
         resolveRiderId()
+        HereKeySync.reconcile()
     }
 
     /**
@@ -444,6 +449,8 @@ object Auth {
         // Same write, not a later one: a signed-out install that still answers
         // to a departed rider's id is #73 with a new field to carry it.
         Settings.setRiderId("")
+        // The account's HERE key leaves with the session; a signed-out key stays (#905).
+        HereKeySync.clearAccount()
         // A departed rider's failed resolve must not suppress the next rider's:
         // without this reset, signing in again after a `/me` failure would keep
         // skipping [resolveRiderId] for a session that never actually tried.
@@ -495,9 +502,10 @@ object Auth {
      * have rotated by the time the client gives up on the reply. [resolveRiderId]
      * stays outside: it is a separate request with nothing to lose to a cancel.
      *
-     * This is the one `withContext` in `commonMain` (architecture.md §2.1): it
-     * picks no dispatcher, only shields the block from its caller's cancellation,
-     * and the caller's dispatcher still runs it.
+     * Like the other `withContext(NonCancellable)` in `commonMain`
+     * ([Account.deleteAccount]), it picks no dispatcher (architecture.md §2.1),
+     * only shields the block from its caller's cancellation, and the caller's
+     * dispatcher still runs it.
      */
     private suspend fun refresh(): String {
         withContext(NonCancellable) { postRefreshAndStore() }

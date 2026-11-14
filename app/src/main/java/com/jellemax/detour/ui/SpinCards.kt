@@ -163,6 +163,17 @@ internal fun loopMinutesSetting(mode: TravelMode): Float? {
 internal fun loopLengthKm(timedMinutes: Float?, radiusKm: Float): Double =
     timedMinutes?.let { LoopDuration.guessMeters(it) / 1000.0 } ?: radiusKm.toDouble()
 
+/** The result card's two actions on a landed loop or pick, grouped so the
+ *  spin sheet and `MapBottomSlot` take one value for both
+ *  (`docs/guidelines/boundaries.md` §8.4). */
+internal data class LoopResultActions(
+    /** The card's Re-spin; null hides it. On a "Loop via here" loop (#889)
+     *  it rebuilds through the same pin (#922), not an unrelated random roll. */
+    val onRespin: (() -> Unit)?,
+    /** Keeps the loop on screen in Routes (#589); null when there is none. */
+    val onSave: (() -> Unit)?,
+)
+
 /** The spin sheet: everything the home sheet's Spin chip expands into. Same
  *  glass card the home sheet uses, just taller — a drag-handle bar stands in
  *  for an actual drag gesture, tap it (or the chevron) to fold back to the
@@ -190,8 +201,7 @@ internal fun SpinSheet(
     onCollapse: () -> Unit,
     onNavigateInApp: () -> Unit,
     onNavigate: () -> Unit,
-    // Keeps the loop on screen in Routes (#589); null when there is none.
-    onSaveLoop: (() -> Unit)?,
+    loop: LoopResultActions,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -455,7 +465,7 @@ internal fun SpinSheet(
             // lines of text. Hidden while a spin runs: spin() only clears the
             // previous destination/route once its network work returns, so the
             // row would otherwise keep advertising the last result as if it
-            // were the pending one - and its Re-spin shares onSpin with the
+            // were the pending one - and its Re-spin is normally onSpin, the
             // button below, which toggles to Cancel while spinning. With the
             // gate, Re-spin only renders when onSpin still rolls.
             // A loop also says how long it rides — the number a time-sized
@@ -475,12 +485,12 @@ internal fun SpinSheet(
                 ResultCallout(
                     title = destinationName ?: stringResource(R.string.spin_loop_found),
                     subtitle = resultDistance,
-                    onRespin = onSpin,
+                    onRespin = loop.onRespin,
                     bends = bends,
                 )
             }
-            if (!spinning && onSaveLoop != null) {
-                OutlinedButton(onClick = onSaveLoop, modifier = Modifier.fillMaxWidth()) {
+            if (!spinning && loop.onSave != null) {
+                OutlinedButton(onClick = loop.onSave, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.BookmarkAdd, contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.save_spin_loop))

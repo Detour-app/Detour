@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -161,6 +162,16 @@ class ViaStopsTest {
         assertTrue(forward.remainingMeters < 40.0, "remaining ${forward.remainingMeters} m at the door")
         val global = NavEngine.progress(route, home)!!
         assertTrue(global.remainingMeters > 6000.0, "the global snap's answer, the bug: ${global.remainingMeters}")
+    }
+
+    /** #921: an out-and-back from the rider ends where it starts, and so does
+     *  a round loop; a line to somewhere else does not. */
+    @Test
+    fun aLineClosesWhenItEndsWhereItStarts() {
+        assertTrue(ViaStops.closes(road(5.0, 5.3) + road(5.3, 5.0)))
+        assertTrue(ViaStops.closes(road(5.0, 5.3) + LatLon(52.0005, 5.0)))
+        assertFalse(ViaStops.closes(road(5.0, 5.3)))
+        assertFalse(ViaStops.closes(listOf(home)))
     }
 
     private companion object {

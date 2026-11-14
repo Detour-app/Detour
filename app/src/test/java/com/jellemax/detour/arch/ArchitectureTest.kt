@@ -120,16 +120,23 @@ class ArchitectureTest {
             // +11: #649 the break/regroup controls' call site (the controls live in MapBreakRegroup.kt)
             // +3: #647 convoy gap voice and banner (both in MapConvoyGap.kt)
             // +1: #590 FollowedRoute import (the claim is on the existing recordTrip line)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1463,
+            // +4: #902 the idle dim's touch holder, its call and their two imports (both in ui/map/MapIdleDimmer.kt)
+            // +19: #921 "Loop via here" through spin(), the pin's PinActions/LoopResultActions call sites
+            // +1: #922 loopViaPinKept import (guard body in map/TurnaroundRun.kt)
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1482,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             // +7: #823 problem-report spoke's title, dispatch and the onNavigate the Diagnostics row needs
             // (the screen is ui/settings/ProblemReportScreen.kt)
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1285,
+            // +2: #902 dim-when-idle row and its import (body in ui/settings/DimMapWhenIdleRow.kt)
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1287,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             // +10: #653 traffic layers held and refilled on a replacement surface, as cameras are
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1016,
+            // +11: #902 dimMapWhenIdle (flow, load, setter), 9 over the limit; one bag of
+            // independent prefs with no second owner to hand a slice to yet
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt" to 1009,
         )
         assertUnderLimit(1000, pinned, files.associate { it.rel to it.text.count { c -> c == '\n' } })
     }
@@ -142,11 +149,11 @@ class ArchitectureTest {
     fun `shared functions stay under 100 lines - section 8`() {
         val pinned = mapOf(
             // -7: #778 moved the trip write-back into writeBackTrips
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#syncLocked" to 107,
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt#syncLocked" to 104,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 150,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
-            // +3: #587 the three graph-dependent avoid options
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 104,
+            // +3: #587 the three graph-dependent avoid options; +1: #902 dim_map_when_idle
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 105,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#attempt" to 105,
         )
         val sizes = files.filter { it.rel.startsWith("shared/") }

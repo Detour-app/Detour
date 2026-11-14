@@ -32,7 +32,7 @@
 <body>
 
 <h1>Privacy Policy — Detour</h1>
-<p class="updated">Last updated: 12 October 2026</p>
+<p class="updated">Last updated: 10 November 2026</p>
 
 <p>Detour is an Android app that picks a random road destination within a radius
 you choose, routes you to it, and records the ride. This policy explains what
@@ -119,8 +119,14 @@ is listed below is sent:</p>
       to test it when you tap Test key, and later the areas along a route you
       are navigating. HERE sees your IP address, your key (which identifies
       your HERE account) and those areas, under HERE's own privacy policy.
-      The key stays on your phone: it is not synced, backed up or exported.
-      With no key, nothing is sent to HERE.</li>
+      Signed in to a Detour server, the key is also stored on that server,
+      encrypted, so your other phones get it; the server operator can decrypt
+      it. Signing out removes the key you saved while signed in from the
+      phone. Signed out, a key stays on the phone only, until the first
+      account signs in on that phone: that account takes the key over and
+      stores it on the server (a later account does not). A key already on
+      the phone when you update to this version while signed in is uploaded
+      the same way. It is never backed up or exported. With no key, nothing is sent to HERE.</li>
   <li><strong>Handing off navigation</strong> — if you choose to open a
       destination in Google Maps, Waze or another app, the destination
       coordinates are passed to that app, which is then governed by its own
@@ -172,6 +178,12 @@ governed by that operator rather than by this app.</p>
       and friend list, so that a reinstall restores them. A saved route is
       uploaded with its stops (which can include your home or work) and its
       full path, as are routes a friend has shared with you.</li>
+  <li>Your HERE traffic key, if you enter one while signed in, so your other
+      phones can use it. A key entered signed out goes too when the first
+      account signs in on that phone, as does a key already on the phone when
+      a signed-in rider updates to this version. The server stores it encrypted and never shows it to
+      friends or in any administrator view, but its operator holds the
+      decryption key and can read it.</li>
   <li>Your explored area is shared with an accepted friend only if you turn on
       <em>Share fog with friends</em>, which is off by default and strictly
       reciprocal. Friends otherwise see only totals and badges — never your
@@ -233,7 +245,7 @@ Push-to-talk is currently switched off, so no audio is captured at all.</p>
   <li>No user profiling for advertising purposes.</li>
 </ul>
 
-<h2>Deleting your data</h2>
+<h2 id="deleting">Deleting your data</h2>
 <ul>
   <li><strong>On the device</strong> — delete individual trips from the history
       list, wipe your explored area with Settings &rarr; Fog of war &rarr; Reset
@@ -242,12 +254,16 @@ Push-to-talk is currently switched off, so no audio is captured at all.</p>
       copy in your Google account. Delete it under Google One / Google Drive
       &rarr; Backups (the backup for this phone), or turn backup off in Android
       settings so no new copy is made (see <a href="#backup">Android backup</a>).</li>
-  <li><strong>On a sync server</strong> — ask the administrator of that server
-      to remove your account, which deletes every row belonging to it: trips,
-      traces, saved places, saved and shared routes, badges, friendships and group
-      memberships.
+  <li><strong>On a sync server</strong> — in the app, open You &rarr; Profile
+      &amp; account &rarr; Delete account. That deletes every row belonging to
+      your account on that server: trips, traces, saved places, saved and shared
+      routes, badges, friendships and group memberships, and erases the
+      account's copies on the phone. Without the app, ask the administrator of
+      that server to remove your account; see
+      <a href="delete-account.html">Delete your Detour account</a> for both
+      paths.
       Your sign-in details live with that server's identity provider and are
-      removed there separately.</li>
+      removed there separately, by its administrator.</li>
 </ul>
 
 <h2>Children</h2>

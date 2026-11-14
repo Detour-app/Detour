@@ -140,6 +140,24 @@ can remove the sign-in. Best effort: an unreachable or failing webhook is
 logged, never a failed delete. Until the realm user is removed, signing in again
 starts a new, empty account.
 
+A signed-in rider's HERE traffic key (issue #802) is stored on their account,
+encrypted with the server's Data Protection key ring (purpose
+`Detour.HereTrafficKey.v1`). The operator holding the ring can decrypt it; a
+database dump without the ring cannot. It is never part of the profile, the
+sync payload, a log line or an administrator view, and it goes with the account
+when the account is deleted.
+
+- `GET /api/me/here-key` — `200 {"key":"…"}`, or `204` when none is stored. A
+  stored key that no longer decrypts (ring lost or replaced) answers
+  `200 {"key":null,"unreadable":true}` and stays stored until the next `PUT` or
+  `DELETE` overwrites it; a phone still holding the key puts it back.
+- `PUT /api/me/here-key` `{"key":"…"}` — `204`. Trimmed, then 1 to 256
+  characters, else `400`.
+- `DELETE /api/me/here-key` — `204`, whether or not a key was stored.
+
+A server older than this answers `404`; a client treats that as "this server
+does not sync keys" and keeps the key on the phone.
+
 ## 5. Device synchronisation
 
 One capability performs a **bidirectional merge** of everything the device
@@ -151,9 +169,12 @@ Accepted from the device (all optional):
 | Payload | Merge rule |
 |---|---|
 | Trips | Keyed on (owner, start instant). A re-upload **replaces** the stored copy, so an edit — a corrected vehicle mode — propagates rather than being ignored. |
-| Deleted trips | Start instants the device has deleted. The stored trip is removed and a **tombstone** (start instant, deleted-at) is kept in its place (#778). A trip whose start is tombstoned — in this request or any earlier one — is never stored again, so a second device still holding it cannot bring it back by uploading it. |
-| Traces | Deduplicated on content. A genuinely new line is additionally unpacked into track points; a line already held is not re-unpacked, because every sync re-sends the whole history. |
+| Deleted trips | Start instants the device has deleted. The stored trip is removed and a **tombstone** (start instant, deleted-at) is kept in its place (#778). A trip whose start is tombstoned — in this request or any earlier one — is never stored again, so a second device still holding it cannot bring it back by uploading it. The ride's location goes too (#780): the track points in its `[start, end]` window, and every trace line with a point in that window. A line straddling the window is replaced by one line per run of at least two surviving points. A ride with no recorded end has no window and keeps its points, except a ride tombstoned before #895 deployed: a once-only server pass gives it one inferred window, from its start to its last point before a gap longer than `DetourLimits.DeletedRideGap` (5 min, the app's stationary auto-end), the next ride's start, or 48 h. It needs a point within 5 min of the start, and runs under the same per-rider lock as a sync. |
+| Deleted trip windows | The `[start, end]` of each ride the device deleted and knew the end of, re-sent on every sync (#877). Each also counts as a deletion of its start. It removes the ride's location the same way when the server has no row for the ride, and whenever a stored sample is inside it, so a line arriving after the deletion goes too. A window past `DetourLimits.MaxDeletedRideWindow` (48 h) or ending before it starts removes no location, and neither does a deleted row with such a span: wall-clock times can make a ride look years long, and removing that span would take later rides with it. A ride deleted before the device recorded windows has none: with its row also gone, nothing says where it ended. If it was tombstoned before #895 deployed, the inferred window in the row above removes it; otherwise its location stays. |
+| Traces | Deduplicated on content. A genuinely new line is additionally unpacked into track points; a line already held is not re-unpacked, because every sync re-sends the whole history. A line removed with a deleted ride leaves a **trace tombstone** (its content hash, deleted-at; no positions) and is ignored on upload, so a device still holding it cannot bring it back; absent from the response, it drops off that device too. |
 | Saved places | Keyed on the client-assigned identifier; a rename replaces the stored copy. |
+| Saved routes | Keyed on the client-assigned identifier, each with the instant it was last edited (`editedAtMs`, #909). The **newest** stamp wins; an equal stamp replaces the stored copy. An upload without a stamp counts as 0, so it replaces only an unstamped copy and never undoes an edit stamped elsewhere (the web planner, #636). |
+| Deleted saved routes | Identifiers the device has deleted, re-sent on every sync. The stored route is removed and a **tombstone** (identifier, deleted-at) is kept in its place (#909). A route whose identifier is tombstoned — in this request or any earlier one — is never stored again, so a device still holding it cannot bring it back. A deleted identifier cannot be reused for a new route. |
 | Badges | The **earliest** earned instant wins, so a reinstall cannot move a date forward. |
 | Ride titles | Keyed on (owner, start instant), each with the instant it was edited. The **newest** edit wins, a tie keeps the stored copy, and an empty title is kept as a tombstone so a cleared rename does not come back from a device still holding the old one. |
 | Aggregate stats | Absent means "no update", not "clear" — a client that syncs only trips must not blank the numbers its friends read. |
@@ -176,10 +197,33 @@ Validation:
   ride.
 
 Returned: the merged union of trips (newest first), traces, badges, saved
-places and ride titles, and every deleted trip's start instant. A device adds
-those to its own tombstones, which drops its copy of each ride and stops it
-uploading them; an older client that ignores the field still loses the ride,
+places, saved routes and ride titles, plus every deleted trip's start instant
+and every deleted saved route's identifier. A device adds those to its own
+tombstones, which drops its copy of each ride or route and stops it uploading
+them; an older client that ignores those fields still loses the ride or route,
 because the server no longer returns it.
+
+### 5.1 Saved routes one at a time
+
+The web planner (#636) reads and writes the same saved-route rows as the sync
+merge, one route at a time (#912), under the same rules:
+
+- **List** returns the caller's route documents exactly as stored, ascending by
+  identifier. Deleted routes are not listed.
+- **Put** stores one route document under its identifier. Stricter than sync,
+  which takes whatever a phone holds: the document's own identifier must be the
+  one it is stored under, it needs an edit stamp above 0, at least two stops (a
+  phone drops a route with fewer) and a mode (any name: a phone reads one it
+  does not know as a car), and the route payload cap. A breach is a **400**. The
+  newest stamp wins as in sync; a stamp older than the stored copy's is a
+  **409** carrying the stored copy, so a phone's newer edit is never
+  overwritten. A tombstoned identifier is a **410** and is not stored again.
+- **Delete** removes the stored route and keeps a tombstone, exactly as a
+  deletion uploaded by sync, so every device drops the route on its next sync.
+  Idempotent, including for an identifier never stored.
+
+Both writes take the same per-rider lock as a sync, so a planner write and a
+phone's merge of the same route run one after the other.
 
 ## 6. Friends
 
@@ -557,7 +601,7 @@ than anything a rider stored:
 | Action | Rules |
 |---|---|
 | Overview | Per account: handle, address, administrator flag, fog-sharing flag, created and last-seen instants, **counts** of trips, traces, badges and dashboard keys, and total distance. No trip, trace, place or route content is readable, and no capability exists that would make it readable. |
-| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places, keys, feature-flag overrides and problem reports. Removing the rider from the realm is a separate act. |
+| Delete an account | Refused for the caller's own account. Deletes the account **and every row it owns**: trips, trip, trace and saved-route tombstones, ride titles, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places, keys, feature-flag overrides and problem reports. Removing the rider from the realm is a separate act. |
 | Revoke dashboard keys | All API keys for one account — the lost-device remedy for the one credential the realm does not issue. Does not touch the rider's session, which is the realm's to end. |
 | Feature flags | `GET /api/admin/flags` lists every default (with when it last changed) and every per-account override with the account's id and handle. `PUT /api/admin/flags/{key}` with `{"enabled": …}` sets a default, creating the flag; `DELETE` removes it and its overrides. `PUT`/`DELETE /api/admin/flags/{key}/accounts/{accountId}` sets or removes one account's override; the flag and the account must exist (404), `accountId` being the id the overview returns. A key that doesn't match §15.10's pattern is a 400. Flags are not rider content, so invariant 9 still holds. |
 | List problem reports | `GET /api/admin/problem-reports?filed=false&limit=50&after=<id>`, oldest first (§15.11). The full report — device, note, stack trace, event log — with no user id or username; `reporter` stands in for the account. |
@@ -574,7 +618,7 @@ calls them directly, not through the API, so that boundary is unchanged.
 (`docker-compose.routing.yml`, `docker-compose.search.yml`); they run as separate
 containers on their own upgrade cadence, and the API neither proxies nor depends
 on them. See [`backend/INSTALL.md`](../backend/INSTALL.md#routing-and-search) for
-what each costs to run and [README.md](../README.md#every-service-and-what-it-is-for)
+what each costs to run and [ARCHITECTURE.md](ARCHITECTURE.md#every-service-and-what-it-is-for)
 for what breaks in the app without them.
 
 | Service | Function |

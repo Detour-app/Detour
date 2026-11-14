@@ -59,7 +59,7 @@ object SyncClient {
         // Inside the lock, so a launch sync queued behind another sees the
         // stamp that one just wrote.
         if (nowMs() - Settings.lastSyncMs() < AUTO_SYNC_MIN_INTERVAL_MS) null else syncRecorded()
-    }
+    }?.also { HereKeySync.reconcile() }
 
     /**
      * `@Throws(Exception::class)`, here and on every other exported `suspend`
@@ -110,6 +110,9 @@ object SyncClient {
      */
     @Throws(Exception::class)
     suspend fun sync(): SyncResult = syncLock.withLock { syncRecorded() }
+        // Outside the lock: the HERE key has its own (HereKeySync.reconcile), and
+        // a sign-in reconciles without ever holding this one (#905).
+        .also { HereKeySync.reconcile() }
 
     /** One sync, with its failure recorded in [EventLog] before it reaches the
      *  caller. Cancellation is not a failure and is not recorded. */
@@ -168,10 +171,7 @@ object SyncClient {
         val uploadedRoutes = RouteStore.forUpload()
         val payload = buildJsonObject {
             put("trips", uploadedTrips)
-            // Deletions the server has not seen yet. Without them its copy comes
-            // back in the merge and only this device's own tombstone filter
-            // hides it — every other device would resurrect the trip.
-            put("deletedTripStartTimes", buildJsonArrayOfLongs(TripStore.deletedStartTimes()))
+            putTripDeletions()
             put("traces", buildJsonArrayOfStrings(uploadedLines))
             put("badges", jsonObjectOf(BadgeStore.rawJson()))
             put("tripTitles", TripTitleStore.toUpload(TripTitleStore.loadEntries()))
@@ -260,12 +260,23 @@ object SyncClient {
     private fun writeBackOptional(merged: JsonObject, fogEditsAtUpload: Int, uploadedRoutes: List<SavedRoute>?) {
         merged.optArray("savedPlaces")?.let { SavedPlaces.replaceFromServer(it.string()) }
         if (uploadedRoutes != null) {
+            // Before the routes, as for trips: a route deleted elsewhere is
+            // dropped by replaceFromServer's tombstone filter (#910).
+            RouteStore.addTombstones(deletedRouteIds(merged))
             merged.optArray("savedRoutes")?.let { RouteStore.replaceFromServer(it, uploadedRoutes) }
         }
         merged.optArray("tripTitles")?.let { TripTitleStore.mergeFromServer(TripTitleStore.fromServer(it)) }
         val serverFog = (merged["shareFog"] as? JsonPrimitive)?.booleanOrNull
         shareFogFromServer(serverFog, fogEditsAtUpload, Settings.shareFogEdits())
             ?.let(Settings::adoptServerShareFog)
+    }
+
+    /** Deletions the server has not seen yet. Without them its copy comes back
+     *  in the merge and only this device's own tombstone filter hides it — every
+     *  other device would resurrect the trip. */
+    private fun JsonObjectBuilder.putTripDeletions() {
+        put("deletedTripStartTimes", buildJsonArrayOfLongs(TripStore.deletedStartTimes()))
+        put("deletedTripWindows", deletedTripWindows(TripStore.deletedWindows()))
     }
 
     /** The shortcuts and saved routes, and the ones removed here — the latter
@@ -298,11 +309,30 @@ object SyncClient {
     internal fun shareFogFromServer(server: Boolean?, editsAtUpload: Int, editsNow: Int): Boolean? =
         server.takeIf { editsAtUpload == editsNow }
 
+    /** The `deletedTripWindows` upload: how the server finds the trace of a
+     *  deleted ride it holds no row for (#877). */
+    internal fun deletedTripWindows(windows: Map<Long, Long>) = buildJsonArray {
+        for ((start, end) in windows) {
+            add(buildJsonObject {
+                put("startTimeMs", start)
+                put("endTimeMs", end)
+            })
+        }
+    }
+
     /** The rides this rider deleted on any device, from the server's answer
      *  (#778). Empty from an older server that omits the field. */
     internal fun deletedTripStarts(merged: JsonObject): Set<Long> {
         val starts = merged.optArray("deletedTripStartTimes") ?: return emptySet()
         return starts.indices.mapNotNullTo(HashSet()) { i -> starts.optLong(i).takeIf { it > 0 } }
+    }
+
+    /** The saved routes this rider deleted on any device or in the web
+     *  planner, from the server's answer (#910). Empty from an older server
+     *  that omits the field. */
+    internal fun deletedRouteIds(merged: JsonObject): Set<Long> {
+        val ids = merged.optArray("deletedSavedRouteIds") ?: return emptySet()
+        return ids.indices.mapNotNullTo(HashSet()) { i -> ids.optLong(i).takeIf { it != 0L } }
     }
 
     private fun tripsForUpload() = buildJsonArray {

@@ -62,8 +62,11 @@ Two things still bite regardless of who runs them:
 Point the app at them under Settings → Servers & sync → *Routing server* /
 *Search server*, or bake `routing.url` / `geocoder.url` into `local.properties`
 (see [docs/DEVELOPERS.md](../docs/DEVELOPERS.md#baking-addresses-into-a-build)).
-One `url` covers the API, routing and search together only when a single host
-fronts all three; each has its own
+One `url` covers the API and search together only when a single host fronts
+both. Routing is different: once the server has answered `/api/capabilities`,
+the app routes only through the address it announces (`Routing:BaseUrl`) or one
+typed under *Routing server*, never through `url`, even when one host fronts
+everything. Each has its own
 override field for the common case of a split deployment (`RoutingServer.kt`'s
 `ServerConfig` KDoc has the full reasoning). The sign-in realm (`idp.issuer`) is
 separate again and deliberately never falls back to `url` — see
@@ -131,6 +134,7 @@ form too (`Idp__Authority`, `ConnectionStrings__DefaultConnection`, and so on).
 | `Cache:RedisConnectionString` | Empty means memory-only, which is a correct single-instance deployment. |
 | `ForwardedHeaders:KnownProxies` / `KnownNetworks` | **Set one of these if anything sits in front of the API.** See below. |
 | `AccountDeletion:WebhookUrl` | Where to `POST` a JSON note (`event`, `subject`, `username`, `deletedAtMs`) when a rider deletes their own account, so you can remove their realm user too — the API deletes only its own data. Optional — blank sends nothing, and a deleted rider's realm user stays until you remove it in the Keycloak console. A failing webhook is logged as a warning, never a failed delete. |
+| `DataProtection:KeysPath` | Directory for the key ring that encrypts riders' stored HERE traffic keys (`/api/me/here-key`, issue #802). Set it for anything in a container — `docker/prod` uses `/keys` on the `api-dataprotection` volume — or the ring is lost on every recreate and every stored key reads back as unreadable until a phone re-uploads it. Blank means the framework's default per-user ring, which is fine for a local `dotnet run`. The ring is plain XML with no key encryptor: whoever can read the directory can decrypt every stored key, so back it up and guard it like a secret. |
 | `ProblemReports:RetentionDays` / `MaxRows` | How long the crash and "Something's wrong" reports riders send are kept (default `30` days), and how many at most (default `5000`, newest kept). Reports stay on your server and only an administrator can read them. Both limits are applied as each report arrives, not by a scheduled job. See `docs/BACKEND_SPEC.md` §15.11. |
 | `ProblemReports:ReporterKeySecret` | The key behind the anonymous `reporter` value an administrator sees on each report, so they can count how many riders hit a problem without learning who. Optional — blank means the API makes one on first use and keeps it in its database. Changing it makes every rider look new. |
 | `AppLinks:Android:<n>:Package` / `Sha256` / `AppLinks:InstallUrl` | Lets a tapped convoy invite link open the app rather than the browser: each entry is an applicationId and the SHA-256 fingerprint(s) of the certificate its APK is signed with (comma-separated for a key rotation), published at `/.well-known/assetlinks.json`. Optional — with none, Android opens links in the browser on the API's `/convoy-invite` page, whose button goes to `InstallUrl` (default: the latest GitHub release). Both paths are outside `/api`; route them to the API. See `docs/CIRCLES_AND_CONVOYS.md` §4.1. |

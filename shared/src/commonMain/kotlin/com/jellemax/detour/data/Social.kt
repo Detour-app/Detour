@@ -1,8 +1,10 @@
 package com.jellemax.detour.data
 
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -59,6 +61,41 @@ object Account {
         Settings.pushToken()?.let { token -> runCatching { Devices.unregister(token) } }
         Settings.setPushToken(null)
         Auth.signOut()
+    }
+
+    /**
+     * Deletes this rider's account (#700): the server's copy first, then the
+     * session and this device's copy.
+     *
+     * `DELETE /api/me` removes the account row and everything that references
+     * it, push registrations included, and asks the realm's admin to remove
+     * the sign-in itself; this side never talks to the realm's admin API.
+     *
+     * The request and everything after it run [NonCancellable], for the same
+     * reason as [Auth]'s token refresh: the server may already have committed
+     * by the time a cancelled caller gives up on the reply. A rider who left
+     * the screen then would stay signed in with every ride on the phone, and
+     * the next sync would re-provision the account and upload them again —
+     * the deletion undone. The wait is bounded by [Api]'s read timeout.
+     *
+     * A throw means the request failed or went unanswered: the server may or
+     * may not have deleted the account, and the rider is still signed in with
+     * every file in place. Retrying is safe either way — a deleted account is
+     * re-provisioned on the request and deleted again. The bucket key is read
+     * before [Auth.signOut], which
+     * moves the scope to the anonymous bucket; that bucket is never erased
+     * (see [AccountFiles.discard]).
+     */
+    // @Throws(Exception::class): same reason as [signOut].
+    @Throws(Exception::class)
+    suspend fun deleteAccount() {
+        val bucket = AccountScope.current()
+        withContext(NonCancellable) {
+            Api.request("DELETE", "/me")
+            Settings.setPushToken(null)
+            Auth.signOut()
+            AccountFiles.discard(fileSystem, appFilesDir(), bucket)
+        }
     }
 }
 

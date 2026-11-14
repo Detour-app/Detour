@@ -21,12 +21,24 @@ public record SyncRequest
     /// Start instants the device has deleted. Each is kept as a tombstone (#778): a trip in both
     /// lists, or uploaded later by a device that still holds it, is not stored again, and the
     /// tombstone goes back to every device in <see cref="SyncResponse.DeletedTripStartTimes"/>.
+    /// The ride's stored track points and trace lines go with it (#780).
     /// </summary>
     public IReadOnlyList<long>? DeletedTripStartTimes { get; init; }
 
     /// <summary>
+    /// The time span of each deleted ride the device knows one for, re-sent on every sync like
+    /// <see cref="DeletedTripStartTimes"/> (#877). A ride's stored row gives its window too, but
+    /// a ride the server has no row for has only this. Each entry also counts as a deletion of
+    /// its start instant. An end before the start, or a span past
+    /// <see cref="Detour.Domain.DetourLimits.MaxDeletedRideWindow"/>, says nothing about where the
+    /// ride went: the ride counts as deleted and no location is removed.
+    /// </summary>
+    public IReadOnlyList<DeletedTripWindow>? DeletedTripWindows { get; init; }
+
+    /// <summary>
     /// Fog-of-war lines, each a serialised array of <c>[lat, lon, tMs, speedKmh, leanDeg]</c>
-    /// points. Deduplicated by content, because every sync re-sends the whole history.
+    /// points. Deduplicated by content, because every sync re-sends the whole history. A line
+    /// removed with a deleted ride is ignored, and absent from the response (#780).
     /// </summary>
     public IReadOnlyList<string>? Traces { get; init; }
 
@@ -46,8 +58,10 @@ public record SyncRequest
     public IReadOnlyList<SavedRoutePayload>? SavedRoutes { get; init; }
 
     /// <summary>
-    /// Route identifiers the device has deleted. Applied after the upserts, like
-    /// <see cref="DeletedSavedPlaceIds"/>, so the merged union stops handing the route back.
+    /// Route identifiers the device has deleted, re-sent on every sync. Applied after the upserts,
+    /// like <see cref="DeletedSavedPlaceIds"/>, and each kept as a tombstone (#909): a route in
+    /// both lists, or uploaded later by a device that still holds it, is not stored again, and the
+    /// tombstone goes back to every device in <see cref="SyncResponse.DeletedSavedRouteIds"/>.
     /// </summary>
     public IReadOnlyList<long>? DeletedSavedRouteIds { get; init; }
 
@@ -65,6 +79,10 @@ public record SyncRequest
     /// <summary>Absent leaves the setting alone; it is never read as "off".</summary>
     public bool? ShareFog { get; init; }
 }
+
+public record DeletedTripWindow(
+    [Required] long StartTimeMs,
+    [Required] long EndTimeMs);
 
 public record TripPayload
 {
@@ -101,6 +119,15 @@ public record SavedRoutePayload
 {
     [Required] public long Id { get; init; }
 
+    /// <summary>
+    /// When the route was last edited, Unix milliseconds (#909). Absent from an app that predates
+    /// it, and then read as 0: such an upload replaces only an unstamped copy
+    /// (<see cref="Detour.Domain.Routes.SavedRoute.ReplaceIfNewer"/>). Not written back when
+    /// absent, so an unstamped route's stored document keeps the bytes it was sent with.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? EditedAtMs { get; init; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extra { get; init; }
 }
@@ -127,6 +154,10 @@ public record RiderStatsPayload(
 /// Every ride this rider has deleted on any device (#778). A device drops its copy of each and
 /// stops uploading it; an older client ignores the field, and the server ignores its upload.
 /// </param>
+/// <param name="DeletedSavedRouteIds">
+/// Every saved route this rider has deleted on any device or in the planner (#909), the same
+/// way. An older client ignores the field.
+/// </param>
 public record SyncResponse(
     [Required] IReadOnlyList<JsonElement> Trips,
     [Required] IReadOnlyList<long> DeletedTripStartTimes,
@@ -135,4 +166,5 @@ public record SyncResponse(
     [Required] IReadOnlyList<JsonElement> SavedRoutes,
     [Required] IReadOnlyDictionary<string, long> Badges,
     [Required] IReadOnlyList<TripTitlePayload> TripTitles,
-    [Required] bool ShareFog);
+    [Required] bool ShareFog,
+    [Required] IReadOnlyList<long> DeletedSavedRouteIds);

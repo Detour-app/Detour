@@ -39,6 +39,14 @@ public sealed class User : Entity
 
     public DateTimeOffset? LastSeenAt { get; private set; }
 
+    /// <summary>
+    /// The rider's HERE traffic key (#802), as Data Protection ciphertext — never the key
+    /// itself. Null when none is stored. Kept on this row so deleting the account takes it
+    /// with it. Protecting and unprotecting happen in the API layer, which holds the key ring;
+    /// the domain only ever sees the opaque string.
+    /// </summary>
+    public string? HereTrafficKeyProtected { get; private set; }
+
     private User(string subject, string username, string? email)
     {
         Subject = subject;
@@ -94,6 +102,24 @@ public sealed class User : Entity
     public void ReplaceStats(RiderStats stats) => Stats = RiderStats.Sanitize(stats);
 
     public void Touch() => LastSeenAt = DateTimeOffset.UtcNow;
+
+    public void SetHereTrafficKeyProtected(string protectedKey) => HereTrafficKeyProtected = protectedKey;
+
+    public void ClearHereTrafficKey() => HereTrafficKeyProtected = null;
+
+    /// <summary>
+    /// The plaintext key as it will be stored: trimmed, and 1 to
+    /// <see cref="DetourLimits.HereTrafficKeyMaxLength"/> characters. Checked before the key is
+    /// protected, since the ciphertext's length says nothing useful about the input.
+    /// </summary>
+    public static Result<string> NormalizeHereTrafficKey(string? key)
+    {
+        var trimmed = key?.Trim();
+        if (string.IsNullOrEmpty(trimmed) || trimmed.Length > DetourLimits.HereTrafficKeyMaxLength)
+            return Result.Error(ValidationKeys.User.HereTrafficKeyInvalid, DetourLimits.HereTrafficKeyMaxLength);
+
+        return trimmed;
+    }
 
     private static Result ValidateUsername(string? username)
     {
