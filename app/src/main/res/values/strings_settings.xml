@@ -84,6 +84,8 @@
     <string name="settings_map">Map</string>
     <string name="settings_default_zoom">Default zoom</string>
     <string name="settings_default_zoom_hint">Where the map sits while following you. It zooms out up to two levels at speed and back in near a turn.</string>
+    <string name="settings_dim_map_idle">Dim the map when idle</string>
+    <string name="settings_dim_map_idle_hint">Off-route, the map drops to low brightness after 30 s without a touch; a tap brings it back. Never while navigating a route.</string>
     <string name="settings_offline_tiles">Offline map along the route</string>
     <string name="settings_offline_tiles_hint">When navigation starts, Detour downloads the map up to 5 km either side of the route (at most 150 MB), so it keeps drawing where the signal drops. Starting a new route, or rerouting, replaces it once the new part has downloaded.</string>
     <string name="settings_offline_tiles_clear">Clear</string>
@@ -250,7 +252,7 @@
     <!-- HERE traffic key (#644) -->
     <string name="settings_traffic_title">HERE traffic</string>
     <string name="settings_traffic_summary">Live traffic on your route, with your own free HERE key.</string>
-    <string name="settings_traffic_detail">Create a free account at developer.here.com, make an API key for a project with the Traffic API, and paste it here. HERE\'s free plan covers a limited number of requests a month and may ask for a card at sign-up; check their pricing page for the current numbers. The app calls HERE directly with your key, so HERE sees your IP address, your key and the area around your route. The key stays on this phone: it is not synced, backed up or exported.</string>
+    <string name="settings_traffic_detail">Create a free account at developer.here.com, make an API key for a project with the Traffic API, and paste it here. HERE\'s free plan covers a limited number of requests a month and may ask for a card at sign-up; check their pricing page for the current numbers. The app calls HERE directly with your key, so HERE sees your IP address, your key and the area around your route. Signed in, the key is stored on your Detour server, encrypted, and reaches your other phones; the server operator can decrypt it. Signing out removes it from this phone. Signed out, the key stays on this phone only, until the first account signs in here: that account takes it over and stores it on the server. It is never backed up or exported.</string>
     <string name="settings_traffic_key">HERE API key</string>
     <string name="settings_traffic_test">Test key</string>
     <string name="settings_traffic_remove">Remove key</string>

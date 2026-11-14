@@ -122,7 +122,7 @@ internal fun BoxScope.MapBottomSlot(
     onSearchOpenChange: (Boolean) -> Unit,
     onPickDestination: (GeocodeResult) -> Unit,
     onPickPlace: (SavedPlace) -> Unit,
-    onSavePin: () -> Unit,
+    pin: PinActions,
     onOpenRoutes: () -> Unit,
     onOpenSocial: () -> Unit,
     bottomCard: HomeBottomCard,
@@ -137,7 +137,7 @@ internal fun BoxScope.MapBottomSlot(
     onShare: (() -> Unit)?,
     onGoWithLead: (() -> Unit)?,
     onSaveCandidate: (RouteCandidate) -> Unit,
-    onSaveLoop: (() -> Unit)?,
+    loop: LoopResultActions,
     mode: TravelMode,
     onSelectMode: (TravelMode) -> Unit,
     radiusKm: Float,
@@ -155,7 +155,6 @@ internal fun BoxScope.MapBottomSlot(
     onCollapse: () -> Unit,
     onNavigateInApp: () -> Unit,
     onNavigate: () -> Unit,
-    onClearDestination: () -> Unit,
 ) {
     Column(
         Modifier
@@ -264,7 +263,7 @@ internal fun BoxScope.MapBottomSlot(
                         go = goTarget,
                         error = error,
                         onSelectMode = onSelectMode,
-                        pin = PinActions(onSave = onSavePin, onClear = onClearDestination),
+                        pin = pin,
                         curvy = { CurvyRouteControl(serverConfig, myLocation, destination, mode) },
                     )
                     HomeBottomCard.CANDIDATES -> CandidatesCard(
@@ -314,7 +313,7 @@ internal fun BoxScope.MapBottomSlot(
                         onCollapse = onCollapse,
                         onNavigateInApp = onNavigateInApp,
                         onNavigate = onNavigate,
-                        onSaveLoop = onSaveLoop,
+                        loop = loop,
                     )
                 }
             }

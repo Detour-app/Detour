@@ -4,7 +4,12 @@ import kotlin.concurrent.Volatile
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
@@ -243,8 +248,44 @@ object TraceStore {
         _version.value++
     }
 
-    /** Raw JSONL lines, for server sync. */
-    fun rawLines(): List<String> = accountFile(FILE_NAME).readLines().filter { it.isNotBlank() }
+    /** Raw JSONL lines, for server sync, minus any line [wellFormed] drops. */
+    fun rawLines(): List<String> = wellFormed(accountFile(FILE_NAME).readLines())
+
+    /**
+     * [lines] without the ones the sync server would refuse (#942). A process
+     * killed mid-[append] can leave a line that is NUL-filled, or NULs followed
+     * by the tail of a line. The server rejects the whole /sync request when any
+     * one line is not a JSON array (`TraceLineReader.IsWellFormed`), so one such
+     * line stopped every sync from then on, trips and places included.
+     *
+     * NULs are stripped first, which recovers a whole line that landed after
+     * the padding. What is still not an array is dropped; the local readers
+     * already skip it, so no drawn point goes with it. [replaceLines] reads
+     * through here too, so the first sync that succeeds also clears it from disk.
+     *
+     * kotlinx parses a bare word such as `[a]` into an unquoted literal even
+     * in strict mode, and the server's parser refuses it, so every unquoted
+     * literal is checked as a JSON number, `true`, `false` or `null` too.
+     */
+    internal fun wellFormed(lines: List<String>): List<String> = lines.mapNotNull { raw ->
+        val line = if ('\u0000' in raw) raw.replace("\u0000", "") else raw
+        line.takeIf { it.isNotBlank() && isJsonArray(it) }
+    }
+
+    private fun isJsonArray(line: String): Boolean = try {
+        Json.parseToJsonElement(line).let { it is JsonArray && it.isStrictJson() }
+    } catch (e: SerializationException) {
+        false
+    }
+
+    private val JSON_NUMBER = Regex("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?")
+
+    private fun JsonElement.isStrictJson(): Boolean = when (this) {
+        is JsonArray -> all { it.isStrictJson() }
+        is JsonObject -> values.all { it.isStrictJson() }
+        is JsonNull -> true
+        is JsonPrimitive -> isString || content == "true" || content == "false" || JSON_NUMBER.matches(content)
+    }
 
     /**
      * Overwrite the store with merged lines from the sync server, keeping every

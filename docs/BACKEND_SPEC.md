@@ -140,6 +140,24 @@ can remove the sign-in. Best effort: an unreachable or failing webhook is
 logged, never a failed delete. Until the realm user is removed, signing in again
 starts a new, empty account.
 
+A signed-in rider's HERE traffic key (issue #802) is stored on their account,
+encrypted with the server's Data Protection key ring (purpose
+`Detour.HereTrafficKey.v1`). The operator holding the ring can decrypt it; a
+database dump without the ring cannot. It is never part of the profile, the
+sync payload, a log line or an administrator view, and it goes with the account
+when the account is deleted.
+
+- `GET /api/me/here-key` — `200 {"key":"…"}`, or `204` when none is stored. A
+  stored key that no longer decrypts (ring lost or replaced) answers
+  `200 {"key":null,"unreadable":true}` and stays stored until the next `PUT` or
+  `DELETE` overwrites it; a phone still holding the key puts it back.
+- `PUT /api/me/here-key` `{"key":"…"}` — `204`. Trimmed, then 1 to 256
+  characters, else `400`.
+- `DELETE /api/me/here-key` — `204`, whether or not a key was stored.
+
+A server older than this answers `404`; a client treats that as "this server
+does not sync keys" and keeps the key on the phone.
+
 ## 5. Device synchronisation
 
 One capability performs a **bidirectional merge** of everything the device
@@ -184,6 +202,28 @@ and every deleted saved route's identifier. A device adds those to its own
 tombstones, which drops its copy of each ride or route and stops it uploading
 them; an older client that ignores those fields still loses the ride or route,
 because the server no longer returns it.
+
+### 5.1 Saved routes one at a time
+
+The web planner (#636) reads and writes the same saved-route rows as the sync
+merge, one route at a time (#912), under the same rules:
+
+- **List** returns the caller's route documents exactly as stored, ascending by
+  identifier. Deleted routes are not listed.
+- **Put** stores one route document under its identifier. Stricter than sync,
+  which takes whatever a phone holds: the document's own identifier must be the
+  one it is stored under, it needs an edit stamp above 0, at least two stops (a
+  phone drops a route with fewer) and a mode (any name: a phone reads one it
+  does not know as a car), and the route payload cap. A breach is a **400**. The
+  newest stamp wins as in sync; a stamp older than the stored copy's is a
+  **409** carrying the stored copy, so a phone's newer edit is never
+  overwritten. A tombstoned identifier is a **410** and is not stored again.
+- **Delete** removes the stored route and keeps a tombstone, exactly as a
+  deletion uploaded by sync, so every device drops the route on its next sync.
+  Idempotent, including for an identifier never stored.
+
+Both writes take the same per-rider lock as a sync, so a planner write and a
+phone's merge of the same route run one after the other.
 
 ## 6. Friends
 

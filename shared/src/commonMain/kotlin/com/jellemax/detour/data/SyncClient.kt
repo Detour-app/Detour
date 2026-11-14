@@ -59,7 +59,7 @@ object SyncClient {
         // Inside the lock, so a launch sync queued behind another sees the
         // stamp that one just wrote.
         if (nowMs() - Settings.lastSyncMs() < AUTO_SYNC_MIN_INTERVAL_MS) null else syncRecorded()
-    }
+    }?.also { HereKeySync.reconcile() }
 
     /**
      * `@Throws(Exception::class)`, here and on every other exported `suspend`
@@ -110,6 +110,9 @@ object SyncClient {
      */
     @Throws(Exception::class)
     suspend fun sync(): SyncResult = syncLock.withLock { syncRecorded() }
+        // Outside the lock: the HERE key has its own (HereKeySync.reconcile), and
+        // a sign-in reconciles without ever holding this one (#905).
+        .also { HereKeySync.reconcile() }
 
     /** One sync, with its failure recorded in [EventLog] before it reaches the
      *  caller. Cancellation is not a failure and is not recorded. */

@@ -7,6 +7,7 @@ using Detour.Domain.Users;
 using JV.ResultUtilities.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json.Serialization;
 using Shared.Domain;
 
 namespace Detour.Api.Controllers;
@@ -79,6 +80,58 @@ public class MeController(
         return Ok(MeResponse.Map(user, awards));
     }
 
+    [HttpGet("here-key")]
+    [EndpointSummary("Get the rider's stored HERE traffic key.")]
+    [EndpointDescription(
+        "204 when none is stored. A stored key that no longer decrypts (the server's key ring "
+        + "was lost or replaced) answers key: null, unreadable: true, and stays stored until the "
+        + "next PUT or DELETE overwrites it — a phone that still holds the key puts it back.")]
+    [ProducesResponseType<HereTrafficKeyResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<ActionResult<HereTrafficKeyResponse>> GetHereTrafficKey(
+        IHereTrafficKeyProtector protector,
+        CancellationToken cancellationToken)
+    {
+        var user = await currentUser.GetAsync(cancellationToken);
+        if (user.HereTrafficKeyProtected is null)
+            return NoContent();
+
+        var key = protector.TryUnprotect(user.HereTrafficKeyProtected);
+        return Ok(new HereTrafficKeyResponse(key, Unreadable: key is null));
+    }
+
+    [HttpPut("here-key")]
+    [EndpointSummary("Store the rider's HERE traffic key, encrypted.")]
+    [EndpointDescription(
+        "Trimmed, then 1 to 256 characters. Stored as Data Protection ciphertext: the server "
+        + "operator can decrypt it, a database dump without the key ring cannot. Never part of "
+        + "/api/me, the sync payload or any administrator view.")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SetHereTrafficKey(
+        [FromBody] SetHereTrafficKeyRequest request,
+        IHereTrafficKeyProtector protector,
+        CancellationToken cancellationToken)
+    {
+        // Domain-qualified: inside a controller, a bare User is the request's ClaimsPrincipal.
+        var key = Domain.Users.User.NormalizeHereTrafficKey(request.Key);
+        key.ThrowIfFailure();
+
+        var user = await currentUser.GetAsync(cancellationToken);
+        user.SetHereTrafficKeyProtected(protector.Protect(key.Value));
+        return NoContent();
+    }
+
+    [HttpDelete("here-key")]
+    [EndpointSummary("Remove the rider's stored HERE traffic key.")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> DeleteHereTrafficKey(CancellationToken cancellationToken)
+    {
+        var user = await currentUser.GetAsync(cancellationToken);
+        user.ClearHereTrafficKey();
+        return NoContent();
+    }
+
     [HttpPost("fix")]
     [EndpointSummary("Report the rider's own position once.")]
     [EndpointDescription(
@@ -116,3 +169,13 @@ public class MeController(
 }
 
 public record SetFogSharingRequest(bool ShareFog);
+
+public record SetHereTrafficKeyRequest(string? Key);
+
+/// <summary>
+/// <see cref="Key"/> is null only when <see cref="Unreadable"/> is true; <c>unreadable</c> is
+/// left out of the body otherwise.
+/// </summary>
+public record HereTrafficKeyResponse(
+    string? Key,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Unreadable);

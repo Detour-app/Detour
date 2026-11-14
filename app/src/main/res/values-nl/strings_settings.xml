@@ -81,6 +81,8 @@
     <string name="settings_map">Kaart</string>
     <string name="settings_default_zoom">Standaardzoom</string>
     <string name="settings_default_zoom_hint">Waar de kaart staat terwijl ze je volgt. Ze zoomt tot twee niveaus uit bij snelheid en weer in vlak bij een afslag.</string>
+    <string name="settings_dim_map_idle">Kaart dimmen zonder aanraking</string>
+    <string name="settings_dim_map_idle_hint">Zonder route wordt de kaart na 30 s zonder aanraking gedimd; een tik maakt ze weer helder. Nooit tijdens het navigeren van een route.</string>
     <string name="settings_offline_tiles">Offline kaart langs de route</string>
     <string name="settings_offline_tiles_hint">Als navigatie start, downloadt Detour de kaart tot 5 km aan weerszijden van de route (maximaal 150 MB), zodat ze blijft tekenen waar het bereik wegvalt. Een nieuwe route, of omleiden, vervangt ze zodra het nieuwe deel is gedownload.</string>
     <string name="settings_offline_tiles_clear">Wissen</string>
@@ -247,7 +249,7 @@
     <!-- HERE traffic key (#644) -->
     <string name="settings_traffic_title">HERE-verkeer</string>
     <string name="settings_traffic_summary">Live verkeer op je route, met je eigen gratis HERE-sleutel.</string>
-    <string name="settings_traffic_detail">Maak een gratis account aan op developer.here.com, maak een API-sleutel voor een project met de Traffic API en plak die hier. Het gratis plan van HERE dekt een beperkt aantal verzoeken per maand en kan bij het aanmelden om een betaalkaart vragen; kijk op hun prijspagina voor de actuele aantallen. De app vraagt HERE rechtstreeks met jouw sleutel, dus HERE ziet je IP-adres, je sleutel en het gebied rond je route. De sleutel blijft op deze telefoon: hij wordt niet gesynchroniseerd, geback-upt of geëxporteerd.</string>
+    <string name="settings_traffic_detail">Maak een gratis account aan op developer.here.com, maak een API-sleutel voor een project met de Traffic API en plak die hier. Het gratis plan van HERE dekt een beperkt aantal verzoeken per maand en kan bij het aanmelden om een betaalkaart vragen; kijk op hun prijspagina voor de actuele aantallen. De app vraagt HERE rechtstreeks met jouw sleutel, dus HERE ziet je IP-adres, je sleutel en het gebied rond je route. Ben je aangemeld, dan wordt de sleutel versleuteld op je Detour-server bewaard en komt hij op je andere telefoons; de beheerder van de server kan hem ontsleutelen. Afmelden haalt hem van deze telefoon. Ben je afgemeld, dan blijft de sleutel alleen op deze telefoon, tot het eerste account zich hier aanmeldt: dat account neemt hem over en bewaart hem op de server. Hij wordt nooit geback-upt of geëxporteerd.</string>
     <string name="settings_traffic_key">HERE API-sleutel</string>
     <string name="settings_traffic_test">Sleutel testen</string>
     <string name="settings_traffic_remove">Sleutel verwijderen</string>

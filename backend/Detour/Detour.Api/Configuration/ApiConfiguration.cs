@@ -25,6 +25,7 @@ public class ApiConfiguration
     public PoiSettings Poi { get; set; } = new();
     public AccountDeletionSettings AccountDeletion { get; set; } = new();
     public ProblemReportSettings ProblemReports { get; set; } = new();
+    public DataProtectionSettings DataProtection { get; set; } = new();
 }
 
 /// <summary>
@@ -184,6 +185,23 @@ public class AccountDeletionSettings
     /// <summary>URL that receives a JSON <c>POST</c> per self-deleted account. Blank means
     /// "do not notify".</summary>
     public string WebhookUrl { get; set; } = "";
+}
+
+/// <summary>
+/// Where the Data Protection key ring lives (#802): the keys that encrypt a rider's stored
+/// HERE key. Plain XML with no key encryptor, so whatever holds this directory is as sensitive
+/// as the HERE keys themselves. Losing it costs riders a retype, never a leak.
+/// </summary>
+public class DataProtectionSettings
+{
+    public const string SectionName = "DataProtection";
+
+    /// <summary>
+    /// Directory for the key ring. Blank means the framework's default per-user ring, which is
+    /// right for a local <c>dotnet run</c> and wrong for a container, where it does not survive
+    /// a recreate.
+    /// </summary>
+    public string KeysPath { get; set; } = "";
 }
 
 /// <summary>

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Loop
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -20,6 +21,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -148,12 +150,10 @@ internal fun NavigationDock(
 
             curvy()
 
+            pin.onLoopVia?.let { LoopViaButton(onClick = it, building = pin.loopBuilding) }
+
             error?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
 
             if (go.inAppAvailable) {
@@ -191,5 +191,18 @@ internal fun NavigationDock(
                 )
             }
         }
+    }
+}
+
+/** "Loop via here" (#889): a loop out to the pin and back on other roads,
+ *  landed in the spin sheet where a loop's Go and Save loop live. Busy, and
+ *  not pressable again, while it builds. */
+@Composable
+private fun LoopViaButton(onClick: () -> Unit, building: Boolean) {
+    OutlinedButton(onClick = onClick, enabled = !building, modifier = Modifier.fillMaxWidth()) {
+        if (building) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        else Icon(Icons.Rounded.Loop, contentDescription = null, Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(stringResource(if (building) R.string.nav_loop_via_building else R.string.nav_loop_via))
     }
 }
