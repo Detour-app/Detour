@@ -94,11 +94,11 @@ public class RoadsTests(PostgresFixture postgres) : IAsyncLifetime
     /// <summary>Every comparison with NaN is false, so a negated guard let these through and
     /// PostgreSQL, which sorts NaN above every float, matched the whole table (#965).</summary>
     [Theory]
-    [InlineData("minLat=NaN&minLon=-180&maxLat=90&maxLon=180")]
-    [InlineData("minLat=-90&minLon=NaN&maxLat=90&maxLon=180")]
+    [InlineData("minLat=NaN&minLon=4.80&maxLat=52.40&maxLon=4.95")]
+    [InlineData("minLat=52.30&minLon=NaN&maxLat=52.40&maxLon=4.95")]
     [InlineData("minLat=-90&minLon=-180&maxLat=NaN&maxLon=NaN")]
     [InlineData("minLat=NaN&minLon=NaN&maxLat=NaN&maxLon=NaN")]
-    [InlineData("minLat=-Infinity&minLon=-180&maxLat=90&maxLon=180")]
+    [InlineData("minLat=52.30&minLon=4.80&maxLat=Infinity&maxLon=4.95")]
     public async Task Get_with_a_non_finite_bound_returns_400(string query)
     {
         var response = await _factory.CreateClient().GetAsync($"/api/roads?{query}");
