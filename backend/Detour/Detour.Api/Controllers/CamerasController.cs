@@ -38,10 +38,7 @@ public class CamerasController(ICameraRepository repository) : ControllerBase
         [FromQuery] double maxLat, [FromQuery] double maxLon,
         CancellationToken cancellationToken)
     {
-        if (minLat > maxLat || minLon > maxLon
-            || minLat is < -90 or > 90 || maxLat is < -90 or > 90
-            || minLon is < -180 or > 180 || maxLon is < -180 or > 180
-            || maxLat - minLat > MaxSpanDegrees || maxLon - minLon > MaxSpanDegrees)
+        if (!BoundingBoxQuery.IsValid(minLat, minLon, maxLat, maxLon, MaxSpanDegrees))
             return BadRequest();
 
         var cameras = await repository.BboxAsync(minLat, minLon, maxLat, maxLon, cancellationToken);

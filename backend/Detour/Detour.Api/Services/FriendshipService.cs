@@ -230,7 +230,10 @@ public class FriendshipService(
     /// off therefore both stops contributing and stops receiving, which is what makes the trade
     /// legible rather than a one-way take.
     ///
-    /// Lines come back unattributed. The union is a map, not a per-friend history.
+    /// Lines come back unattributed and as geometry only — no instant, speed or lean per point
+    /// (<see cref="TraceLineReader.GeometryOnly"/>). The union is a map, not a per-friend
+    /// history, and timestamps would make it both: they cluster the lines back into riders and
+    /// rides.
     /// </summary>
     public async Task<SharedFogResponse> GetSharedFogAsync(User caller, CancellationToken cancellationToken)
     {
@@ -244,7 +247,9 @@ public class FriendshipService(
         // The friend's own flag is re-read on the row inside this query, so revoking takes
         // effect on the very next request rather than whenever a cache happens to expire.
         var lines = await traces.GetSharedLinesAsync(friendIds, cancellationToken);
-        return new SharedFogResponse(true, lines);
+        return new SharedFogResponse(
+            true,
+            [.. lines.Select(TraceLineReader.GeometryOnly).OfType<string>()]);
     }
 
     private async Task<Dictionary<Guid, string>> ResolveUsernamesAsync(
