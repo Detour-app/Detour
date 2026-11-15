@@ -89,8 +89,8 @@ public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
     }
 
     /// <summary>
-    /// Removes <paramref name="connection"/> and tells everyone who shared a group with it that
-    /// the rider is gone.
+    /// Removes <paramref name="connection"/> and, if it was still the rider's current one, tells
+    /// everyone who shared a group with it that the rider is gone.
     ///
     /// The recipient set is computed from the connections themselves rather than from the
     /// database: teardown runs on a dropped socket, often while the process is shutting down or
@@ -101,9 +101,16 @@ public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
     {
         // Only if it is still the current one — a fast reconnect may already have replaced it,
         // and this teardown must not evict the connection that superseded it.
-        _connections.TryRemove(new KeyValuePair<Guid, LiveConnection>(connection.UserId, connection));
+        var wasCurrent =
+            _connections.TryRemove(new KeyValuePair<Guid, LiveConnection>(connection.UserId, connection));
 
         connection.CompleteOutbound();
+
+        // A superseded socket's rider is still here, on the connection that replaced it. Telling
+        // peers they left would drop their marker until the next fix (#966). An evicted socket was
+        // already removed too, and holds no groups by then, so it never sent one either.
+        if (!wasCurrent)
+            return;
 
         var groups = connection.Groups;
         if (groups.Count == 0)
