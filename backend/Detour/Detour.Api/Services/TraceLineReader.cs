@@ -130,6 +130,49 @@ public static class TraceLineReader
         }
     }
 
+    /// <summary>
+    /// <paramref name="line"/> cut down to <c>[[lat, lon], …]</c>: the shape of the roads and
+    /// nothing else. Null when no point has a usable position.
+    ///
+    /// This is what leaves a rider's account through shared fog. The stored line also carries
+    /// each point's instant, speed and lean, and with those the "map" is the rider's trips —
+    /// when they left home, where they went, every time they were over the limit. The two-element
+    /// point is the pre-timestamp form the client already reads, so nothing downstream changes.
+    /// Coordinates keep their exact text, so the geometry is the rider's own, not a re-rounding.
+    /// </summary>
+    public static string? GeometryOnly(string line)
+    {
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(line);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+                return null;
+
+            var points = new List<string>();
+            foreach (var raw in document.RootElement.EnumerateArray())
+            {
+                if (raw.ValueKind != JsonValueKind.Array || raw.GetArrayLength() < 2
+                    || !TryNumber(raw[0], out _) || !TryNumber(raw[1], out _))
+                {
+                    continue;
+                }
+
+                points.Add($"[{raw[0].GetRawText()},{raw[1].GetRawText()}]");
+            }
+
+            return points.Count == 0 ? null : $"[{string.Join(',', points)}]";
+        }
+    }
+
     private static void Close(List<string> run, List<string> runs)
     {
         if (run.Count >= 2)
