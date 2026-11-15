@@ -39,13 +39,16 @@ public class MeController(
     [EndpointDescription(
         "The same cascade as the administrator's delete: trips, traces, points, shortcuts, "
         + "badges, friendships, group memberships, shared routes, circle places and dashboard "
-        + "keys all go with it. The Keycloak user is not removed here — this backend holds no "
+        + "keys all go with it. A circle or convoy the rider owns passes to its longest-standing "
+        + "accepted member, as when the owner leaves, and is deleted only when nobody can take it "
+        + "over. The Keycloak user is not removed here — this backend holds no "
         + "realm admin credential. When AccountDeletion:WebhookUrl is set, the subject and "
         + "handle are posted there after the delete commits so the realm administrator can "
         + "remove the sign-in; until then, signing in again starts a new, empty account.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Delete(
         IUserRepository users,
+        IGroupService groups,
         IAccountDeletionNotifier notifier,
         IPostCommitActionScheduler postCommit,
         TimeProvider clock,
@@ -54,6 +57,7 @@ public class MeController(
         var user = await currentUser.GetAsync(cancellationToken);
         var deleted = new DeletedAccount(user.Subject, user.Username, clock.GetUtcNow());
 
+        await groups.LeaveAllBeforeAccountDeletionAsync(user.Id, cancellationToken);
         users.Delete(user);
 
         // After the commit, not before: a webhook that fires for a delete that then rolls back

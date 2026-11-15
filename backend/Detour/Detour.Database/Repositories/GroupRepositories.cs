@@ -22,6 +22,12 @@ public class GroupRepository(ICustomDbContextFactory<DetourDbContext> factory)
             .OrderByDescending(g => g.CreatedAt)
             .ToListAsync(cancellationToken);
 
+    public Task<List<Group>> GetJoinedOrOwnedAsync(Guid userId, CancellationToken cancellationToken) =>
+        Set.Include(g => g.Members)
+            .TagWith(Tag(nameof(GetJoinedOrOwnedAsync)))
+            .Where(g => g.OwnerId == userId || g.Members.Any(m => m.UserId == userId))
+            .ToListAsync(cancellationToken);
+
     public Task<GroupMember?> GetAcceptedMembershipAsync(
         Guid groupId,
         Guid userId,

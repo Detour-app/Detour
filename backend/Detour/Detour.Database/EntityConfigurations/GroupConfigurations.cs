@@ -25,10 +25,13 @@ public class GroupConfiguration : IEntityTypeConfiguration<Group>
         builder.Property(g => g.Name).HasMaxLength(DetourLimits.GroupNameMaxLength);
         builder.Property(g => g.CreatedAt);
 
+        // Restrict, not cascade: an owner's account delete hands the group on first
+        // (GroupService.LeaveAllBeforeAccountDeletionAsync). Cascading here silently wiped every
+        // other member's circle (#964); a path that forgets the hand-off now fails loudly instead.
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(g => g.OwnerId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         // The aggregate owns its members: loading a group without them would let a handler
         // decide membership from a partially-loaded object.
