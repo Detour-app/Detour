@@ -1,0 +1,4 @@
+{
+  "nowMs": 7,
+  "file": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\">\n  <rte><name>Lonely</name><rtept lat=\"1\" lon=\"2\"/></rte>\n  <trk><trkseg><trkpt lat=\"10\" lon=\"20\"/><trkpt lat=\"11\" lon=\"21\"/></trkseg></trk>\n</gpx>\n"
+}

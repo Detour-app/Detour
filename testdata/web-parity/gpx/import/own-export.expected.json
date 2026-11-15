@@ -1,0 +1,42 @@
+{
+  "id": 1700000000000,
+  "name": "Ardennes & <back>",
+  "createdMs": 1700000000000,
+  "mode": "CAR",
+  "stops": [
+    {
+      "lat": 50.8503396,
+      "lon": 4.3517103,
+      "name": "Brussels"
+    },
+    {
+      "lat": 50,
+      "lon": 5.7166667,
+      "name": ""
+    },
+    {
+      "lat": 49.6116,
+      "lon": 6.1319,
+      "name": "Luxembourg"
+    }
+  ],
+  "polyline": [
+    [
+      50.8503396,
+      4.3517103
+    ],
+    [
+      50.42,
+      5.1
+    ],
+    [
+      49.6116,
+      6.1319
+    ]
+  ],
+  "distanceMeters": null,
+  "timeMs": null,
+  "sharedBy": "",
+  "origin": "PLANNED",
+  "editedAtMs": 0
+}
