@@ -1,6 +1,7 @@
 using Detour.Api.Authentication;
 using Detour.Api.Authorization;
 using Detour.Api.Contracts;
+using Detour.Api.Services;
 using Detour.Domain.ApiKeys;
 using Detour.Domain.Traces;
 using Detour.Domain.Trips;
@@ -77,13 +78,18 @@ public class AdminController(
     [EndpointDescription(
         "Trips, traces, points, shortcuts, saved routes, badges, friendships, group memberships, "
         + "shared routes, circle places and dashboard keys all go with it — every table referencing the "
-        + "account cascades. Removing the rider from Keycloak is a separate act; doing only that "
+        + "account cascades. A circle or convoy the account owns passes to its longest-standing "
+        + "accepted member, as when the owner leaves, and is deleted only when nobody can take it "
+        + "over. Removing the rider from Keycloak is a separate act; doing only that "
         + "leaves their data here, and doing only this leaves them able to sign in and start "
         + "again.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest, Description = "An administrator cannot delete their own account.")]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DeleteAccount(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> DeleteAccount(
+        Guid id,
+        IGroupService groups,
+        CancellationToken cancellationToken)
     {
         var caller = await currentUser.GetAsync(cancellationToken);
 
@@ -95,6 +101,7 @@ public class AdminController(
         if (account is null)
             return NotFound();
 
+        await groups.LeaveAllBeforeAccountDeletionAsync(account.Id, cancellationToken);
         users.Delete(account);
         return NoContent();
     }

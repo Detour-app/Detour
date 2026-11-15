@@ -26,6 +26,14 @@ public interface IGroupService
 
     Task<Result> LeaveAsync(Guid callerId, Guid groupId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Takes an account that is about to be deleted out of every group it is in, the way leaving
+    /// would: ownership passes to the longest-standing accepted member, and only a group nobody
+    /// can take over is deleted. Both account deletes call this before removing the user row, so
+    /// a circle or convoy the rider created outlives them for everyone still in it (#964).
+    /// </summary>
+    Task LeaveAllBeforeAccountDeletionAsync(Guid userId, CancellationToken cancellationToken);
+
     Task<Result<bool>> SetSharingAsync(
         Guid callerId, Guid groupId, bool sharing, CancellationToken cancellationToken);
 
@@ -40,6 +48,7 @@ public interface IGroupService
 
 public class GroupService(
     IGroupRepository groups,
+    IConvoyInviteRepository invites,
     IFriendshipRepository friendships,
     IUserRepository users,
     ICirclePlaceRepository circlePlaces,
@@ -166,6 +175,50 @@ public class GroupService(
         postCommit.Schedule(() => liveRelay.EvictAsync(callerId, groupId, CancellationToken.None));
 
         return Result.Ok();
+    }
+
+    public async Task LeaveAllBeforeAccountDeletionAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        // Places, fixes and presence events need no explicit delete here: their rider leg
+        // cascades from the user row that is about to go (#700).
+        var deleted = new HashSet<Guid>();
+        foreach (var group in await groups.GetJoinedOrOwnedAsync(userId, cancellationToken))
+        {
+            var groupId = group.Id;
+            var membership = group.FindMember(userId);
+            if (membership is not null)
+            {
+                group.RemoveMember(membership);
+                postCommit.Schedule(() => liveRelay.EvictAsync(userId, groupId, CancellationToken.None));
+            }
+
+            // Still theirs means no accepted member was there to inherit it: leaving keeps that
+            // vacancy for the first invitee to accept, but the owner row is going and groups.owner_id
+            // cannot point at nothing. Deleting it is what the old cascade did in this case.
+            if (group.OwnerId != userId && !group.ShouldBeDeletedWhenEmpty)
+                continue;
+
+            groups.Delete(group);
+            deleted.Add(groupId);
+            postCommit.Schedule(() =>
+            {
+                liveRelay.ClearRegroupPin(groupId);
+                return Task.CompletedTask;
+            });
+        }
+
+        // A link cascades from the account that minted it, guest rows and removals with it.
+        // Any convoy that outlives the rider keeps its links under whoever hosts it now — this
+        // delete's heir, or the host since an earlier leave.
+        foreach (var invite in await invites.GetCreatedByAsync(userId, cancellationToken))
+        {
+            if (deleted.Contains(invite.GroupId))
+                continue;
+
+            var group = await groups.GetAsync(invite.GroupId, cancellationToken);
+            if (group is not null && group.OwnerId != userId)
+                invite.HandOverTo(group.OwnerId);
+        }
     }
 
     public async Task<Result<bool>> SetSharingAsync(

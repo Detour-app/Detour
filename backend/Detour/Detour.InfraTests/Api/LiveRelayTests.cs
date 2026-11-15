@@ -244,6 +244,50 @@ public class LiveRelayTests
         reconnected.Connection.UserId.Should().Be(riderId);
     }
 
+    [Fact]
+    public async Task A_replaced_socket_closing_does_not_announce_its_rider_as_left()
+    {
+        var harness = new Harness();
+        var convoyId = Guid.CreateVersion7();
+        var riderId = Guid.CreateVersion7();
+
+        var peer = harness.Connect(Guid.CreateVersion7());
+        peer.Connection.Join(convoyId);
+
+        var first = harness.Connect(riderId);
+        first.Connection.Join(convoyId);
+        var reconnected = harness.Connect(riderId);
+        reconnected.Connection.Join(convoyId);
+
+        // The old read loop ends because the reconnect closed it, so its teardown always runs
+        // after the replacement registered (#966).
+        harness.Relay.Unregister(first.Connection);
+
+        // Frames leave in queue order: if a `left` had been queued, it would be read before this.
+        peer.Connection.Enqueue(Position(riderId, 1));
+        var frame = await peer.ReadFrameAsync();
+        frame.Should().Contain("\"ts\":1").And.NotContain("\"type\":\"left\"");
+        harness.Relay.GroupsFor(riderId).Should().BeEquivalentTo([convoyId]);
+    }
+
+    [Fact]
+    public async Task The_current_socket_closing_announces_its_rider_as_left()
+    {
+        var harness = new Harness();
+        var convoyId = Guid.CreateVersion7();
+        var riderId = Guid.CreateVersion7();
+
+        var peer = harness.Connect(Guid.CreateVersion7());
+        peer.Connection.Join(convoyId);
+        var rider = harness.Connect(riderId);
+        rider.Connection.Join(convoyId);
+
+        harness.Relay.Unregister(rider.Connection);
+
+        (await peer.ReadFrameAsync()).Should().Contain("\"type\":\"left\"").And.Contain(riderId.ToString());
+        harness.Relay.ConnectedUserIds.Should().NotContain(riderId);
+    }
+
     private static PeerPosition Position(Guid user, long timestampMs) =>
         new(user, 51.05, 3.71, null, null, timestampMs, 20);
 
