@@ -1,8 +1,27 @@
 # Web planner
 
 The browser half of route planning (#636), served by the API at
-`https://<host>/planner`. This first slice (#913) is read-only: sign in, see the
-routes saved on the phone, pick one to draw it with its stops, distance and time.
+`https://<host>/planner`. Sign in, see the routes saved on the phone, open one to
+edit it or start a new one (#913, #914).
+
+## Editing
+
+Click the map to add a stop, drag a stop or the line to reroute (a stop dragged
+off the line goes into the leg it was grabbed from), right-click a stop or use its
+× to remove it. Mode (`car`/`moto`), the curvy preset (moto only) and the avoid
+toggles reroute too; options the server's graph can't honour (`/info`) are
+greyed out rather than sent, as on the phone. The options are this session's,
+not the route's: a saved route keeps only its mode, as the phone's do.
+
+Routing goes to same-origin `/route` once per finished gesture, at most once a
+second, through `RouteThrottle`; nginx's rate limit answering 429 shows "slow
+down". Save is `PUT /api/routes/{id}` stamped `editedAtMs = Date.now()`, and needs
+two stops. A 409 offers the newer stored copy, a 410 offers to save it as a new
+route. Delete is `DELETE /api/routes/{id}`.
+
+The open edit is kept in the tab's `sessionStorage` (`src/draft.ts`) under the
+rider's `sub`. A 401 on save, or an expired token, signs the tab out; after
+"Sign in again" the edit is back. Signing out drops it.
 
 TypeScript, Vite, [MapLibre GL JS](https://maplibre.org/) on OpenFreeMap tiles (the
 phone's), and [`oidc-client-ts`](https://github.com/authts/oidc-client-ts) for
@@ -51,6 +70,8 @@ copied, each with a note at the top of the file naming the original:
 | Here | Original |
 | --- | --- |
 | `src/routes.ts` `routeFromJson` | `shared/.../data/Routes.kt` `routeFromJson` |
+| `src/draft.ts` `routeDocument` | `shared/.../data/Routes.kt` `SavedRoute.toJson` (no fixture: its output is read back through `routeFromJson` in `draft.test.ts`) |
+| `src/routing/request.ts` | `RoutingClient.kt` `routeViaRequest`, `RoutePreferences.kt`, `CurvyRouting.kt` `CurvyPreset`, `RoutingSupport.kt` `encodedValues` |
 
 Every copy is pinned by fixtures in `testdata/web-parity/`, checked here by
 `vitest` and on the Kotlin side by a `shared/src/androidHostTest` test. Changing

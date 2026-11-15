@@ -1,0 +1,6 @@
+{
+  "mode": "CAR",
+  "points": [{ "lat": 50.8503, "lon": 4.3517 }, { "lat": 51.2194, "lon": 4.4025 }],
+  "preferences": { "avoidHighways": true },
+  "encodedValues": ["toll", "surface", "road_environment", "curvature"]
+}

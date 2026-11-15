@@ -1,0 +1,6 @@
+{
+  "mode": "CAR",
+  "points": [{ "lat": 50.8503, "lon": 4.3517 }, { "lat": 50.2268, "lon": 5.3442 }],
+  "preferences": { "curvy": "TWISTY" },
+  "encodedValues": ["toll", "surface", "road_environment", "curvature"]
+}

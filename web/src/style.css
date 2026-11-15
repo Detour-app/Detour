@@ -101,6 +101,112 @@ button {
   font-size: 0.9rem;
 }
 
+#new-route,
+.actions button {
+  padding: 0.4rem 1rem;
+  border: 1px solid #bbb;
+  border-radius: 0.4rem;
+  background: #fff;
+}
+
+#save {
+  border-color: var(--accent);
+  background: var(--accent);
+  font-weight: 600;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+}
+
+.field input,
+.field select {
+  font: inherit;
+  padding: 0.3rem;
+}
+
+.avoid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border: 1px solid #ddd;
+  border-radius: 0.4rem;
+}
+
+.avoid label.unsupported {
+  color: #999;
+}
+
+.hint,
+.meta {
+  color: #666;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.stops {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.stops li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stops button {
+  border: 0;
+  background: none;
+  color: #a33;
+}
+
+.routing-status:empty,
+.conflict[hidden] {
+  display: none;
+}
+
+.routing-status,
+.conflict {
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.4rem;
+  background: #fff6e8;
+  font-size: 0.9rem;
+}
+
+.conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.map.editing .maplibregl-canvas {
+  cursor: crosshair;
+}
+
+.map.dragging .maplibregl-canvas {
+  cursor: grabbing;
+}
+
 @media (max-width: 40rem) {
   .layout {
     flex-direction: column;

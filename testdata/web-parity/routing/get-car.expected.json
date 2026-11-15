@@ -1,0 +1,23 @@
+{
+  "method": "GET",
+  "path": "/route",
+  "query": [
+    ["profile", "car"],
+    [
+      "point",
+      [50.8503, 4.3517]
+    ],
+    [
+      "point",
+      [51, 4]
+    ],
+    [
+      "point",
+      [51.2194, 4.4025]
+    ],
+    ["points_encoded", "false"],
+    ["details", "max_speed"],
+    ["details", "roundabout"]
+  ],
+  "body": null
+}

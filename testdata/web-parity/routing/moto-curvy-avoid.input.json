@@ -1,0 +1,6 @@
+{
+  "mode": "MOTO",
+  "points": [{ "lat": 50.8503, "lon": 4.3517 }, { "lat": 50.2268, "lon": 5.3442 }, { "lat": 49.9667, "lon": 5.9333 }],
+  "preferences": { "avoidSmallRoads": true, "avoidTolls": true, "avoidFerries": true, "curvy": "TWISTY" },
+  "encodedValues": ["toll", "surface", "road_environment", "curvature"]
+}

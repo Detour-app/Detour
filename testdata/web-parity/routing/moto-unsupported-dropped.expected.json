@@ -1,0 +1,20 @@
+{
+  "method": "POST",
+  "path": "/route",
+  "query": [],
+  "body": {
+    "profile": "moto",
+    "points": [[4.3517, 50.8503], [5.3442, 50.2268]],
+    "points_encoded": false,
+    "details": ["max_speed", "roundabout"],
+    "ch.disable": true,
+    "custom_model": {
+      "priority": [
+        {
+          "if": "surface == UNPAVED || surface == GRAVEL || surface == DIRT || surface == SAND",
+          "multiply_by": 0.05
+        }
+      ]
+    }
+  }
+}
