@@ -211,6 +211,15 @@ Do not reach for the usual container advice of clearing the lists to trust
 everything. It trades one shared rate-limit bucket for a fresh bucket per spoofed
 header, which is worse.
 
+Raise the proxy's request-body limit to the API's own, 64 MB
+(`DetourLimits.MaxRequestBodyBytes`). `POST /api/sync` uploads the device's whole
+history every time, so the body only grows; nginx's default of 1 MB starts
+answering `413` to every sync from a rider somewhere in their first few thousand
+kilometres, and the API never sees the request (issue #963). In nginx that is
+`client_max_body_size 64m;` on the `/api/` location, as
+`docker/prod/nginx/detour.conf.template` sets it. Caddy has no body limit unless
+you add one; for Traefik, check any `buffering` middleware's `maxRequestBodyBytes`.
+
 ### The realm
 
 [`docker/dev/config/keycloak/REALM.md`](../docker/dev/config/keycloak/REALM.md)

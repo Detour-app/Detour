@@ -22,6 +22,12 @@ public class GroupRepository(ICustomDbContextFactory<DetourDbContext> factory)
             .OrderByDescending(g => g.CreatedAt)
             .ToListAsync(cancellationToken);
 
+    public Task<List<Group>> GetJoinedOrOwnedAsync(Guid userId, CancellationToken cancellationToken) =>
+        Set.Include(g => g.Members)
+            .TagWith(Tag(nameof(GetJoinedOrOwnedAsync)))
+            .Where(g => g.OwnerId == userId || g.Members.Any(m => m.UserId == userId))
+            .ToListAsync(cancellationToken);
+
     public Task<GroupMember?> GetAcceptedMembershipAsync(
         Guid groupId,
         Guid userId,
@@ -63,6 +69,11 @@ public class ConvoyInviteRepository(ICustomDbContextFactory<DetourDbContext> fac
             .TagWith(Tag(nameof(GetForGroupAsync)))
             .Where(i => i.GroupId == groupId)
             .OrderByDescending(i => i.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+    public Task<List<ConvoyInvite>> GetCreatedByAsync(Guid userId, CancellationToken cancellationToken) =>
+        Set.TagWith(Tag(nameof(GetCreatedByAsync)))
+            .Where(i => i.CreatedBy == userId)
             .ToListAsync(cancellationToken);
 }
 

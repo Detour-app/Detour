@@ -121,7 +121,15 @@ server {
     # auth, but the route itself is still one of this prefix's controllers).
     # Addressed by compose service name — the API is in this project and on
     # the shared `edge` network, so it never needs a copied-in IP.
+    #
+    # client_max_body_size matches the API's own cap
+    # (DetourLimits.MaxRequestBodyBytes, 64 MB). nginx's default is 1 MB, and
+    # POST /api/sync uploads the rider's whole history every time, so past
+    # about a season of riding the gzipped body outgrows 1 MB and every sync
+    # from then on is a 413 from this proxy that the API never sees (#963).
+    # Keep the two numbers in step; the API is the one that enforces it.
     location /api/ {
+        client_max_body_size 64m;
         proxy_pass http://api:7500/api/;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
