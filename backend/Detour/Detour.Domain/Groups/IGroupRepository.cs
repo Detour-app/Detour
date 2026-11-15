@@ -11,6 +11,13 @@ public interface IGroupRepository : IBaseRepository<Group>
     Task<List<Group>> GetForUserAsync(Guid userId, GroupKind kind, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Every group this rider is in or still owns, of both kinds, members included and tracked.
+    /// "Still owns" covers a group they already left while only pending invitees remained, so
+    /// nobody was there to take it over (#964).
+    /// </summary>
+    Task<List<Group>> GetJoinedOrOwnedAsync(Guid userId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// The rider's accepted membership of this group, or null. Null must be answered the same
     /// way whether the group does not exist or the caller is simply not in it, so ids cannot be
     /// enumerated.

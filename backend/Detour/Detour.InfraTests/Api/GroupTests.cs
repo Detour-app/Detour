@@ -172,6 +172,86 @@ public class GroupTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_owner_deleting_their_account_hands_the_circle_to_the_longest_standing_member()
+    {
+        // Leaving and deleting the account are the same departure to the others (#964): the
+        // circle used to cascade away with its owner's user row.
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var casey = await _factory.SignInAsync();
+        await Befriend(alex, blake);
+        await Befriend(alex, casey);
+        var circle = await CreateCircle(alex, "Household");
+        (await Invite(alex, circle, blake.Username)).EnsureSuccessStatusCode();
+        (await Respond(blake, circle, accept: true)).EnsureSuccessStatusCode();
+        (await Invite(alex, circle, casey.Username)).EnsureSuccessStatusCode();
+        (await Respond(casey, circle, accept: true)).EnsureSuccessStatusCode();
+        (await ReportPosition(blake, circle, 51.0, 3.7)).EnsureSuccessStatusCode();
+
+        (await alex.DeleteAsync("/api/me")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        foreach (var rider in new[] { blake, casey })
+        {
+            var listed = await Circles(rider);
+            listed.GetArrayLength().Should().Be(1);
+            listed[0].GetProperty("ownerId").GetGuid().Should().Be(blake.UserId, "blake accepted first");
+            listed[0].GetProperty("members").EnumerateArray()
+                .Select(m => m.GetProperty("id").GetGuid())
+                .Should().BeEquivalentTo([blake.UserId, casey.UserId]);
+        }
+
+        (await Positions(casey, circle)).GetArrayLength().Should().Be(1, "blake's fix outlives alex");
+    }
+
+    [Fact]
+    public async Task A_host_an_administrator_deletes_hands_the_convoy_on()
+    {
+        // The administrator's delete is the same cascade as the rider's own.
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Befriend(alex, blake);
+        var convoy = await CreateConvoy(alex, "Sunday ride");
+        (await Invite(alex, convoy, blake.Username)).EnsureSuccessStatusCode();
+        (await Respond(blake, convoy, accept: true)).EnsureSuccessStatusCode();
+        var admin = _factory.CreateClientWith(_factory.IssueToken(
+            $"subject-{Guid.NewGuid():N}", $"admin{Guid.NewGuid():N}"[..16], null, "detour-user", "detour-admin"));
+
+        (await admin.DeleteAsync($"/api/admin/accounts/{alex.UserId}")).StatusCode
+            .Should().Be(HttpStatusCode.NoContent);
+
+        var listed = await Convoys(blake);
+        listed.GetArrayLength().Should().Be(1);
+        listed[0].GetProperty("ownerId").GetGuid().Should().Be(blake.UserId);
+    }
+
+    [Fact]
+    public async Task An_owner_nobody_accepted_takes_the_circle_with_their_account()
+    {
+        // With only pending invitees there is no heir. Leaving keeps the vacancy for the first
+        // to accept (#698), but the owner row is going, so the circle goes as it did before
+        // #964 — including one the owner had already left — and the delete must not fail on
+        // the restricted owner key.
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Befriend(alex, blake);
+        var pending = await CreateCircle(alex, "Household");
+        (await Invite(alex, pending, blake.Username)).EnsureSuccessStatusCode();
+        var left = await CreateCircle(alex, "Old crew");
+        (await Invite(alex, left, blake.Username)).EnsureSuccessStatusCode();
+        (await alex.DeleteAsync($"/api/groups/{Id(left)}/membership")).StatusCode
+            .Should().Be(HttpStatusCode.NoContent);
+        var alone = await CreateCircle(alex, "Just me");
+
+        (await alex.DeleteAsync("/api/me")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        await using var db = postgres.CreateContext();
+        (await db.Users.AnyAsync(u => u.Id == alex.UserId)).Should().BeFalse();
+        (await db.Groups.AnyAsync(g => g.Id == Id(pending) || g.Id == Id(left) || g.Id == Id(alone)))
+            .Should().BeFalse();
+        (await Circles(blake)).GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
     public async Task A_position_is_visible_to_the_circle_and_pausing_withdraws_it()
     {
         var alex = await _factory.SignInAsync();

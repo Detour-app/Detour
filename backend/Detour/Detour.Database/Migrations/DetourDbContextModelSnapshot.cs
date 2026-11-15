@@ -1653,7 +1653,7 @@ namespace Detour.Database.Migrations
                     b.HasOne("Detour.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("OwnerId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_groups_users_owner_id");
                 });

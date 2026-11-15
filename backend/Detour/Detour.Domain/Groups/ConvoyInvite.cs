@@ -64,6 +64,14 @@ public sealed class ConvoyInvite : Entity
 
     public void Revoke(DateTimeOffset now) => RevokedAt ??= now;
 
+    /// <summary>
+    /// Re-points the link at the convoy's new host when the account that minted it is deleted.
+    /// The row cascades from its creator, and with it every guest row, removals included, so
+    /// without this the heir could no longer see or remove link guests and a removed guest could
+    /// walk back in through the heir's next link (#964).
+    /// </summary>
+    public void HandOverTo(Guid hostId) => CreatedBy = hostId;
+
     public ConvoyGuest? FindGuest(Guid userId) => _guests.FirstOrDefault(g => g.UserId == userId);
 
     /// <summary>
@@ -137,4 +145,7 @@ public interface IConvoyInviteRepository : IBaseRepository<ConvoyInvite>
 
     /// <summary>Every link ever minted for this convoy, guests included, newest first.</summary>
     Task<List<ConvoyInvite>> GetForGroupAsync(Guid groupId, CancellationToken cancellationToken);
+
+    /// <summary>Every link this rider minted, in any convoy, tracked. The account-delete hand-off.</summary>
+    Task<List<ConvoyInvite>> GetCreatedByAsync(Guid userId, CancellationToken cancellationToken);
 }
