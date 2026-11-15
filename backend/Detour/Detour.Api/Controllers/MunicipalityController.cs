@@ -27,7 +27,7 @@ public class MunicipalityController(IMunicipalityBoundaryRepository repository) 
     public async Task<ActionResult<MunicipalityResponse>> Get(
         [FromQuery] double lat, [FromQuery] double lon, CancellationToken cancellationToken)
     {
-        if (lat is < -90 or > 90 || lon is < -180 or > 180)
+        if (!double.IsFinite(lat) || !double.IsFinite(lon) || lat is < -90 or > 90 || lon is < -180 or > 180)
             return BadRequest();
 
         var candidates = await repository.CandidatesAsync(lat, lon, cancellationToken);

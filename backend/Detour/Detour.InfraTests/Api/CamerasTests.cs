@@ -93,6 +93,21 @@ public class CamerasTests(PostgresFixture postgres) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    /// <summary>Every comparison with NaN is false, so a negated guard let these through and
+    /// PostgreSQL, which sorts NaN above every float, matched the whole table (#965).</summary>
+    [Theory]
+    [InlineData("minLat=NaN&minLon=-180&maxLat=90&maxLon=180")]
+    [InlineData("minLat=-90&minLon=NaN&maxLat=90&maxLon=180")]
+    [InlineData("minLat=-90&minLon=-180&maxLat=NaN&maxLon=NaN")]
+    [InlineData("minLat=NaN&minLon=NaN&maxLat=NaN&maxLon=NaN")]
+    [InlineData("minLat=-Infinity&minLon=-180&maxLat=90&maxLon=180")]
+    public async Task Get_with_a_non_finite_bound_returns_400(string query)
+    {
+        var response = await _factory.CreateClient().GetAsync($"/api/cameras?{query}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     [Fact]
     public async Task Get_excludes_a_camera_outside_the_query_box()
     {
