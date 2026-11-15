@@ -264,6 +264,9 @@ phone's merge of the same route run one after the other.
 - Returns the union of accepted friends' trace lines, **unattributed** (it is a
   map, not a per-friend history), filtered at read time to friends who are
   currently sharing, so revoking takes effect on the next request.
+- Lines go out as **geometry only**: each point is reduced to latitude and
+  longitude. The stored instant, speed and lean never leave the owner's account
+  this way — with them the map would be the friend's trips.
 
 ## 8. Shared routes
 

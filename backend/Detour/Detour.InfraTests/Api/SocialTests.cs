@@ -302,6 +302,38 @@ public class SocialTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Shared_fog_is_geometry_only_with_no_instant_speed_or_lean()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Befriend(alex, blake);
+
+        await alex.PutAsJsonAsync("/api/me/fog-sharing", new { shareFog = true });
+        await blake.PostAsJsonAsync("/api/sync", new
+        {
+            traces = new[]
+            {
+                "[[51.05,3.72,1000,50.0,12.5],[51.0512345,3.7298765,2000,131.4,null]]",
+                "[[50.85,4.35],[50.86,4.36]]", // pre-timestamp points pass through as they are
+            },
+            shareFog = true,
+        });
+
+        var traces = (await Fog(alex)).GetProperty("traces")
+            .EnumerateArray()
+            .Select(t => JsonDocument.Parse(t.GetString()!).RootElement)
+            .ToList();
+
+        traces.Should().HaveCount(2);
+        traces.SelectMany(t => t.EnumerateArray()).Should().OnlyContain(
+            p => p.GetArrayLength() == 2,
+            "a timestamp per point turns a shared map back into a friend's trips");
+        traces.Select(t => t.GetRawText()).Should().BeEquivalentTo(
+            "[[51.05,3.72],[51.0512345,3.7298765]]",
+            "[[50.85,4.35],[50.86,4.36]]");
+    }
+
+    [Fact]
     public async Task Revoking_fog_sharing_stops_the_lines_on_the_next_request()
     {
         var alex = await _factory.SignInAsync();
