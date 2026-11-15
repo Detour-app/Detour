@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Detour planner</title>
+  </head>
+  <body>
+    <header class="bar">
+      <strong>Detour planner</strong>
+      <span id="who"></span>
+      <button id="sign-out" type="button" hidden>Sign out</button>
+    </header>
+    <main class="layout">
+      <aside class="side">
+        <div id="status" role="status"></div>
+        <button id="sign-in" type="button" hidden>Sign in</button>
+        <ul id="routes" class="routes"></ul>
+      </aside>
+      <div id="map" class="map"></div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

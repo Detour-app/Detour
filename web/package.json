@@ -1,0 +1,24 @@
+{
+  "name": "detour-planner",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The Detour web planner, served by the API at /planner (#636).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.18.0",
+    "oidc-client-ts": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.0.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.0",
+    "vitest": "^5.1.0"
+  }
+}

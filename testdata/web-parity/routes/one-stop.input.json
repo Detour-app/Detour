@@ -1,0 +1,7 @@
+{
+  "id": 1731500000001,
+  "name": "Too short",
+  "mode": "CAR",
+  "stops": [{ "lat": 51.05, "lon": 3.72 }],
+  "polyline": []
+}

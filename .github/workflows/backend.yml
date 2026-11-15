@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
+      # The image builds the web planner into itself (backend/Dockerfile, #913).
+      - 'web/**'
       - '.github/workflows/backend.yml'
   pull_request:
     paths:
       - 'backend/**'
+      # The image builds the web planner into itself (backend/Dockerfile, #913).
+      - 'web/**'
       - '.github/workflows/backend.yml'
   # Publishing an image without a source change — a base-image security update is
   # the usual reason, since the runtime layer is not rebuilt by anything else.
@@ -73,6 +77,29 @@ jobs:
             --project Detour/Detour.Database \
             --startup-project Detour/Detour.Database
 
+  image:
+    # The publish job below skips pull requests, so without this a PR that breaks
+    # the Dockerfile (or the planner stage it builds from web/, #913) goes green
+    # and fails only on main. Builds, never pushes. amd64 only: the Dockerfile has
+    # no per-arch branch, and arm64 through QEMU would double every PR's wall clock
+    # for a build that main's publish job still runs for both platforms.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: backend
+          build-contexts: web=./web
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+
   publish:
     # Gated on the job above rather than run beside it: an image that fails style,
     # tests or the migration check must never reach the registry, and `needs` is
@@ -117,6 +144,9 @@ jobs:
           # backend/, matching the Dockerfile's own context: the API references
           # projects across Shared/ and nothing above backend/ is needed.
           context: backend
+          # The web planner's source, a second named context the Dockerfile's
+          # planner stage copies from (#913). Without it the image build fails.
+          build-contexts: web=./web
           # arm64 costs roughly double the wall clock through QEMU. It stays because
           # the install guide points at a Raspberry Pi, and an amd64-only image would
           # make that instruction a lie.

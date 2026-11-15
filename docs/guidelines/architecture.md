@@ -14,7 +14,14 @@ Not Gradle modules, but surfaces that consume `:shared`:
 ```
 iosApp/     SwiftUI app. Links DetourShared.framework (static).
 backend/    .NET. Talks HTTP only — never links Kotlin.
+web/        Browser planner (TypeScript). Talks HTTP only; copies the rules it
+            needs, each pinned by a fixture in testdata/web-parity/.
 ```
+
+`web/` is the one client surface that does **not** consume `:shared`. A rule it
+copies (route JSON, and later the routing request and GPX) stays defined in
+`commonMain`; the fixture is the contract both sides are tested against, so a
+change to the Kotlin rule fails `web/`'s tests until the copy follows.
 
 `app/…/car/` (Android Auto) is **the same Gradle module and the same package
 root** as the phone. De-duplicating between `ui/` and `car/` is a plain

@@ -1,0 +1,9 @@
+{
+  "id": 1731500000002,
+  "name": "Broken stop",
+  "mode": "MOTO",
+  "stops": [
+    { "lat": 51.05, "lon": 3.72 },
+    { "lat": "north", "lon": 4.40 }
+  ]
+}

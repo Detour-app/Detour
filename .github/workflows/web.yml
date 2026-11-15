@@ -1,0 +1,54 @@
+name: Web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'testdata/web-parity/**'
+      - '.github/workflows/web.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'testdata/web-parity/**'
+      - '.github/workflows/web.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only: installs, type-checks, tests and builds the planner, nothing else.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          # The same major as backend/Dockerfile's planner stage, so CI type-checks
+          # and builds with what the image builds with.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Tests
+        # Includes the testdata/web-parity fixtures that shared/'s
+        # WebParityRoutesTest checks against routeFromJson, so a drift between
+        # the TypeScript and Kotlin parsers fails on whichever side changed.
+        run: npm test
+
+      - name: Build
+        run: npm run build

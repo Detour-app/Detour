@@ -1,0 +1,18 @@
+{
+  "id": 1731500000000,
+  "name": "Ardennes loop",
+  "createdMs": 1731500000000,
+  "mode": "MOTO",
+  "stops": [
+    { "lat": 50.8503, "lon": 4.3517, "name": "Brussels" },
+    { "lat": 50.2268, "lon": 5.3442 },
+    { "lat": 49.9667, "lon": 5.9333, "name": "Bastogne" }
+  ],
+  "polyline": [50.8503, 4.3517, 50.5, 4.9, 50.2268, 5.3442, 49.9667, 5.9333],
+  "distanceMeters": 187654.3,
+  "timeMs": 9000000,
+  "sharedBy": "jules",
+  "editedAtMs": 1731600000000,
+  "curvy": "extra",
+  "futureField": { "nested": [1, 2, 3] }
+}

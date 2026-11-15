@@ -100,7 +100,7 @@
       "webOrigins": ["http://localhost:5173", "http://localhost:7500"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:5173/##http://localhost:7500/planner/",
+        "post.logout.redirect.uris": "http://localhost:5173/planner/##http://localhost:7500/planner/",
         "use.refresh.tokens": "false"
       },
       "protocolMappers": [

@@ -1,0 +1,15 @@
+{
+  "id": 1731500000004,
+  "name": "Kept spin",
+  "createdMs": 1731500000004,
+  "mode": "MOTO",
+  "stops": [
+    { "lat": 50.0, "lon": 5.0 },
+    { "lat": 50.1, "lon": 5.2 },
+    { "lat": 50.0, "lon": 5.0 }
+  ],
+  "polyline": [50.0, 5.0, 50.1, 5.2, 50.0, 5.0],
+  "distanceMeters": 42000,
+  "timeMs": 0,
+  "origin": "SPIN"
+}

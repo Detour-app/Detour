@@ -85,10 +85,12 @@ can roll back to a known build. Built for `linux/amd64` and `linux/arm64`, so a
 Raspberry Pi is still a target. To build it yourself:
 
 ```bash
-docker build -t detour-api backend
+docker build --build-context web=web -t detour-api backend
 ```
 
-The build context is `backend/`, not the repository root. It listens on 7500, the
+From the repository root. The build context is `backend/`, plus `web/` as a second,
+named one: the image carries the web planner (see *The web planner* below), and the
+build fails without it. It listens on 7500, the
 same port it uses everywhere else in this repo, and runs as the runtime image's
 non-root user.
 
@@ -237,6 +239,38 @@ things there are load-bearing rather than cosmetic:
   `editUsernameAllowed: false` and `registrationEmailAsUsername: false`, but a
   realm that allows an email address as a username will produce accounts this
   service refuses to provision.
+
+### The web planner
+
+The image carries a browser planner (#913): sign in at `https://<host>/planner` and
+see the routes saved on the phone. This first version is read-only. The API serves
+it from `Planner:Path`, which the image sets to its built copy (`/app/planner`);
+blank, or a directory without an `index.html`, serves nothing and `/planner` is a
+404. A `dotnet run` without a `web/` build is that case.
+
+What it needs around it:
+
+- **One hostname.** The page calls `/api`, `/route` and `/info` on its own origin,
+  so there is no CORS to configure: nothing goes in `Cors:AllowedOrigins` for it.
+  That is the `+proxy` layer, normally with `+caddy` in front
+  (`docker/prod/README.md`); `docker/prod/nginx` routes `/planner/` to the API. A
+  split-hostname install has no planner.
+- **The `detour-web` client** in the realm: public, PKCE S256, no refresh tokens,
+  redirect `https://<host>/planner/*`. The bundled Keycloak imports it with the
+  realm on a new server (#911); a realm made before that gets it once with
+  `./detour add-planner`. An own identity provider adds it by hand, like every
+  other client.
+- **The realm's origin in the page's CSP.** The API's `Content-Security-Policy` for
+  `/planner` allows this origin, OpenFreeMap's tiles and the origin of
+  `Idp:Authority`, so a realm on its own host still works. Nothing to set.
+
+Signing in keeps the token in the tab's `sessionStorage` and nothing else: no
+refresh token, no silent renewal. A new tab, or a token past its lifetime, shows
+"Sign in again", which asks for no password while the Keycloak session lives.
+"Sign out" ends that session too.
+
+Routing from the planner (coming with #914) goes through nginx's `/route`, so the
+`route_per_ip` limit (2 r/s, burst 20) applies to it as it does to the app.
 
 ## Checking it came up
 
