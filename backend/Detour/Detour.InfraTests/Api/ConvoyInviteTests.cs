@@ -494,6 +494,54 @@ public class ConvoyInviteTests(PostgresFixture postgres) : IAsyncLifetime
         (await ConvoyIds(rider)).Should().NotContain(convoy);
     }
 
+    [Fact]
+    public async Task A_host_deleting_their_account_leaves_the_heir_the_links_and_their_removals()
+    {
+        // The links cascade from the account that minted them, guest rows and removals with
+        // them; the hand-off has to re-point them or the heir inherits a convoy whose removed
+        // guests can walk back in (#964).
+        var host = await _factory.SignInAsync();
+        var heir = await _factory.SignInAsync();
+        var removed = await _factory.SignInAsync();
+        var guest = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+        (await Join(heir, invite)).EnsureSuccessStatusCode();
+        (await Join(removed, invite)).EnsureSuccessStatusCode();
+        (await Join(guest, invite)).EnsureSuccessStatusCode();
+        (await host.DeleteAsync($"/api/convoys/{convoy}/guests/{removed.UserId}")).EnsureSuccessStatusCode();
+
+        (await host.DeleteAsync("/api/me")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await OwnerOf(heir, convoy)).Should().Be(heir.UserId);
+        var listed = (await Guests(heir, convoy)).GetProperty("guests");
+        listed.EnumerateArray().Select(g => g.GetProperty("id").GetGuid()).Should().Equal(guest.UserId);
+        (await Join(removed, await CreateLink(heir, convoy))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await heir.DeleteAsync($"/api/convoys/{convoy}/guests/{guest.UserId}")).StatusCode
+            .Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task A_former_host_deleting_their_account_keeps_the_links_they_minted()
+    {
+        // They left earlier, so the convoy is not among theirs any more, but their links still
+        // hang off their account row.
+        var host = await _factory.SignInAsync();
+        var heir = await _factory.SignInAsync();
+        var removed = await _factory.SignInAsync();
+        var convoy = await CreateConvoy(host);
+        var invite = await CreateLink(host, convoy);
+        (await Join(heir, invite)).EnsureSuccessStatusCode();
+        (await Join(removed, invite)).EnsureSuccessStatusCode();
+        (await host.DeleteAsync($"/api/convoys/{convoy}/guests/{removed.UserId}")).EnsureSuccessStatusCode();
+        (await host.DeleteAsync($"/api/groups/{convoy}/membership")).EnsureSuccessStatusCode();
+
+        (await host.DeleteAsync("/api/me")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await OwnerOf(heir, convoy)).Should().Be(heir.UserId);
+        (await Join(removed, await CreateLink(heir, convoy))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     private static async Task Befriend(SignedInClient a, SignedInClient b)
     {
         (await a.PostAsJsonAsync("/api/friends/requests", new { username = b.Username }))

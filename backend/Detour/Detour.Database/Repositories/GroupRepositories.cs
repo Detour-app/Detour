@@ -70,6 +70,11 @@ public class ConvoyInviteRepository(ICustomDbContextFactory<DetourDbContext> fac
             .Where(i => i.GroupId == groupId)
             .OrderByDescending(i => i.CreatedAt)
             .ToListAsync(cancellationToken);
+
+    public Task<List<ConvoyInvite>> GetCreatedByAsync(Guid userId, CancellationToken cancellationToken) =>
+        Set.TagWith(Tag(nameof(GetCreatedByAsync)))
+            .Where(i => i.CreatedBy == userId)
+            .ToListAsync(cancellationToken);
 }
 
 public class MemberFixRepository(ICustomDbContextFactory<DetourDbContext> factory)

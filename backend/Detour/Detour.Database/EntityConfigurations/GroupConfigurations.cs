@@ -207,7 +207,10 @@ public class ConvoyInviteConfiguration : IEntityTypeConfiguration<ConvoyInvite>
             .OnDelete(DeleteBehavior.Cascade);
 
         // Deleting the account that made a link takes the link with it, as every table
-        // referencing an account cascades (AdminController.DeleteAccount relies on it).
+        // referencing an account cascades (AdminController.DeleteAccount relies on it). A convoy
+        // that outlives that account has its links handed to its host first
+        // (GroupService.LeaveAllBeforeAccountDeletionAsync, #964), so only links of a deleted
+        // convoy reach this.
         builder.HasOne<User>()
             .WithMany()
             .HasForeignKey(i => i.CreatedBy)

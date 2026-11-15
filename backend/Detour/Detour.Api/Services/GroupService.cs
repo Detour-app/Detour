@@ -48,6 +48,7 @@ public interface IGroupService
 
 public class GroupService(
     IGroupRepository groups,
+    IConvoyInviteRepository invites,
     IFriendshipRepository friendships,
     IUserRepository users,
     ICirclePlaceRepository circlePlaces,
@@ -180,6 +181,7 @@ public class GroupService(
     {
         // Places, fixes and presence events need no explicit delete here: their rider leg
         // cascades from the user row that is about to go (#700).
+        var deleted = new HashSet<Guid>();
         foreach (var group in await groups.GetJoinedOrOwnedAsync(userId, cancellationToken))
         {
             var groupId = group.Id;
@@ -197,11 +199,25 @@ public class GroupService(
                 continue;
 
             groups.Delete(group);
+            deleted.Add(groupId);
             postCommit.Schedule(() =>
             {
                 liveRelay.ClearRegroupPin(groupId);
                 return Task.CompletedTask;
             });
+        }
+
+        // A link cascades from the account that minted it, guest rows and removals with it.
+        // Any convoy that outlives the rider keeps its links under whoever hosts it now — this
+        // delete's heir, or the host since an earlier leave.
+        foreach (var invite in await invites.GetCreatedByAsync(userId, cancellationToken))
+        {
+            if (deleted.Contains(invite.GroupId))
+                continue;
+
+            var group = await groups.GetAsync(invite.GroupId, cancellationToken);
+            if (group is not null && group.OwnerId != userId)
+                invite.HandOverTo(group.OwnerId);
         }
     }
 
