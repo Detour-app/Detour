@@ -16,7 +16,53 @@
       <aside class="side">
         <div id="status" role="status"></div>
         <button id="sign-in" type="button" hidden>Sign in</button>
-        <ul id="routes" class="routes"></ul>
+        <div id="list-panel" hidden>
+          <button id="new-route" type="button">New route</button>
+          <ul id="routes" class="routes"></ul>
+        </div>
+        <form id="editor" class="editor" hidden>
+          <label class="field">
+            <span>Name</span>
+            <input id="route-name" type="text" maxlength="200" placeholder="Unnamed route" />
+          </label>
+          <label class="field">
+            <span>Mode</span>
+            <select id="route-mode">
+              <option value="MOTO">Moto</option>
+              <option value="CAR">Car</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Curvy</span>
+            <select id="route-curvy">
+              <option value="FAST">Fast</option>
+              <option value="BALANCED">Balanced</option>
+              <option value="TWISTY">Twisty</option>
+            </select>
+          </label>
+          <fieldset class="avoid">
+            <legend>Avoid</legend>
+            <label><input type="checkbox" id="avoid-highways" /> Highways</label>
+            <label><input type="checkbox" id="avoid-small-roads" /> Small roads</label>
+            <label><input type="checkbox" id="avoid-tolls" /> Tolls</label>
+            <label><input type="checkbox" id="avoid-ferries" /> Ferries</label>
+            <label><input type="checkbox" id="avoid-unpaved" /> Unpaved</label>
+          </fieldset>
+          <p class="hint">Click the map to add a stop, drag a stop or the line to reroute,
+            right-click a stop to remove it.</p>
+          <ol id="stops" class="stops"></ol>
+          <div id="summary" class="meta"></div>
+          <div id="routing-status" class="routing-status" role="status"></div>
+          <div id="conflict" class="conflict" hidden>
+            <span id="conflict-text"></span>
+            <button id="conflict-action" type="button"></button>
+          </div>
+          <div class="actions">
+            <button id="save" type="submit">Save</button>
+            <button id="delete" type="button">Delete</button>
+            <button id="close" type="button">Close</button>
+          </div>
+        </form>
       </aside>
       <div id="map" class="map"></div>
     </main>

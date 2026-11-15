@@ -1,0 +1,19 @@
+{
+  "method": "GET",
+  "path": "/route",
+  "query": [
+    ["profile", "moto"],
+    [
+      "point",
+      [50.8503, 4.3517]
+    ],
+    [
+      "point",
+      [50.2268, 5.3442]
+    ],
+    ["points_encoded", "false"],
+    ["details", "max_speed"],
+    ["details", "roundabout"]
+  ],
+  "body": null
+}

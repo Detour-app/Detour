@@ -1,0 +1,6 @@
+{
+  "mode": "MOTO",
+  "points": [{ "lat": 50.8503, "lon": 4.3517 }, { "lat": 50.2268, "lon": 5.3442 }],
+  "preferences": { "avoidFerries": true, "curvy": "TWISTY" },
+  "encodedValues": null
+}

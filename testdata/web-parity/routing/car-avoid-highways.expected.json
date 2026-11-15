@@ -1,0 +1,17 @@
+{
+  "method": "POST",
+  "path": "/route",
+  "query": [],
+  "body": {
+    "profile": "car",
+    "points": [[4.3517, 50.8503], [4.4025, 51.2194]],
+    "points_encoded": false,
+    "details": ["max_speed", "roundabout"],
+    "ch.disable": true,
+    "custom_model": {
+      "priority": [
+        { "if": "road_class == MOTORWAY || road_class == TRUNK", "multiply_by": 0.05 }
+      ]
+    }
+  }
+}

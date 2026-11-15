@@ -1,0 +1,24 @@
+{
+  "method": "POST",
+  "path": "/route",
+  "query": [],
+  "body": {
+    "profile": "moto",
+    "points": [[4.3517, 50.8503], [5.3442, 50.2268], [5.9333, 49.9667]],
+    "points_encoded": false,
+    "details": ["max_speed", "roundabout"],
+    "ch.disable": true,
+    "custom_model": {
+      "priority": [
+        { "if": "road_class == UNCLASSIFIED || road_class == RESIDENTIAL", "multiply_by": 0.2 },
+        { "if": "road_class == LIVING_STREET || road_class == SERVICE", "multiply_by": 0.1 },
+        { "if": "road_class == TRACK || road_class == PATH", "multiply_by": 0.02 },
+        { "if": "toll == ALL", "multiply_by": 0.05 },
+        { "if": "road_environment == FERRY", "multiply_by": 0.05 },
+        { "if": "road_class == MOTORWAY || road_class == TRUNK", "multiply_by": 0.1 },
+        { "if": "curvature >= 0.98", "multiply_by": 0.4 },
+        { "if": "curvature >= 0.9 && curvature < 0.98", "multiply_by": 0.7 }
+      ]
+    }
+  }
+}
