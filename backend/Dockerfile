@@ -39,7 +39,7 @@ RUN dotnet publish Detour/Detour.Api/Detour.Api.csproj \
     --no-restore \
     --output /app
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:11.0
 WORKDIR /app
 COPY --from=build /app ./
 COPY --from=planner /web/dist ./planner
