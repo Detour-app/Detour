@@ -91,7 +91,26 @@ services:
     environment:
       # Read by graphhopper.sh. The build is the memory-hungry part; see
       # .env.example for the per-region figures.
-      JAVA_OPTS: -Xmx${GRAPHHOPPER_HEAP:-10g} -Xms1g
+      #
+      # Elevation is opt-in (#916). GRAPHHOPPER_ELEVATION blank is GraphHopper's
+      # `noop`: no heights, the graph as before. A provider (`srtm`, `cgiar`) has
+      # the import download elevation tiles into /graph/elevation-cache, on the
+      # graph volume, and store a height per point. Change it only together with
+      # dropping graphhopper-data: GraphHopper refuses to load a graph built with
+      # the other setting ("Configured dimension elevation=... is not equal to
+      # dimension of loaded graph") and crash-loops until the rebuild
+      # (docker/prod/README.md, "Elevation"). Only the web planner's profile asks
+      # for heights; the app never does.
+      #
+      # The `\.` in the keys is load-bearing. Dropwizard splits a -Ddw. key at
+      # every unescaped dot, so `graph.elevation.provider` would land as nested
+      # keys that GraphHopper's flat `graph.*` settings never read, and the import
+      # would quietly build a 2-D graph. config.yml can't take the variable
+      # instead: GraphHopper does no ${...} substitution there.
+      JAVA_OPTS: >-
+        -Xmx${GRAPHHOPPER_HEAP:-10g} -Xms1g
+        -Ddw.graphhopper.graph\.elevation\.provider=${GRAPHHOPPER_ELEVATION:-noop}
+        -Ddw.graphhopper.graph\.elevation\.cache_dir=/graph/elevation-cache
       TZ: ${TZ:-Europe/Brussels}
     entrypoint: ["./graphhopper.sh", "-c", "/config.yml", "-o", "/graph"]
     depends_on:

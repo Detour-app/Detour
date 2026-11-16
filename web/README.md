@@ -31,6 +31,18 @@ The open edit is kept in the tab's `sessionStorage` (`src/draft.ts`) under the
 rider's `sub`. A 401 on save, or an expired token, signs the tab out; after
 "Sign in again" the edit is back. Signing out drops it.
 
+## Elevation profile
+
+When the server's GraphHopper was built with elevation (`GRAPHHOPPER_ELEVATION`,
+`docker/prod/README.md` "Elevation") and `/info` says `"elevation": true`, the
+open route gets a height-over-distance profile and its total climb under the map
+(#916). Routing requests then carry `elevation=true`; a route opened with its
+saved line gets one such request through the same `RouteThrottle`, of which only
+the heights are used, so the saved line is left as it was. Saved routes stay 2-D:
+`parseRoute` drops the height. Without elevation there is no request for it and no
+profile box. The maths (climb, distance along the points, the SVG path) is
+`src/routing/elevation.ts`; the app has no copy of it, so it has no parity fixture.
+
 TypeScript, Vite, [MapLibre GL JS](https://maplibre.org/) on OpenFreeMap tiles (the
 phone's), and [`oidc-client-ts`](https://github.com/authts/oidc-client-ts) for
 sign-in. No framework: one page, a list and a map.
