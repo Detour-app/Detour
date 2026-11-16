@@ -1,4 +1,5 @@
 import type { LatLon } from "../routes";
+import { type ElevationProfile, infoHasElevation, profileFromRoute } from "./elevation";
 import { encodedValues, type RouteRequest } from "./request";
 
 // Same-origin /route and /info, as nginx forwards them to the stack's GraphHopper (#636
@@ -25,19 +26,34 @@ export interface RoutedPath {
   timeMs: number | null;
 }
 
-/** What `/info` says the graph has, or null when it can't be read (no routing on this server,
- *  a proxy without /info): every gated option then stays off. */
-export async function fetchEncodedValues(): Promise<Set<string> | null> {
+/** What `/info` says the graph has. */
+export interface GraphInfo {
+  /** The encoded values, or null when /info can't be read: every gated option then stays off. */
+  values: Set<string> | null;
+  /** Whether the graph has heights (GRAPHHOPPER_ELEVATION), so a profile can be drawn. */
+  elevation: boolean;
+}
+
+/** `/info`, read once per sign-in. Unreadable (no routing on this server, a proxy without
+ *  /info): nothing supported, no elevation. */
+export async function fetchGraphInfo(): Promise<GraphInfo> {
   try {
     const res = await fetch("/info", { headers: { Accept: "application/json" } });
-    if (!res.ok) return null;
-    return encodedValues(await res.text());
+    if (!res.ok) return { values: null, elevation: false };
+    const text = await res.text();
+    return { values: encodedValues(text), elevation: infoHasElevation(text) };
   } catch {
-    return null;
+    return { values: null, elevation: false };
   }
 }
 
-export async function fetchRoute(request: RouteRequest): Promise<RoutedPath> {
+/** A routed path, and its elevation profile when the request asked for heights and got them. */
+export interface RouteAnswer {
+  path: RoutedPath;
+  profile: ElevationProfile | null;
+}
+
+export async function fetchRoute(request: RouteRequest): Promise<RouteAnswer> {
   const res = await fetch(request.url, {
     method: request.body === null ? "GET" : "POST",
     headers:
@@ -49,7 +65,8 @@ export async function fetchRoute(request: RouteRequest): Promise<RoutedPath> {
   if (res.status === 429) throw new SlowDown();
   if (res.status === 400) throw new NoRoute();
   if (!res.ok) throw new Error(`The routing server answered ${res.status}`);
-  return parseRoute(await res.text());
+  const text = await res.text();
+  return { path: parseRoute(text), profile: profileFromRoute(text) };
 }
 
 /** RoutingClient.parseRoute, the part a saved route keeps: geometry, distance, time. */

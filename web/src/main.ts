@@ -31,11 +31,13 @@ import {
 import { buildGpx, fileName, MIME_TYPE, parseRouteFile } from "./gpx/routeGpx";
 import { createMap, type MapEditHandlers } from "./map";
 import { formatDistance, formatDuration, type SavedRoute, type TravelMode } from "./routes";
-import { fetchEncodedValues, fetchRoute, NoRoute, type RoutedPath, RouteThrottle, SlowDown } from "./routing/client";
+import { fetchGraphInfo, fetchRoute, NoRoute, type RoutedPath, RouteThrottle, SlowDown } from "./routing/client";
+import { type ElevationProfile, profilePaths, profileSummary, withElevation } from "./routing/elevation";
 import {
   type CurvyPreset,
   EncodedValue,
   ghProfile,
+  type RouteRequest,
   type RoutePreferences,
   routeViaRequest,
   supportedBy,
@@ -73,6 +75,10 @@ const saveButton = el<HTMLButtonElement>("save");
 const exportButton = el<HTMLButtonElement>("export-gpx");
 const deleteButton = el<HTMLButtonElement>("delete");
 const closeButton = el<HTMLButtonElement>("close");
+const profileBox = el<HTMLElement>("profile");
+const profileArea = document.getElementById("profile-area");
+const profileLine = document.getElementById("profile-line");
+const profileText = el<HTMLElement>("profile-text");
 const routeMap = createMap(el<HTMLDivElement>("map"));
 
 /** The avoid checkboxes, with the encoded value each needs on the graph (null: works on any). */
@@ -92,19 +98,42 @@ interface Session {
   routes: SavedRoute[];
   /** What the routing server's graph has (`/info`), null when it can't tell. */
   graph: Set<string> | null;
+  /** Whether `/info` reports heights, so routes are fetched with `elevation=true`. */
+  elevation: boolean;
+  /** The open draft's elevation profile; null hides it (no elevation, or nothing routed yet). */
+  profile: ElevationProfile | null;
   draft: Draft | null;
   saving: boolean;
 }
 
 let session: Session | null = null;
 
-const throttle = new RouteThrottle<RoutedPath>(
-  (path) => {
+/** What a throttled request brings back: a new line for the draft (null for a profile-only
+ *  fetch, which leaves the saved line alone), and the profile to draw. */
+interface Routed {
+  path: RoutedPath | null;
+  profile: ElevationProfile | null;
+}
+
+// One throttle for both routing and profile fetches, so together they stay inside nginx's
+// rate limit, and an edit replaces a profile fetch still waiting (its answer carries one).
+const throttle = new RouteThrottle<Routed>(
+  ({ path, profile }) => {
     if (session?.draft == null) return;
-    setDraft({ ...session.draft, ...path }, false);
-    sayRouting("");
+    session.profile = profile;
+    if (path !== null) {
+      setDraft({ ...session.draft, ...path }, false);
+      sayRouting("");
+    } else {
+      // A profile-only fetch leaves the draft alone, so setDraft's renderEditor() never ran:
+      // without this, Save stays disabled on throttle.pending until the next edit.
+      renderEditor();
+    }
+    renderProfile();
   },
   (error) => {
+    if (session !== null) session.profile = null;
+    renderProfile();
     if (error instanceof SlowDown || error instanceof NoRoute) sayRouting(error.message);
     else sayRouting(`Could not route: ${error instanceof Error ? error.message : String(error)}`);
     renderEditor();
@@ -125,6 +154,7 @@ function showSignIn(manager: UserManager, again: boolean): void {
   editor.hidden = true;
   routeMap.setEditing(null);
   routeMap.show(null, false);
+  profileBox.hidden = true;
   who.textContent = "";
   signOut.hidden = true;
   signIn.textContent = again ? "Sign in again" : "Sign in";
@@ -205,6 +235,8 @@ function openDraft(s: Session, draft: Draft, fit: boolean): void {
   sayRouting("");
   conflict.hidden = true;
   s.draft = draft;
+  s.profile = null;
+  renderProfile();
   if (draft.dirty) saveDraft(storage, draft);
   else clearDraft(storage);
   editor.hidden = false;
@@ -213,14 +245,18 @@ function openDraft(s: Session, draft: Draft, fit: boolean): void {
   say(draft.createdMs === null ? "New route" : `Editing ${draft.name || "Unnamed route"}`);
   renderRoutes(s);
   // A route opened without geometry (restored mid-edit, imported) gets its line now; asked
-  // before the render, so Save and Export show as waiting for it.
+  // before the render, so Save and Export show as waiting for it. One with a line gets only
+  // its heights, when the server has them.
   if (draft.polyline.length < 2) route(draft);
+  else fetchProfile(draft);
   renderEditor();
 }
 
 function closeDraft(s: Session): void {
   throttle.cancel();
   s.draft = null;
+  s.profile = null;
+  renderProfile();
   clearDraft(storage);
   editor.hidden = true;
   routeMap.setEditing(null);
@@ -239,18 +275,54 @@ function setDraft(draft: Draft, reroute: boolean): void {
   renderEditor();
 }
 
+/** The draft's `/route` request, asking for heights when the server has them. */
+function routeRequest(s: Session, draft: Draft): RouteRequest {
+  const request = routeViaRequest("", draft.stops, ghProfile(draft.mode), supportedBy(draft.preferences, s.graph));
+  return s.elevation ? withElevation(request) : request;
+}
+
 function route(draft: Draft): void {
+  const s = session;
   if (draft.stops.length < 2) {
     throttle.cancel();
     sayRouting("");
+    if (s !== null) s.profile = null;
+    renderProfile();
     return;
   }
-  const s = session;
   if (s === null) return;
-  const profile = ghProfile(draft.mode);
-  const request = routeViaRequest("", draft.stops, profile, supportedBy(draft.preferences, s.graph));
+  const request = routeRequest(s, draft);
   sayRouting("Routing…");
   throttle.request(() => fetchRoute(request));
+}
+
+/** Heights for a route opened with its saved line: one routing request through its stops, of
+ *  which only the profile is used. The saved line stays as it was (#916: polylines stay 2-D).
+ *  A failure just means no profile, so it is not shown as a routing error. */
+function fetchProfile(draft: Draft): void {
+  const s = session;
+  if (s === null || !s.elevation || draft.stops.length < 2) return;
+  const request = routeRequest(s, draft);
+  throttle.request(() =>
+    fetchRoute(request).then(
+      ({ profile }) => ({ path: null, profile }),
+      () => ({ path: null, profile: null }),
+    ),
+  );
+}
+
+const PROFILE_WIDTH = 1000;
+const PROFILE_HEIGHT = 100;
+
+/** The elevation profile under the map, or nothing at all when there is none to show. */
+function renderProfile(): void {
+  const profile = session?.profile ?? null;
+  profileBox.hidden = profile === null;
+  if (profile === null) return;
+  const { line, area } = profilePaths(profile, PROFILE_WIDTH, PROFILE_HEIGHT);
+  profileLine?.setAttribute("d", line);
+  profileArea?.setAttribute("d", area);
+  profileText.textContent = `${profileSummary(profile)} · ${formatDistance(profile.distance)}`;
 }
 
 const editHandlers: MapEditHandlers = {
@@ -524,7 +596,17 @@ async function start(): Promise<void> {
     }
     throw e;
   }
-  const s: Session = { manager, user, routes, graph: await fetchEncodedValues(), draft: null, saving: false };
+  const info = await fetchGraphInfo();
+  const s: Session = {
+    manager,
+    user,
+    routes,
+    graph: info.values,
+    elevation: info.elevation,
+    profile: null,
+    draft: null,
+    saving: false,
+  };
   session = s;
   listPanel.hidden = false;
   renderRoutes(s);

@@ -81,6 +81,13 @@ was added (#650) has no curvy presets until it is dropped and rebuilt. The
 presets themselves are request-time rules, documented in
 [`docker/prod/README.md`](../prod/README.md#curvy-routing-presets).
 
+Elevation, for the web planner's profile (#916), is off unless
+`GRAPHHOPPER_ELEVATION` in `docker/dev/.env` names a provider (`srtm`, `cgiar`).
+Unlike the encoded values, a graph built with the other setting is not served on:
+change it only together with dropping `detour-dev_graphhopper-data`, or
+GraphHopper crash-loops on startup. See
+[`docker/prod/README.md`](../prod/README.md#elevation).
+
 The profile **names** are load-bearing: the app sends `car` and `moto` as the
 `profile` query parameter, from `TravelMode.ghProfile`. Renaming either leaves
 every routing request 400ing, which surfaces in the app as a null route rather

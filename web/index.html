@@ -70,7 +70,17 @@
           </div>
         </form>
       </aside>
-      <div id="map" class="map"></div>
+      <div class="map-column">
+        <div id="map" class="map"></div>
+        <!-- Only when the server has elevation (/info) and the open route has heights (#916). -->
+        <figure id="profile" class="profile" hidden>
+          <svg viewBox="0 0 1000 100" preserveAspectRatio="none" role="img" aria-labelledby="profile-text">
+            <path id="profile-area" class="profile-area" />
+            <path id="profile-line" class="profile-line" vector-effect="non-scaling-stroke" />
+          </svg>
+          <figcaption id="profile-text"></figcaption>
+        </figure>
+      </div>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
