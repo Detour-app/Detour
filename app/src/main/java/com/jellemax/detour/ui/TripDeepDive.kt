@@ -59,7 +59,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /** One thing worth pinning on the trip map (#444): a point, or for the best
- *  stretch the run of trace points it covers. [color] is shared by the pin and
+ *  stretch the run of trace points it covers. [color] is shared by the map tag and
  *  its list row so the two read as one. */
 data class TripHighlight(
     val id: String,
