@@ -1,0 +1,4 @@
+{
+  "fileName": "detour-route-route.gpx",
+  "gpx": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"Detour\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n  <metadata><name></name></metadata>\n  <rte>\n    <name></name>\n    <rtept lat=\"0.0000100\" lon=\"-0.0000100\"></rtept>\n    <rtept lat=\"0.0000000\" lon=\"4.0000002\"></rtept>\n    <rtept lat=\"12.0000000\" lon=\"-180.0000000\"></rtept>\n  </rte>\n  <trk>\n    <trkseg>\n      <trkpt lat=\"0.0000002\" lon=\"-0.0000002\"/>\n    </trkseg>\n  </trk>\n</gpx>\n"
+}

@@ -1,0 +1,4 @@
+{
+  "fileName": "detour-route-ardennes-back.gpx",
+  "gpx": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"Detour\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n  <metadata><name>Ardennes &amp; &lt;back&gt;</name></metadata>\n  <rte>\n    <name>Ardennes &amp; &lt;back&gt;</name>\n    <rtept lat=\"50.8503396\" lon=\"4.3517103\"><name>Brussels \"centre\"</name></rtept>\n    <rtept lat=\"50.0000000\" lon=\"5.7166667\"></rtept>\n    <rtept lat=\"49.6116000\" lon=\"6.1319000\"><name>Luxembourg</name></rtept>\n  </rte>\n  <trk>\n    <trkseg>\n      <trkpt lat=\"50.8503396\" lon=\"4.3517103\"/>\n      <trkpt lat=\"50.4200000\" lon=\"5.1000000\"/>\n      <trkpt lat=\"49.6116000\" lon=\"6.1319000\"/>\n    </trkseg>\n  </trk>\n</gpx>\n"
+}

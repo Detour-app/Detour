@@ -8,6 +8,7 @@ import {
   clearDraft,
   type DraftStorage,
   draftFromRoute,
+  importedDraft,
   insertIndexFor,
   insertStop,
   loadDraft,
@@ -103,6 +104,30 @@ describe("the stop list", () => {
   it("needs two stops to save", () => {
     expect(canSave(addStop(newDraft("rider", 1), brussels))).toBe(false);
     expect(canSave(two)).toBe(true);
+  });
+});
+
+describe("an imported file", () => {
+  it("opens as a new unsaved route, to be routed afresh", () => {
+    const source = fullMoto();
+    const draft = importedDraft("rider", source, 1_800_000_000_000);
+    expect(draft.id).toBe(1_800_000_000_000);
+    expect(draft.id).not.toBe(source.id);
+    expect(draft.createdMs).toBeNull();
+    expect(draft.dirty).toBe(true);
+    expect(draft.stops).toEqual(source.stops);
+    expect(draft.mode).toBe(source.mode);
+    expect(draft.polyline).toEqual([]);
+    expect(draft.distanceMeters).toBeNull();
+    expect(draft.timeMs).toBeNull();
+    expect(canSave(draft)).toBe(true);
+  });
+
+  it("saves as a route of its own, stamped now", () => {
+    const doc = routeDocument(importedDraft("rider", fullMoto(), 1_800_000_000_000), 1_800_000_000_500);
+    expect(doc.id).toBe(1_800_000_000_000);
+    expect(doc.createdMs).toBe(1_800_000_000_500);
+    expect(doc.editedAtMs).toBe(1_800_000_000_500);
   });
 });
 

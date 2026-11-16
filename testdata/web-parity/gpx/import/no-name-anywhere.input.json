@@ -1,0 +1,4 @@
+{
+  "nowMs": 11,
+  "file": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\">\n  <rte>\n    <rtept lat=\"50\" lon=\"4\"/>\n    <rtept lat=\"51\" lon=\"5\"/>\n  </rte>\n</gpx>\n"
+}

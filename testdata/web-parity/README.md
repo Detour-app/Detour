@@ -9,6 +9,7 @@ to the same answers on both sides. Each case is a pair:
 | Folder | Kotlin side | TypeScript side |
 | --- | --- | --- |
 | `routes/` | `routeFromJson` (`shared/.../data/Routes.kt`), checked by `WebParityRoutesTest` in `shared/src/androidHostTest` | `web/src/routes.ts`, checked by `web/src/routes.test.ts` |
+| `gpx/export/`, `gpx/import/` | `RouteGpx.buildGpx`/`fileName` and `RouteGpx.parseRouteFile` (`RouteGpx.kt`), checked by `WebParityGpxTest` | `web/src/gpx/routeGpx.ts`, checked by `web/src/gpx/routeGpx.test.ts` |
 | `routing/` | `routeViaRequest` (`RoutingClient.kt`) after `RoutePreferences.supportedBy`, checked by `WebParityRoutingTest` | `web/src/routing/request.ts`, checked by `web/src/routing/request.test.ts` |
 
 `routes/` expected files are the parsed route in a neutral shape (stops as objects,
@@ -20,6 +21,11 @@ set; the rest default as in `RoutePreferences`) and the encoded values `/info` r
 (`null` for "couldn't ask"). Expected is the `/route` request: method, path, the query as
 ordered `[key, value]` pairs with each `point` split into `[lat, lon]` numbers (so `4` and
 `4.0` match), and the POST body parsed, or `null` for a GET.
+
+`gpx/export/` inputs are a route's `name`, `stops` and `polyline` (as `[lat, lon]` pairs);
+expected is the suggested `fileName` and the whole `gpx` text, compared as a string. `gpx/import/`
+inputs are the `file` text and the `nowMs` an import stamps; expected is the parsed route in the
+`routes/` shape, or `null` for a file both sides reject.
 
 Adding a case: drop a new pair in the folder. Both tests pick up every pair, and
 `shared`'s host-test task declares this directory as an input, so a fixture-only change

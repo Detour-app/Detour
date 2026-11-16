@@ -16,6 +16,7 @@ import {
   clearDraft,
   type Draft,
   draftFromRoute,
+  importedDraft,
   insertIndexFor,
   insertStop,
   loadDraft,
@@ -27,6 +28,7 @@ import {
   withMode,
   withPreferences,
 } from "./draft";
+import { buildGpx, fileName, MIME_TYPE, parseRouteFile } from "./gpx/routeGpx";
 import { createMap, type MapEditHandlers } from "./map";
 import { formatDistance, formatDuration, type SavedRoute, type TravelMode } from "./routes";
 import { fetchEncodedValues, fetchRoute, NoRoute, type RoutedPath, RouteThrottle, SlowDown } from "./routing/client";
@@ -40,7 +42,7 @@ import {
   supports,
 } from "./routing/request";
 
-// Sign in, list the saved routes, open one to edit it or start a new one (#913, #914).
+// Sign in, list the saved routes, open one to edit it or start a new one, import or export GPX (#913, #914, #915).
 
 const el = <T extends HTMLElement>(id: string): T => {
   const found = document.getElementById(id);
@@ -54,6 +56,8 @@ const signOut = el<HTMLButtonElement>("sign-out");
 const who = el<HTMLSpanElement>("who");
 const listPanel = el<HTMLDivElement>("list-panel");
 const newRoute = el<HTMLButtonElement>("new-route");
+const importButton = el<HTMLButtonElement>("import-gpx");
+const importFile = el<HTMLInputElement>("import-file");
 const list = el<HTMLUListElement>("routes");
 const editor = el<HTMLFormElement>("editor");
 const nameInput = el<HTMLInputElement>("route-name");
@@ -66,6 +70,7 @@ const conflict = el<HTMLDivElement>("conflict");
 const conflictText = el<HTMLSpanElement>("conflict-text");
 const conflictAction = el<HTMLButtonElement>("conflict-action");
 const saveButton = el<HTMLButtonElement>("save");
+const exportButton = el<HTMLButtonElement>("export-gpx");
 const deleteButton = el<HTMLButtonElement>("delete");
 const closeButton = el<HTMLButtonElement>("close");
 const routeMap = createMap(el<HTMLDivElement>("map"));
@@ -207,9 +212,10 @@ function openDraft(s: Session, draft: Draft, fit: boolean): void {
   routeMap.show(draft, fit);
   say(draft.createdMs === null ? "New route" : `Editing ${draft.name || "Unnamed route"}`);
   renderRoutes(s);
-  renderEditor();
-  // A route opened without geometry, or restored mid-edit, gets its line now.
+  // A route opened without geometry (restored mid-edit, imported) gets its line now; asked
+  // before the render, so Save and Export show as waiting for it.
   if (draft.polyline.length < 2) route(draft);
+  renderEditor();
 }
 
 function closeDraft(s: Session): void {
@@ -309,6 +315,8 @@ function renderEditor(): void {
           .join(" · ");
 
   saveButton.disabled = s.saving || !canSave(draft) || !draft.dirty || throttle.pending;
+  // Not mid-reroute, so the file carries the line for these stops, as the phone's always does.
+  exportButton.disabled = !canSave(draft) || throttle.pending;
   deleteButton.hidden = draft.createdMs === null;
   deleteButton.disabled = s.saving;
 }
@@ -341,6 +349,57 @@ newRoute.onclick = () => {
   if (!s || !leaveDraft(s)) return;
   openDraft(s, newDraft(s.user.profile.sub, Date.now(), s.draft?.mode ?? "MOTO"), false);
 };
+
+// --- GPX (#915), read and written as the phone's Routes screen does (src/gpx/routeGpx.ts). ---
+
+importButton.onclick = () => {
+  importFile.value = "";
+  importFile.click();
+};
+
+importFile.onchange = () => {
+  const file = importFile.files?.[0];
+  if (file) void importRoute(file);
+};
+
+async function importRoute(file: File): Promise<void> {
+  const s = session;
+  if (!s) return;
+  let text: string;
+  try {
+    text = await file.text();
+  } catch (e) {
+    say(`Could not read ${file.name}: ${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  const nowMs = Date.now();
+  const route = parseRouteFile(text, nowMs);
+  if (route === null) {
+    say(`${file.name} has no route in it: it needs at least two route points, track points or waypoints.`);
+    return;
+  }
+  if (session !== s || !leaveDraft(s)) return;
+  openDraft(s, importedDraft(s.user.profile.sub, route, nowMs), true);
+  say(`Imported ${route.name || "a route"} with ${route.stops.length} stops. Save it to keep it.`);
+}
+
+exportButton.onclick = () => {
+  const draft = session?.draft;
+  if (!draft || !canSave(draft) || throttle.pending) return;
+  // What the editor shows, saved or not, under the name a save would store.
+  const route = { name: draft.name.trim(), stops: draft.stops, polyline: draft.polyline };
+  download(fileName(route), buildGpx(route), MIME_TYPE);
+};
+
+function download(name: string, text: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  // Revoked later rather than at once: some browsers start reading the blob after click().
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 
 closeButton.onclick = () => {
   const s = session;

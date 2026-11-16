@@ -61,6 +61,23 @@ export function draftFromRoute(owner: string, route: SavedRoute): Draft {
   };
 }
 
+/**
+ * A route read from a file (src/gpx/routeGpx.ts `parseRouteFile`), opened as a new, unsaved
+ * route: a fresh id as the phone's import gives it, so it never overwrites the route it was
+ * exported from, and no geometry, so it is routed for this mode and these options like any edit.
+ */
+export function importedDraft(owner: string, route: SavedRoute, nowMs: number): Draft {
+  return {
+    ...draftFromRoute(owner, route),
+    id: nowMs,
+    createdMs: null,
+    polyline: [],
+    distanceMeters: null,
+    timeMs: null,
+    dirty: true,
+  };
+}
+
 // --- The stop list. Each edit drops the old geometry: it was routed for other stops. ----------
 
 function withStops(draft: Draft, stops: RouteStop[]): Draft {

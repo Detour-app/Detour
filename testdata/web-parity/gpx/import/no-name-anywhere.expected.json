@@ -1,0 +1,24 @@
+{
+  "id": 11,
+  "name": "Imported route",
+  "createdMs": 11,
+  "mode": "CAR",
+  "stops": [
+    {
+      "lat": 50,
+      "lon": 4,
+      "name": ""
+    },
+    {
+      "lat": 51,
+      "lon": 5,
+      "name": ""
+    }
+  ],
+  "polyline": [],
+  "distanceMeters": null,
+  "timeMs": null,
+  "sharedBy": "",
+  "origin": "PLANNED",
+  "editedAtMs": 0
+}
