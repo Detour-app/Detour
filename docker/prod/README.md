@@ -320,9 +320,12 @@ profile and the total climb under the map for the route it has open (#916).
 Nothing else changes: saved routes stay 2-D and the app never asks for heights.
 
 Set a provider in `.env` and rebuild the graph as in "Rebuilding the routing
-graph" above. Restarting alone is not enough: GraphHopper reads the setting only
-when it builds a graph, keeps serving the old 2-D one, and `/info` keeps saying
-`"elevation": false`, so the planner shows no profile rather than breaking.
+graph" above, in the same step: change the variable only together with dropping
+`graphhopper-data`. GraphHopper refuses to load a graph built the other way, so
+a plain `docker compose up -d` after the edit leaves it crash-looping on
+`Configured dimension elevation=true is not equal to dimension of loaded graph`
+and routing down until the rebuild. Turning it off without a rebuild fails the
+same way, with the values swapped.
 
 ```bash
 GRAPHHOPPER_ELEVATION=srtm   # or cgiar; blank = off
@@ -330,12 +333,13 @@ GRAPHHOPPER_ELEVATION=srtm   # or cgiar; blank = off
 
 The build then downloads the region's elevation tiles (SRTM 1°×1° tiles from
 `srtm.kurviger.de`, GraphHopper's default mirror) into `elevation-cache/` on the
-`graphhopper-data` volume, so the next rebuild reuses them unless the volume is
-dropped. Measured on GraphHopper 11 for `luxembourg` (4 tiles, 5 MB): about 30 s
-either way, so the tiles cost less than the build itself. `benelux` spans up to ~50
-tiles (fewer: SRTM has none over the sea); its build with elevation has not been
-timed yet, so expect the ~25 min above plus their download. Routing is down for the whole rebuild. Turning it off
-again is the same rebuild with the variable blank.
+`graphhopper-data` volume. That is the volume a rebuild drops, so every rebuild
+downloads them again. Measured on GraphHopper 11 for `luxembourg` (4 tiles, 5 MB):
+about 30 s either way, so the tiles cost less than the build itself. `benelux`
+spans up to ~30 tiles (fewer: SRTM has none over the sea); its build with
+elevation has not been timed yet, so expect the ~25 min above plus their
+download. Routing is down for the whole rebuild. Turning it off again is the same
+rebuild with the variable blank.
 
 ### Curvy routing presets
 

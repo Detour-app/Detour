@@ -95,10 +95,12 @@ services:
       # Elevation is opt-in (#916). GRAPHHOPPER_ELEVATION blank is GraphHopper's
       # `noop`: no heights, the graph as before. A provider (`srtm`, `cgiar`) has
       # the import download elevation tiles into /graph/elevation-cache, on the
-      # graph volume, and store a height per point. Only a graph build reads it:
-      # switching it needs a rebuild (docker/prod/README.md, "Elevation"), and
-      # until then /info keeps saying `"elevation": false`. Only the web planner's
-      # profile asks for heights; the app never does.
+      # graph volume, and store a height per point. Change it only together with
+      # dropping graphhopper-data: GraphHopper refuses to load a graph built with
+      # the other setting ("Configured dimension elevation=... is not equal to
+      # dimension of loaded graph") and crash-loops until the rebuild
+      # (docker/prod/README.md, "Elevation"). Only the web planner's profile asks
+      # for heights; the app never does.
       #
       # The `\.` in the keys is load-bearing. Dropwizard splits a -Ddw. key at
       # every unescaped dot, so `graph.elevation.provider` would land as nested
