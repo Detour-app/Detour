@@ -1,0 +1,4 @@
+{
+  "nowMs": 13,
+  "file": "\n  {\"id\": 1699999999999, \"name\": \"From the app\", \"createdMs\": 1699999999000, \"mode\": \"MOTO\", \"stops\": [{\"lat\": 50, \"lon\": 4, \"name\": \"A\"}, {\"lat\": 51, \"lon\": 5}], \"polyline\": [50, 4, 50.5, 4.5, 51, 5], \"distanceMeters\": 140000.5, \"timeMs\": 6000000, \"sharedBy\": \"anna\", \"origin\": \"SPIN\", \"editedAtMs\": 1699999999500}\n"
+}

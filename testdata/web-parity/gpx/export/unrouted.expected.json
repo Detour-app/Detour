@@ -1,0 +1,4 @@
+{
+  "fileName": "detour-route-sunday-loop.gpx",
+  "gpx": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"Detour\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n  <metadata><name>Sunday loop!</name></metadata>\n  <rte>\n    <name>Sunday loop!</name>\n    <rtept lat=\"51.0000000\" lon=\"3.0000000\"></rtept>\n    <rtept lat=\"51.1000000\" lon=\"3.2000000\"><name>Café</name></rtept>\n  </rte>\n</gpx>\n"
+}

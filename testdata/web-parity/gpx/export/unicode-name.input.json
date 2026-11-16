@@ -1,0 +1,16 @@
+{
+  "name": "  Zürich – Été 🏍 Tour  ",
+  "stops": [
+    {
+      "lat": 47.37,
+      "lon": 8.54,
+      "name": "Zürich"
+    },
+    {
+      "lat": 46.2,
+      "lon": 6.15,
+      "name": "Genève"
+    }
+  ],
+  "polyline": []
+}

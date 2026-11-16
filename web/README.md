@@ -2,7 +2,7 @@
 
 The browser half of route planning (#636), served by the API at
 `https://<host>/planner`. Sign in, see the routes saved on the phone, open one to
-edit it or start a new one (#913, #914).
+edit it, start a new one or bring one in from a GPX file (#913, #914, #915).
 
 ## Editing
 
@@ -18,6 +18,14 @@ second, through `RouteThrottle`; nginx's rate limit answering 429 shows "slow
 down". Save is `PUT /api/routes/{id}` stamped `editedAtMs = Date.now()`, and needs
 two stops. A 409 offers the newer stored copy, a 410 offers to save it as a new
 route. Delete is `DELETE /api/routes/{id}`.
+
+"Export GPX" downloads the open route, saved or not, as the phone's Routes screen
+writes it (`detour-route-<name>.gpx`: the stops as `<rte>`, the routed line as
+`<trk>`). "Import GPX" opens a `.gpx`, or the app's JSON route file, as a new
+unsaved route, read with the phone's rules: `<rte>` points when there are two,
+else the `<trk>` thinned to 25 stops, else the `<wpt>` list. A GPX carries no mode,
+so it opens as `car`, as on the phone. The line is routed afresh, then saved like
+any edit (#915).
 
 The open edit is kept in the tab's `sessionStorage` (`src/draft.ts`) under the
 rider's `sub`. A 401 on save, or an expired token, signs the tab out; after
@@ -83,6 +91,7 @@ copied, each with a note at the top of the file naming the original:
 | --- | --- |
 | `src/routes.ts` `routeFromJson` | `shared/.../data/Routes.kt` `routeFromJson` |
 | `src/draft.ts` `routeDocument` | `shared/.../data/Routes.kt` `SavedRoute.toJson` (no fixture: its output is read back through `routeFromJson` in `draft.test.ts`) |
+| `src/gpx/routeGpx.ts` | `shared/.../data/RouteGpx.kt` `buildGpx`, `fileName`, `parseRouteFile` |
 | `src/routing/request.ts` | `RoutingClient.kt` `routeViaRequest`, `RoutePreferences.kt`, `CurvyRouting.kt` `CurvyPreset`, `RoutingSupport.kt` `encodedValues` |
 
 Every copy is pinned by fixtures in `testdata/web-parity/`, checked here by

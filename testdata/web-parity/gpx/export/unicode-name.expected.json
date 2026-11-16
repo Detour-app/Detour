@@ -1,0 +1,4 @@
+{
+  "fileName": "detour-route-zürich-été-tour.gpx",
+  "gpx": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<gpx version=\"1.1\" creator=\"Detour\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n  <metadata><name>  Zürich – Été 🏍 Tour  </name></metadata>\n  <rte>\n    <name>  Zürich – Été 🏍 Tour  </name>\n    <rtept lat=\"47.3700000\" lon=\"8.5400000\"><name>Zürich</name></rtept>\n    <rtept lat=\"46.2000000\" lon=\"6.1500000\"><name>Genève</name></rtept>\n  </rte>\n</gpx>\n"
+}

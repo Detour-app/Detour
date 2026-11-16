@@ -17,7 +17,12 @@
         <div id="status" role="status"></div>
         <button id="sign-in" type="button" hidden>Sign in</button>
         <div id="list-panel" hidden>
-          <button id="new-route" type="button">New route</button>
+          <div class="actions">
+            <button id="new-route" type="button">New route</button>
+            <button id="import-gpx" type="button">Import GPX</button>
+          </div>
+          <input id="import-file" type="file" hidden
+            accept=".gpx,.xml,.json,application/gpx+xml,application/xml,text/xml,application/json" />
           <ul id="routes" class="routes"></ul>
         </div>
         <form id="editor" class="editor" hidden>
@@ -59,6 +64,7 @@
           </div>
           <div class="actions">
             <button id="save" type="submit">Save</button>
+            <button id="export-gpx" type="button">Export GPX</button>
             <button id="delete" type="button">Delete</button>
             <button id="close" type="button">Close</button>
           </div>

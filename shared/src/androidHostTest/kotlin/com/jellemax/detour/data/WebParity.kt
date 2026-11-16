@@ -7,7 +7,12 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.addJsonArray
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 
 /**
  * The fixture pairs in one folder of testdata/web-parity/ (its README.md), what the web
@@ -45,6 +50,36 @@ internal fun canonical(e: JsonElement): Any? = when (e) {
         e.isString -> e.content
         e.booleanOrNull != null -> e.booleanOrNull
         else -> e.content.toDouble()
+    }
+}
+
+/** web/src/routes.ts `parityView`: everything a route parse decides, in a shape both
+ *  languages can build. The `routes/` and `gpx/import/` fixtures expect this. */
+internal fun routeParityView(route: SavedRoute?): JsonElement {
+    if (route == null) return JsonNull
+    return buildJsonObject {
+        put("id", route.id)
+        put("name", route.name)
+        put("createdMs", route.createdMs)
+        put("mode", route.mode.name)
+        putJsonArray("stops") {
+            for (s in route.stops) addJsonObject {
+                put("lat", s.at.lat)
+                put("lon", s.at.lon)
+                put("name", s.name)
+            }
+        }
+        putJsonArray("polyline") {
+            for (p in route.polyline) addJsonArray {
+                add(JsonPrimitive(p.lat))
+                add(JsonPrimitive(p.lon))
+            }
+        }
+        put("distanceMeters", route.distanceMeters)
+        put("timeMs", route.timeMs)
+        put("sharedBy", route.sharedBy)
+        put("origin", route.origin.name)
+        put("editedAtMs", route.editedAtMs)
     }
 }
 
