@@ -10,6 +10,7 @@ struct SettingsScreen: View {
 
     @StateObject private var model = SettingsModel()
     @StateObject private var traffic = TrafficKeyModel()
+    @StateObject private var flags = FlagsModel()
     @State private var serverURL = ""
     // Carried through load/save untouched: this screen has no editors for the
     // per-service addresses yet, and saving defaults over values set
@@ -36,6 +37,7 @@ struct SettingsScreen: View {
                 serverSection
                 privacySection
                 dangerSection
+                diagnosticsSection
             }
             .navigationTitle("Settings")
             .task { loadServer() }
@@ -295,6 +297,22 @@ struct SettingsScreen: View {
         }
     }
 
+    /// The remote feature flags as this install reads them (#816), Android's
+    /// Diagnostics → Flags (#815): key, value, and which layer supplied it —
+    /// the one place to see whether an admin override for this account has
+    /// reached the phone. Read-only; flags are switched on the server.
+    /// Refreshed on start, sign-in and sign-out (`RootView`), not here. iOS
+    /// has no other diagnostics yet, so the section holds only this list.
+    private var diagnosticsSection: some View {
+        Section("Diagnostics") {
+            Text("Flags").font(.subheadline.weight(.semibold))
+            ForEach(flags.readings, id: \.key) { flag in
+                Text("\(flag.key) · \(flag.enabled ? "on" : "off") · \(FlagsModel.sourceLabel(flag.source))")
+                    .font(.footnote)
+            }
+        }
+    }
+
     private func loadServer() {
         let config = RoutingServer.shared.load()
         serverURL = config.url
@@ -403,6 +421,33 @@ final class SettingsModel: ObservableObject {
         tollsSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.TOLL)
         ferriesSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.ROAD_ENVIRONMENT)
         unpavedSupported = RoutingSupport.shared.supports(value: RoutingEncodedValue.shared.SURFACE)
+    }
+}
+
+/// `FeatureFlags.readings`, mirrored out of Kotlin for the Flags list.
+@MainActor
+final class FlagsModel: ObservableObject {
+
+    @Published private(set) var readings: [FlagReading] = []
+
+    /// Reads the cache before the first value, so the list opens on the
+    /// account's last answer rather than the compiled defaults.
+    private let watcher = FeatureFlows.shared.flags()
+
+    init() {
+        watcher.watch { [weak self] in
+            guard let self else { return }
+            self.readings = self.watcher.value
+        }
+    }
+
+    deinit { watcher.cancel() }
+
+    /// The words Android shows. Off the entry's Kotlin `name` rather than a
+    /// `switch`: `DEFAULT` is a Swift keyword, and how Kotlin/Native escapes
+    /// it is a guess `Enums`' doc warns against.
+    static func sourceLabel(_ source: FlagSource) -> String {
+        source.name.lowercased()
     }
 }
 
