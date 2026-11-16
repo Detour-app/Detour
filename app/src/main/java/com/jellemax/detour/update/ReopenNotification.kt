@@ -13,6 +13,8 @@ import androidx.core.content.ContextCompat
 import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.R
+import com.jellemax.detour.data.NotificationKind
+import com.jellemax.detour.notif.Notifier
 
 /**
  * The way back into Detour after it has installed a replacement of itself.
@@ -109,7 +111,9 @@ object ReopenNotification {
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        manager.notify(
+        Notifier.post(
+            context,
+            NotificationKind.UPDATE_INSTALLED,
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_popup_sync)

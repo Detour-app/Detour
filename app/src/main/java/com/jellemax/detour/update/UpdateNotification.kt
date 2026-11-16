@@ -12,7 +12,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.R
+import com.jellemax.detour.data.NotificationKind
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.notif.Notifier
 import com.jellemax.detour.notif.PendingUpdateOpen
 
 /**
@@ -80,7 +82,12 @@ object UpdateNotification {
                 .putExtra(PendingUpdateOpen.EXTRA_OPEN_UPDATE_SETTINGS, true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        manager.notify(
+        // Stamped only once it is actually posted: with the master switch off
+        // (#977) nothing shows, and turning it back on should still surface
+        // the version that is waiting.
+        val posted = Notifier.post(
+            context,
+            NotificationKind.UPDATE_AVAILABLE,
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_popup_sync)
@@ -90,6 +97,6 @@ object UpdateNotification {
                 .setAutoCancel(true)
                 .build(),
         )
-        Settings.setNotifiedUpdateVersion(version)
+        if (posted) Settings.setNotifiedUpdateVersion(version)
     }
 }

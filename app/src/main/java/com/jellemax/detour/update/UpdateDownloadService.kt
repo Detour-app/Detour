@@ -16,9 +16,11 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
-import com.jellemax.detour.data.Settings
 import com.jellemax.detour.R
+import com.jellemax.detour.data.NotificationKind
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.UpdateClient
+import com.jellemax.detour.notif.Notifier
 import com.jellemax.detour.notif.PendingUpdateOpen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -228,7 +230,10 @@ class UpdateDownloadService : Service() {
         self.ensureActive()
         UpdateState.set(UpdateStatus.Downloading(update, fraction))
         if (throttle.shouldPost(SystemClock.elapsedRealtime(), fraction)) {
-            notifications.notify(PROGRESS_ID, progressNotification(update, fraction))
+            Notifier.post(
+                this, NotificationKind.UPDATE_DOWNLOAD_PROGRESS, PROGRESS_ID,
+                progressNotification(update, fraction),
+            )
         }
     }
 
@@ -246,7 +251,7 @@ class UpdateDownloadService : Service() {
     private fun finish(status: UpdateStatus, terminal: Notification) {
         UpdateState.set(status)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        notifications.notify(TERMINAL_ID, terminal)
+        Notifier.post(this, NotificationKind.UPDATE_DOWNLOAD_RESULT, TERMINAL_ID, terminal)
         stopSelf()
     }
 

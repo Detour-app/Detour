@@ -103,6 +103,9 @@
     <string name="settings_external_display">External display</string>
     <string name="settings_external_display_hint">Broadcast turn-by-turn over Bluetooth Low Energy for a handlebar-mounted screen — turn, distance, speed, speed limit, road name, and remaining distance/ETA.</string>
     <string name="settings_broadcast_external">Broadcast to external display</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="settings_notifications_enabled">Show notifications</string>
+    <string name="settings_notifications_enabled_hint">Off: no circle arrivals, ride reminders, convoy alerts, trip, badge or update notices. Android still requires the one shown while a trip is recorded, a convoy is live or an update downloads, so that one stays.</string>
     <string name="settings_now_playing">Now playing on external display</string>
     <string name="settings_now_playing_hint">Relay title, artist, and playback position from whatever\'s playing (Spotify, etc.) to the handlebar display. Reads media sessions only, never notification content — Android requires notification access to do either, so the permission name is broader than what\'s actually used.</string>
     <string name="settings_allow_notification_access">Allow notification access</string>
