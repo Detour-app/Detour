@@ -119,6 +119,10 @@ const throttle = new RouteThrottle<Routed>(
     if (path !== null) {
       setDraft({ ...session.draft, ...path }, false);
       sayRouting("");
+    } else {
+      // A profile-only fetch leaves the draft alone, so setDraft's renderEditor() never ran:
+      // without this, Save stays disabled on throttle.pending until the next edit.
+      renderEditor();
     }
     renderProfile();
   },
