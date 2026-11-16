@@ -624,6 +624,13 @@ user's to end. The "moving" stamp still updates either way, as Android's does. *
 nothing in this repo runs the iOS app, so this was verified by reading the two recorders against
 each other. **Still open:** 5a, 5b, 5c, 5e and 5f.
 
+**RESOLVED (5e distance and trace gates) — #967, in favour of Android's.** The two accuracy
+thresholds and the 1 ms–15 s fix-gap window moved from `TripTrackingService.Companion` onto
+`TripFixMath` in `shared/`; the iOS recorder now banks distance through
+`TripFixMath.distanceHopMeters` and gates the in-trip trace on `MAX_TRACE_ACCURACY_M`, with a
+negative (invalid) `horizontalAccuracy` rejected. **Unobserved:** compile- and CI-checked only.
+**Still open in 5e:** auto-stop-at-origin has no iOS counterpart.
+
 **Blocks stage 3: no.** Trip auto-detection is explicitly **out of scope** at
 `specs/stage-3-hazard-machines-to-shared.md:122-124` — *"they are a separate programme, not this
 stage. Note them; do not start them."* This entry is that note. It is also the largest single

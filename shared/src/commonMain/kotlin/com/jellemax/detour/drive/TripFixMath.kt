@@ -10,13 +10,36 @@ package com.jellemax.detour.drive
  * `currentTimeMillis()` — so the decisions are reachable from a test on every
  * target instead of only from a running foreground service.
  *
- * **Thresholds are parameters with no defaults.** The values live on
- * `TripTrackingService.Companion` and are passed in. A default here that
- * happened to equal the app's constant would be a second copy free to drift
- * out of step with the first, silently, which is a bug class this repo has
- * already been bitten by.
+ * **Thresholds are parameters with no defaults.** The values are the named
+ * constants below, declared once here so the Android service and the iOS
+ * recorder pass in the same numbers (#967: the iOS recorder had its own copy
+ * of this arithmetic, without the gates, and drifted). A parameter default
+ * would hide which threshold a call site uses; the constant name at the call
+ * site is what lets a reader check it.
  */
 object TripFixMath {
+
+    /** Loosest fix still worth *drawing*: the fog-of-war trace, and with it
+     *  the auto-stop-at-origin check that rides on the same point. A scatter
+     *  fix past this would paint explored ground the rider never saw. */
+    const val MAX_TRACE_ACCURACY_M = 50f
+
+    /** Loosest fix still allowed to *bank distance* into the running trip.
+     *  Deliberately a separate constant from [MAX_TRACE_ACCURACY_M] even
+     *  though the two are equal today: one governs what is drawn, the other
+     *  what is recorded as the rider's mileage, and tuning trace quality
+     *  must not silently move an odometer. */
+    const val MAX_DISTANCE_ACCURACY_M = 50f
+
+    /** Shortest gap between two fixes that can carry a Δt. A gap of 0 is a
+     *  redelivered fix on a frozen clock, whose hop was banked already. */
+    const val MIN_FIX_GAP_MS = 1L
+
+    /** Longest gap between two fixes that can still be treated as one
+     *  continuous stretch — past this it is a tunnel, a Doze window or a BT
+     *  dropout, and whatever happened in between was not observed. Android's
+     *  `cappedFixDtSec` gates its Δt on the same window: one window, two clocks. */
+    const val MAX_FIX_GAP_MS = 15_000L
 
     /**
      * The distance this fix adds to the trip: [rawHopMeters] when the fix is

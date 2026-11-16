@@ -290,7 +290,7 @@ final class TripRecorder: NSObject, ObservableObject {
 
     /// Not recording: extend the explored trace, watch for a drive starting.
     private func onIdleLocation(_ location: CLLocation, speed: Double) {
-        if location.horizontalAccuracy <= 50 {
+        if Self.passesTraceGate(location) {
             addTracePoint(location, speedMps: speed)
         }
         guard SettingsValues.shared.autoDetectDrives else {
@@ -332,16 +332,21 @@ final class TripRecorder: NSObject, ObservableObject {
     private func onTripLocation(_ location: CLLocation, speed: Double) {
         guard var current = stats else { return }
 
-        if let previous = previousLocation {
-            let step = location.distance(from: previous)
-            // Discard the teleports a bad fix produces; 1 km between
-            // consecutive fixes is not a vehicle, it is the radio.
-            if step < Self.traceBreakMeters * 2 {
-                current.distanceMeters += step
-            }
-        }
         let p = LatLon(lat: location.coordinate.latitude, lon: location.coordinate.longitude)
         let fixMs = Int64(location.timestamp.timeIntervalSince1970 * 1000)
+        // The shared accuracy + recency gate Android applies (#967): scatter
+        // while stopped and a post-tunnel re-acquire bank nothing.
+        current.distanceMeters += TripFixMath.shared.distanceHopMeters(
+            rawHopMeters: previousLocation.map { location.distance(from: $0) } ?? 0,
+            lastFixMs: previousLocation.map {
+                KotlinLong(value: Int64($0.timestamp.timeIntervalSince1970 * 1000))
+            },
+            fixMs: fixMs,
+            accuracyM: Self.gateAccuracy(location),
+            maxAccuracyM: TripFixMath.shared.MAX_DISTANCE_ACCURACY_M,
+            minGapMs: TripFixMath.shared.MIN_FIX_GAP_MS,
+            maxGapMs: TripFixMath.shared.MAX_FIX_GAP_MS
+        )
         here = p
         moments = MomentRecorder.shared.onSpeed(state: moments, at: p, timeMs: fixMs, speedMps: speed)
         detectHardEvents(location, mode: current.mode, at: p, fixMs: fixMs)
@@ -356,7 +361,9 @@ final class TripRecorder: NSObject, ObservableObject {
         current.maxGForce = maxG
         stats = current
 
-        addTracePoint(location, speedMps: speed)
+        if Self.passesTraceGate(location) {
+            addTracePoint(location, speedMps: speed)
+        }
 
         // Stopped for long enough that the ride is over, not a traffic light.
         //
@@ -446,6 +453,19 @@ final class TripRecorder: NSObject, ObservableObject {
     }
 
     // MARK: Trace
+
+    /// The fix's accuracy as the shared gates read it. CoreLocation reports a
+    /// negative `horizontalAccuracy` for an invalid fix; NaN makes the shared
+    /// `<=` check reject it rather than read it as "better than 50 m".
+    private static func gateAccuracy(_ location: CLLocation) -> Float {
+        location.horizontalAccuracy < 0 ? .nan : Float(location.horizontalAccuracy)
+    }
+
+    /// Whether this fix is accurate enough to draw: Android's
+    /// `MAX_TRACE_ACCURACY_M`, from the shared core so the two can't drift.
+    private static func passesTraceGate(_ location: CLLocation) -> Bool {
+        gateAccuracy(location) <= TripFixMath.shared.MAX_TRACE_ACCURACY_M
+    }
 
     /// Fog-of-war trace, decimated to ~25 m spacing, carrying what the ride was
     /// doing at each point as well as where it was.

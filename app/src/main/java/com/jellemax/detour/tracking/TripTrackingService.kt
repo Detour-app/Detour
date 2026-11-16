@@ -174,25 +174,8 @@ class TripTrackingService : Service() {
         /** Fixes looser than this never contribute to a start decision. */
         internal const val MAX_START_ACCURACY_M = 25f
 
-        /** Loosest fix still worth *drawing*: the fog-of-war trace, and with it
-         *  the auto-stop-at-origin check that rides on the same point. A scatter
-         *  fix past this would paint explored ground the rider never saw. */
-        private const val MAX_TRACE_ACCURACY_M = 50f
-        /** Loosest fix still allowed to *bank distance* into the running trip.
-         *  Deliberately a separate constant from [MAX_TRACE_ACCURACY_M] even
-         *  though the two are equal today: one governs what is drawn, the other
-         *  what is recorded as the rider's mileage, and tuning trace quality
-         *  must not silently move an odometer. */
-        private const val MAX_DISTANCE_ACCURACY_M = 50f
-        /** Shortest gap between two fixes that can carry a Δt. A gap of 0 is a
-         *  redelivered fix on a frozen clock, whose hop was banked already.
-         *  Not private: [cappedFixDtSec] gates on the same floor. */
-        internal const val MIN_FIX_GAP_MS = 1L
-        /** Longest gap between two fixes that can still be treated as one
-         *  continuous stretch — past this it is a tunnel, a Doze window or a BT
-         *  dropout, and whatever happened in between was not observed. Shared
-         *  with [cappedFixDtSec]: one window, two clocks (see its KDoc). */
-        internal const val MAX_FIX_GAP_MS = 15_000L
+        // The trace/distance accuracy gates and the fix-gap window live on
+        // [TripFixMath] in shared/, so the iOS recorder passes the same numbers.
 
         /** Not private: [DriveTransitions] opens the IN_VEHICLE confirmation
          *  window against this. */
@@ -1199,7 +1182,7 @@ class TripTrackingService : Service() {
 
     /** Idle/probe/sleep: extend the explored trace, watch for a drive starting. */
     private fun onIdleLocation(location: LocationFix, speed: Double) {
-        if (location.accuracyMeters <= MAX_TRACE_ACCURACY_M) {
+        if (location.accuracyMeters <= TripFixMath.MAX_TRACE_ACCURACY_M) {
             addTracePoint(
                 LatLon(location.lat, location.lon),
                 clock.fixTimeMs(location.timeMs),
@@ -1253,9 +1236,9 @@ class TripTrackingService : Service() {
             lastFixMs = last?.timeMs,
             fixMs = location.timeMs,
             accuracyM = location.accuracyMeters,
-            maxAccuracyM = MAX_DISTANCE_ACCURACY_M,
-            minGapMs = MIN_FIX_GAP_MS,
-            maxGapMs = MAX_FIX_GAP_MS,
+            maxAccuracyM = TripFixMath.MAX_DISTANCE_ACCURACY_M,
+            minGapMs = TripFixMath.MIN_FIX_GAP_MS,
+            maxGapMs = TripFixMath.MAX_FIX_GAP_MS,
         )
     }
 
@@ -1271,7 +1254,7 @@ class TripTrackingService : Service() {
         // Negated `<=` rather than `>`, same reason as TripFixMath.distanceHopMeters:
         // every comparison with a NaN accuracy is false, so `>` would fall through
         // and append the point to the persisted trace. No usable accuracy, no draw.
-        if (!(location.accuracyMeters <= MAX_TRACE_ACCURACY_M)) return false
+        if (!(location.accuracyMeters <= TripFixMath.MAX_TRACE_ACCURACY_M)) return false
         val p = LatLon(location.lat, location.lon)
         addTracePoint(p, clock.fixTimeMs(location.timeMs), speed)
 
@@ -1781,7 +1764,7 @@ internal fun obdSpeedMpsFrom(
     ?.let { it.speedKmh / 3.6 }
 
 /** Seconds between [lastMs] and [nowMs], or null when [lastMs] is unset (0) or
- *  the gap is outside [TripTrackingService.MIN_FIX_GAP_MS]..[TripTrackingService.MAX_FIX_GAP_MS]
+ *  the gap is outside [TripFixMath.MIN_FIX_GAP_MS]..[TripFixMath.MAX_FIX_GAP_MS]
  *  — a tunnel, a Doze window, a BT dropout.
  *  Dropping the Δt (rather than clamping it) means the *next* real fix's own
  *  gap spans the lost interval, instead of this fix inventing a saturated 15 s
@@ -1797,7 +1780,7 @@ internal fun cappedFixDtSec(nowMs: Long, lastMs: Long): Double? =
     (nowMs - lastMs)
         .takeIf {
             lastMs > 0L &&
-                it in TripTrackingService.MIN_FIX_GAP_MS..TripTrackingService.MAX_FIX_GAP_MS
+                it in TripFixMath.MIN_FIX_GAP_MS..TripFixMath.MAX_FIX_GAP_MS
         }
         ?.let { it / 1000.0 }
 
