@@ -68,6 +68,14 @@ services:
       # public Overpass API. Same host as the API itself — /api/cameras is served by Detour.Api
       # directly, not a separate container — so this is typically your API's own public URL.
       Camera__BaseUrl: ${CAMERA_BASE_URL:-}
+      # The API's other own datasets (#979): /api/speedlimits (#379), /api/roads (#380),
+      # /api/municipality (#381) and /api/pois (#383). Same rule as Camera__BaseUrl — blank =
+      # not announced, otherwise typically your API's own public URL once the matching
+      # import-* command has filled the table (backend/INSTALL.md).
+      SpeedLimit__BaseUrl: ${SPEEDLIMIT_BASE_URL:-}
+      Road__BaseUrl: ${ROAD_BASE_URL:-}
+      Municipality__BaseUrl: ${MUNICIPALITY_BASE_URL:-}
+      Poi__BaseUrl: ${POI_BASE_URL:-}
       # Convoy invite links open the app (#764): the APKs whose signing certificates may claim
       # /convoy-invite on this host, published at /.well-known/assetlinks.json. Blank fingerprints
       # are a correct deployment — links open the invite page in a browser instead. See
