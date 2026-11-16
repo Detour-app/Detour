@@ -110,14 +110,16 @@ the session cookie it needs belongs to `127.0.0.1`, and the browser gets a
 `400`. Run once, from `docker/prod/`, after `up -d`:
 
 ```bash
+# KC_CLI_PASSWORD rather than --password, so the password stays out of `ps`.
 docker compose exec keycloak sh -c '
+  export KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" &&
   /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 \
-    --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD" &&
+    --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" &&
   /opt/keycloak/bin/kcadm.sh update realms/master -s attributes.frontendUrl=http://127.0.0.1:7580'
 ```
 
 `./detour` and anything else using `kcadm.sh` inside the container sign in over
-`localhost:8080` and keep working. The `detour` realm is untouched; this moves
+`localhost:8080`, not through the edge, so they still sign in. The `detour` realm is untouched; this moves
 only the admins' realm.
 
 **3. Block both at the edge.** Security → WAF → Custom rules, action **Block**,
@@ -130,7 +132,9 @@ expression:
 ```
 
 `contains` rather than `starts_with`, so `//admin/` and `/admin;x/` (Keycloak
-ignores matrix parameters) are caught as well. Nothing the app or a rider's
+ignores matrix parameters) are caught as well. Percent-encoded paths
+(`/%61dmin/`) are caught only because Cloudflare normalizes incoming URLs
+(Rules → Settings, on by default); leave it on. Nothing the app or a rider's
 browser calls has either string in its path: they use `/realms/detour/…` and
 `/resources/…/login/…`.
 
