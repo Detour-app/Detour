@@ -100,6 +100,9 @@
     <string name="settings_external_display">Extern scherm</string>
     <string name="settings_external_display_hint">Zend navigatie uit via Bluetooth Low Energy naar een scherm op je stuur — afslag, afstand, snelheid, snelheidslimiet, straatnaam en resterende afstand/aankomsttijd.</string>
     <string name="settings_broadcast_external">Uitzenden naar extern scherm</string>
+    <string name="settings_notifications">Meldingen</string>
+    <string name="settings_notifications_enabled">Meldingen tonen</string>
+    <string name="settings_notifications_enabled_hint">Uit: geen meldingen meer bij aankomst in een kring, ritherinneringen, konvooimeldingen, of meldingen over ritten, badges of updates. Android eist de melding zolang een rit wordt opgenomen, een konvooi loopt of een update downloadt, dus die blijft.</string>
     <string name="settings_now_playing">Nu aan het spelen op extern scherm</string>
     <string name="settings_now_playing_hint">Stuur titel, artiest en afspeelpositie van wat er speelt (Spotify enz.) door naar het stuurscherm. Leest alleen mediasessies, nooit de inhoud van meldingen — Android vereist toegang tot meldingen voor beide, dus de naam van de toestemming is ruimer dan wat er echt gebruikt wordt.</string>
     <string name="settings_allow_notification_access">Toegang tot meldingen toestaan</string>

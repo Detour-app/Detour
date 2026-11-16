@@ -94,7 +94,10 @@ class CircleNotifyService : Service() {
             // and a foreground notification for it would be a lie.
             if (!Features.liveRelay) return
             if (!Account.signedIn || !SyncClient.configured()) return
-            if (pushCovers(context)) {
+            // With the master switch off (#977) every arrival is held back at
+            // the poster anyway, so the socket and its permanent notification
+            // would run for nothing: stand down the same way as for push.
+            if (pushCovers(context) || !Settings.notificationsEnabled.value) {
                 // stopService, not a bare return: an install updating into this
                 // build has the service already running from the last one, and
                 // nothing else would stand it down before the next reboot.

@@ -8,6 +8,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.R
+import com.jellemax.detour.data.NotificationKind
 
 /**
  * The "Trip ended — saved to your logbook." notification, raised by
@@ -72,7 +73,6 @@ object TripEndedNotification {
             // applies autoCancel when it delivers one.
             .setAutoCancel(true)
             .build()
-        context.getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, notification)
+        Notifier.post(context, NotificationKind.TRIP_ENDED, NOTIFICATION_ID, notification)
     }
 }
