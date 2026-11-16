@@ -106,6 +106,11 @@ object Settings {
     private val _dimMapWhenIdle = MutableStateFlow(true)
     val dimMapWhenIdle: StateFlow<Boolean> = _dimMapWhenIdle
 
+    /** Master switch over the app's own notifications (#977), on by default;
+     *  [NotificationGate] decides what off holds back. */
+    private val _notificationsEnabled = MutableStateFlow(true)
+    val notificationsEnabled: StateFlow<Boolean> = _notificationsEnabled
+
     /** Baseline map zoom while following/navigating; speed and turn proximity
      *  shift the camera up to two levels either side of it. */
     private val _defaultZoom = MutableStateFlow(DEFAULT_ZOOM_DEFAULT)
@@ -405,6 +410,7 @@ object Settings {
         _perfTracing.value = prefs.bool(PERF_TRACING_KEY, false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
         _dimMapWhenIdle.value = prefs.bool("dim_map_when_idle", true)
+        _notificationsEnabled.value = prefs.bool("notifications_enabled", true)
         _fogRadiusMeters.value = prefs.float("fog_radius_m", FOG_RADIUS_DEFAULT)
         _defaultZoom.value = prefs.float("default_zoom", DEFAULT_ZOOM_DEFAULT)
         _geocoderPublicFallback.value = prefs.bool("geocoder_public_fallback", true)
@@ -749,6 +755,11 @@ object Settings {
     fun setDimMapWhenIdle(value: Boolean) {
         _dimMapWhenIdle.value = value
         prefs.put("dim_map_when_idle", value)
+    }
+
+    fun setNotificationsEnabled(value: Boolean) {
+        _notificationsEnabled.value = value
+        prefs.put("notifications_enabled", value)
     }
 
     fun setFogRadiusMeters(value: Float) {

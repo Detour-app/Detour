@@ -7,9 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.text.format.DateFormat
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.R
+import com.jellemax.detour.data.NotificationKind
 import com.jellemax.detour.data.PlannedRide
 import com.jellemax.detour.data.PlannedRides
 import java.util.Date
@@ -68,6 +68,6 @@ object RideReminderNotification {
             )
             .setAutoCancel(true)
             .build()
-        NotificationManagerCompat.from(context).notify(id, notification)
+        Notifier.post(context, NotificationKind.RIDE_REMINDER, id, notification)
     }
 }
