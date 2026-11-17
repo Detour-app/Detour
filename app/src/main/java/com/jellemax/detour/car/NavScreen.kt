@@ -139,6 +139,8 @@ class NavScreen(
     private var currentSpeedKmh = 0.0
     private var rerouting = false
     private var lastRerouteMs = 0L
+    /** [NavPolicy.trackOffRoute]'s run of off-route fixes (#1008). */
+    private var offRoute: NavPolicy.OffRouteStreak? = null
 
     /** True between [NavigationManager.navigationStarted] and its end. The
      *  manager throws on updateTrip/clearCallback in the wrong state, and the
@@ -268,6 +270,7 @@ class NavScreen(
                         LatLon(fix.lat, fix.lon),
                         fix.bearingDeg,
                         fix.speedMps,
+                        fix.accuracyMeters.toDouble(),
                         fix.elapsedRealtimeMs,
                     )
                 } catch (e: CancellationException) {
@@ -291,6 +294,7 @@ class NavScreen(
         pos: LatLon,
         bearingDeg: Float?,
         speedMps: Double,
+        accuracyMeters: Double,
         fixElapsedMs: Long,
     ) {
         currentSpeedKmh = speedMps * 3.6
@@ -342,10 +346,12 @@ class NavScreen(
         // Drive clock: the reroute cooldown bounds how often a *drive* may
         // reroute, so a 5x replay must not get five times the reroutes.
         val now = clock.nowMs()
+        offRoute = NavPolicy.trackOffRoute(offRoute, p.offRouteMeters, accuracyMeters, fixElapsedMs, now)
         when (NavPolicy.decide(
             progress = p,
             hasDestination = true, // a constructor parameter on this screen
             stopsAhead = false, // the car doesn't ride via stops (#736)
+            offRoute = offRoute,
             rerouting = rerouting,
             lastRerouteMs = lastRerouteMs,
             nowMs = now,

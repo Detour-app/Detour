@@ -101,7 +101,11 @@ internal fun MapNavigationSession(
 
     // Follow the route while navigating: progress, arrival, reroute.
     LaunchedEffect(s.navigating, liveFix, s.route) {
-        if (!s.navigating) return@LaunchedEffect
+        if (!s.navigating) {
+            // A new session starts with no off-route run behind it.
+            s.offRoute = null
+            return@LaunchedEffect
+        }
         val fix = liveFix ?: return@LaunchedEffect
         val r = s.route ?: return@LaunchedEffect
         val pos = LatLon(fix.lat, fix.lon)
@@ -123,10 +127,15 @@ internal fun MapNavigationSession(
         // The drive's clock, as in car/NavScreen.kt: the cooldown NavPolicy
         // applies is per drive, not per wall second.
         val now = clock.nowMs()
+        // Keyed on the fix, so this effect restarting for a new s.route on the
+        // same fix does not count it twice.
+        s.offRoute = NavPolicy.trackOffRoute(
+            s.offRoute, progress.offRouteMeters, fix.accuracyMeters.toDouble(), fix.elapsedRealtimeMs, now)
         when (NavPolicy.decide(
             progress = progress,
             hasDestination = dest != null,
             stopsAhead = s.vias.isNotEmpty(),
+            offRoute = s.offRoute,
             rerouting = s.rerouting,
             lastRerouteMs = s.lastRerouteMs,
             nowMs = now,

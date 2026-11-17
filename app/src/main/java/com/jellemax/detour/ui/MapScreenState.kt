@@ -104,6 +104,10 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var rerouting: Boolean by mutableStateOf(false)
     var lastRerouteMs: Long by mutableLongStateOf(0L)
 
+    /** The run of off-route fixes [NavPolicy.decide] confirms a reroute on
+     *  (#1008). Not state: nothing draws it, only the next fix reads it. */
+    var offRoute: NavPolicy.OffRouteStreak? = null
+
     /** Where the rider is along a line fetched through [vias], for
      *  [followPlanned]; seeded from [SpinResult.ride], so a rotation picks the
      *  ride up where it was. Not state: nothing draws it, and only the next
