@@ -76,7 +76,6 @@ import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.handleFor
-import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.data.isOwnedBy
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.presentation.FriendRequestRow
@@ -190,9 +189,8 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
     // thread — which is what Oidc's single-thread contract requires of
     // begin()/abandon(). Do not move this to Dispatchers.IO.
     val scope = rememberCoroutineScope()
-    // Set by MainActivity when a redirect fails to become a session; consumed
-    // here because this is the screen the rider is looking at.
-    val error by PendingSignIn.error.collectAsStateWithLifecycle()
+    // A failed sign-in (PendingSignIn.error) is not drawn here: AppRoot
+    // already snackbars it on every screen, this one included (§5.4).
     val busy by PendingSignIn.busy.collectAsStateWithLifecycle()
 
     Text(
@@ -207,10 +205,6 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
         )
         ServerSettingsButton(onOpenServerSettings)
         return
-    }
-    error?.let {
-        Text(it, color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall)
     }
     Button(
         onClick = {
@@ -293,15 +287,14 @@ private fun FriendsSection(username: String) {
         withContext(Dispatchers.IO) { presenter.refresh() }
     }
     val storeState by FriendsStore.state.collectAsStateWithLifecycle()
-
-    storeState.inlineError?.let {
-        Text(it, color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.bodySmall)
-    }
+    val actions = rememberStoreActions(storeState.actionError, FriendsStore::clearActionError)
+    StaleLoadErrorEffect(storeState.loadError, storeState.lists != null) { FriendsStore.reload() }
 
     val loaded = storeState.lists
     if (loaded == null) {
-        CircularProgressIndicator()
+        val loadError = storeState.loadError
+        if (loadError == null) CircularProgressIndicator()
+        else ErrorState(loadError, onRetry = { scope.launch { FriendsStore.reload() } })
         return
     }
 
@@ -330,7 +323,7 @@ private fun FriendsSection(username: String) {
                 RequestRow(
                     name = rider.username,
                     busy = storeState.busy,
-                    onAccept = { scope.launch { FriendsStore.respond(rider.id, true) } },
+                    onAccept = { actions.launch(scope, retryable = true) { FriendsStore.respond(rider.id, true) } },
                     onDecline = { declining = rider },
                 )
             }
@@ -341,7 +334,7 @@ private fun FriendsSection(username: String) {
             title = stringResource(R.string.friends_decline_title, rider.username),
             text = stringResource(R.string.friends_decline_text),
             confirmLabel = stringResource(R.string.friends_decline),
-            onConfirm = { scope.launch { FriendsStore.respond(rider.id, false) } },
+            onConfirm = { actions.launch(scope, retryable = false) { FriendsStore.respond(rider.id, false) } },
             onDismiss = { declining = null },
         )
     }
@@ -364,7 +357,7 @@ private fun FriendsSection(username: String) {
             DeclinedRow(
                 name = rider.username,
                 busy = storeState.busy,
-                onUndo = { scope.launch { FriendsStore.undoDecline(rider.id) } },
+                onUndo = { actions.launch(scope, retryable = false) { FriendsStore.undoDecline(rider.id) } },
             )
         }
     }
@@ -394,7 +387,9 @@ private fun FriendsSection(username: String) {
                     onRemove = if (row.isMe) null else { { removing = row } },
                     // Mutual: tapping marks or agrees; tapping again (or on an
                     // outgoing request) drops it. See LeaderboardRow.family.
-                    onFamily = if (row.isMe) null else { { scope.launch { toggleFamily(row) } } },
+                    onFamily = if (row.isMe) null else {
+                        { actions.launch(scope, retryable = !row.dropsFamily) { toggleFamily(row) } }
+                    },
                 )
             }
         }
@@ -405,7 +400,7 @@ private fun FriendsSection(username: String) {
             title = stringResource(R.string.friends_remove_title, row.username),
             text = stringResource(R.string.friends_remove_text),
             confirmLabel = stringResource(R.string.friends_remove),
-            onConfirm = { scope.launch { FriendsStore.remove(row.riderId) } },
+            onConfirm = { actions.launch(scope, retryable = false) { FriendsStore.remove(row.riderId) } },
             onDismiss = { removing = null },
         )
     }
@@ -589,10 +584,13 @@ private fun FamilyButton(family: String, username: String, busy: Boolean, onClic
     }
 }
 
+/** True when tapping family on [this] drops the tier (a removal, so no Retry). */
+private val LeaderboardRow.dropsFamily: Boolean get() = family == "family" || family == "outgoing"
+
 /** Mutual family is a toggle from the row's current [LeaderboardRow.family]: an agreed or
  *  outgoing tier drops, anything else asks (which agrees when they already asked). */
 private suspend fun toggleFamily(row: LeaderboardRow) {
-    if (row.family == "family" || row.family == "outgoing") {
+    if (row.dropsFamily) {
         FriendsStore.unmarkFamily(row.riderId)
     } else {
         FriendsStore.markFamily(row.riderId)
@@ -620,6 +618,7 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // inline: inside an AlertDialog, where a snackbar would draw under it.
                 error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall)
@@ -720,18 +719,20 @@ private fun ConvoysSection() {
     LaunchedEffect(Unit) {
         ConvoysStore.reloadIfStale()
     }
+    val actions = rememberStoreActions(state.actionError, ConvoysStore::clearActionError)
+    val convoysLoaded = state.loadedAtMs != null
+    StaleLoadErrorEffect(state.loadError, convoysLoaded) { ConvoysStore.reload() }
 
     ConvoysHeader(onNew = { createOpen = true })
-
-    state.inlineError?.let {
-        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-    }
 
     if (!Features.liveRelay) {
         DisabledFeatureNotice(Features.liveRelayReason)
     }
 
-    if (state.convoys.isEmpty()) {
+    val loadError = state.loadError
+    if (!convoysLoaded && loadError != null) {
+        ErrorState(loadError, onRetry = { scope.launch { ConvoysStore.reload() } })
+    } else if (state.convoys.isEmpty()) {
         Text(
             stringResource(R.string.friends_convoy_empty),
             style = MaterialTheme.typography.bodySmall,
@@ -756,11 +757,11 @@ private fun ConvoysSection() {
                 },
                 liveStatusIsError = Features.liveRelay &&
                     liveConvoyId == convoy.id && !liveConnected && liveError != null,
-                onAccept = { scope.launch { ConvoysStore.respond(convoy.id, true) } },
-                onDecline = { scope.launch { ConvoysStore.respond(convoy.id, false) } },
+                onAccept = { actions.launch(scope, retryable = true) { ConvoysStore.respond(convoy.id, true) } },
+                onDecline = { actions.launch(scope, retryable = false) { ConvoysStore.respond(convoy.id, false) } },
                 onLeave = {
                     if (liveConvoyId == convoy.id) ConvoyLiveService.stop(context)
-                    scope.launch { ConvoysStore.leave(convoy.id) }
+                    actions.launch(scope, retryable = false) { ConvoysStore.leave(convoy.id) }
                 },
                 onInvite = { inviteFor = convoy },
                 onToggleLive = {
@@ -779,14 +780,20 @@ private fun ConvoysSection() {
     if (createOpen) {
         CreateConvoyDialog(
             onDismiss = { createOpen = false },
-            onCreate = { name -> scope.launch { ConvoysStore.create(name) }; createOpen = false },
+            onCreate = { name ->
+                actions.launch(scope, retryable = true) { ConvoysStore.create(name) }
+                createOpen = false
+            },
         )
     }
     inviteFor?.let { convoy ->
         InviteToConvoyDialog(
             convoy = convoy,
             onDismiss = { inviteFor = null },
-            onInvite = { target -> scope.launch { ConvoysStore.invite(convoy.id, target) }; inviteFor = null },
+            onInvite = { target ->
+                actions.launch(scope, retryable = true) { ConvoysStore.invite(convoy.id, target) }
+                inviteFor = null
+            },
             // Host only: the link endpoints answer 403 to every other member (§4.1).
             onInviteByLink = { inviteFor = null; inviteLinkFor = convoy }.takeIf { convoy.isOwnedBy(selfId) },
         )
@@ -907,6 +914,7 @@ private fun ConvoyRow(
                         Text(stringResource(R.string.friends_convoy_leave))
                     }
                 }
+                // inline: ambient connection state, not an event — nothing to announce.
                 liveStatus?.let {
                     Text(
                         it,

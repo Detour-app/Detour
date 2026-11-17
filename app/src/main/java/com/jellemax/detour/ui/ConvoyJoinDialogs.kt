@@ -55,6 +55,7 @@ internal fun JoinConvoyByLinkDialog(onDismiss: () -> Unit) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // inline: inside an AlertDialog, where a snackbar would draw under it.
                 error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -144,6 +145,7 @@ private fun ConvoyJoinBody(step: ConvoyJoinStep?, preview: ConvoyInvitePreview?)
         when (step) {
             null, ConvoyJoinStep.Checking -> Text(stringResource(R.string.friends_convoy_join_checking))
             is ConvoyJoinStep.Refused -> Text(stringResource(refusalText(step.refusal)))
+            // inline: inside an AlertDialog, where a snackbar would draw under it.
             is ConvoyJoinStep.Failed -> Text(step.message, color = MaterialTheme.colorScheme.error)
             is ConvoyJoinStep.OtherServer -> Text(
                 stringResource(R.string.friends_convoy_join_link_other_server, step.serverUrl),
