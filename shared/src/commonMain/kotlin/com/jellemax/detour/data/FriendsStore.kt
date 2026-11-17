@@ -195,7 +195,7 @@ object FriendsStore {
 
     /** Drops [FriendsState.actionError] once a screen has shown it. */
     fun clearActionError() {
-        _state.update { it.copy(actionError = null) }
+        _state.update { it.actionCleared() }
     }
 
     /** True on success; false leaves the failure in [state]'s `actionError`. */
@@ -320,3 +320,6 @@ internal fun FriendsState.commitIfCurrent(epoch: Int, currentEpoch: Int, result:
  *  and asserted directly, rather than driving the singleton through
  *  `_state` the way [reset]'s own test used to. */
 internal fun FriendsState.cleared() = FriendsState()
+
+/** [FriendsState.actionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun FriendsState.actionCleared() = copy(actionError = null)

@@ -27,8 +27,9 @@ data class PlannedRidesState(
  * [PlannedRide.canStart].
  *
  * Same shape and contracts as [ConvoysStore]: actions are `suspend` and the caller supplies the
- * coroutine; an ordinary failure never throws, it lands in [PlannedRidesState.actionError] (an action) or [PlannedRidesState.loadError] (a load); every
- * mutation re-reads the list from the server rather than patching the local copy (§4.1).
+ * coroutine; an ordinary failure never throws, it lands in [PlannedRidesState.actionError] (an
+ * action) or [PlannedRidesState.loadError] (a load); every mutation re-reads the list from the
+ * server rather than patching the local copy (§4.1).
  */
 object PlannedRidesStore {
 
@@ -69,7 +70,7 @@ object PlannedRidesStore {
 
     /** Drops [PlannedRidesState.actionError] once a screen has shown it. */
     fun clearActionError() {
-        _state.update { it.copy(actionError = null) }
+        _state.update { it.actionCleared() }
     }
 
     /** The new ride's id, or null with the failure left in [state]'s `actionError`. */
@@ -154,3 +155,6 @@ internal fun PlannedRidesState.commitIfCurrent(epoch: Int, currentEpoch: Int, re
     if (epoch == currentEpoch) result else this
 
 internal fun PlannedRidesState.cleared() = PlannedRidesState()
+
+/** [PlannedRidesState.actionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun PlannedRidesState.actionCleared() = copy(actionError = null)

@@ -34,8 +34,9 @@ data class ConvoyInvitesState(
  * sheet that shows them.
  *
  * Same contract as [ConvoysStore]: actions are `suspend` with the caller's scope, an ordinary
- * failure lands in [ConvoyInvitesState.loadError] or [ConvoyInvitesState.actionError] instead of throwing, every mutation re-reads the
- * guest list rather than patching it, and a commit started under another session is dropped.
+ * failure lands in [ConvoyInvitesState.loadError] or [ConvoyInvitesState.actionError] instead of
+ * throwing, every mutation re-reads the guest list rather than patching it, and a commit started
+ * under another session is dropped.
  */
 object ConvoyInvitesStore {
 
@@ -57,7 +58,7 @@ object ConvoyInvitesStore {
 
     /** Drops [ConvoyInvitesState.actionError] once a screen has shown it. */
     fun clearActionError() {
-        _state.update { it.copy(actionError = null) }
+        _state.update { it.actionCleared() }
     }
 
     /** Mints a link for the open convoy. The server revokes any earlier one, so a link shared
@@ -105,7 +106,13 @@ object ConvoyInvitesStore {
      */
     private suspend fun act(convoyId: String, load: Boolean = false, block: suspend () -> StateChange) {
         val epoch = Auth.sessionEpoch.value
-        _state.update { if (load) it.copy(busy = true, loadError = null, actionError = null) else it.copy(busy = true, actionError = null) }
+        _state.update {
+            if (load) {
+                it.copy(busy = true, loadError = null, actionError = null)
+            } else {
+                it.copy(busy = true, actionError = null)
+            }
+        }
         var change = noChange
         var acted = false
         val answer: StateChange = try {
@@ -159,7 +166,11 @@ internal fun ConvoyInvitesState.committed(
 /** [convoyId] open; its guests dropped when it isn't the convoy already open, so the sheet never
  *  shows one convoy's guests under another's name. Minted tokens stay. */
 internal fun ConvoyInvitesState.opened(convoyId: String): ConvoyInvitesState =
-    if (this.convoyId == convoyId) this else copy(convoyId = convoyId, guests = null, loadError = null, actionError = null)
+    if (this.convoyId == convoyId) {
+        this
+    } else {
+        copy(convoyId = convoyId, guests = null, loadError = null, actionError = null)
+    }
 
 /**
  * The open convoy's link this device can share, or null when there is none to share: never
@@ -173,3 +184,6 @@ fun ConvoyInvitesState.shareableLink(nowMs: Long): ConvoyInvite? {
     val loaded = guests ?: return invite
     return invite.takeIf { loaded.inviteExpiresAtMs == it.expiresAtMs }
 }
+
+/** [ConvoyInvitesState.actionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun ConvoyInvitesState.actionCleared() = copy(actionError = null)

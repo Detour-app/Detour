@@ -174,12 +174,12 @@ object CirclesStore {
 
     /** Drops [CirclesState.actionError] once a screen has shown it. */
     fun clearActionError() {
-        _state.update { it.copy(actionError = null) }
+        _state.update { it.actionCleared() }
     }
 
     /** Drops [CirclesState.detailActionError] once a screen has shown it. */
     fun clearDetailActionError() {
-        _state.update { it.copy(detailActionError = null) }
+        _state.update { it.detailActionCleared() }
     }
 
     /** True on success; false leaves the failure in [state]'s `actionError`. */
@@ -457,3 +457,9 @@ internal fun CirclesState.selecting(groupId: String?): CirclesState =
 
 internal fun CirclesState.detailLoaded(places: List<CirclePlace>, events: List<PlaceEvent>) =
     copy(places = places, events = events, detailBusy = false, detailLoadError = null)
+
+/** [CirclesState.actionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun CirclesState.actionCleared() = copy(actionError = null)
+
+/** [CirclesState.detailActionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun CirclesState.detailActionCleared() = copy(detailActionError = null)

@@ -71,6 +71,14 @@ class StoresTest {
     }
 
     @Test
+    fun clearingAFriendActionErrorLeavesTheLoadErrorAndTheLists() {
+        val shown = FriendsState(lists = lists(), loadError = "list stale", actionError = offlineSentence)
+        val cleared = shown.actionCleared()
+        assertNull(cleared.actionError)
+        assertEquals(shown.copy(actionError = null), cleared)
+    }
+
+    @Test
     fun anActionStartLeavesTheLoadErrorForTheNextLoadToClear() {
         val started = FriendsState(loadError = "list stale", actionError = "old").actionStarting()
         assertEquals("list stale", started.loadError)
@@ -184,6 +192,18 @@ class StoresTest {
         assertEquals("The server hit a problem. Try again later.", failed.actionError)
         assertNull(failed.loadError)
         assertTrue(!failed.busy)
+    }
+
+    @Test
+    fun clearingAConvoyActionErrorLeavesTheLoadErrorAndTheList() {
+        val shown = ConvoysState(
+            convoys = listOf(convoy("c1", "Sunday run")),
+            loadError = "list stale",
+            actionError = "x",
+        )
+        val cleared = shown.actionCleared()
+        assertNull(cleared.actionError)
+        assertEquals(shown.copy(actionError = null), cleared)
     }
 
     @Test
@@ -408,6 +428,33 @@ class StoresTest {
         assertEquals(refusedSentence, failed.actionError)
         assertNull(failed.loadError)
         assertTrue(!failed.busy)
+    }
+
+    @Test
+    fun clearingACircleActionErrorLeavesEveryOtherError() {
+        val shown = CirclesState(
+            circles = listOf(circle("c1", "Family")),
+            loadError = "list stale",
+            actionError = refusedSentence,
+            detailActionError = "share failed",
+        )
+        val cleared = shown.actionCleared()
+        assertNull(cleared.actionError)
+        assertEquals(shown.copy(actionError = null), cleared)
+    }
+
+    @Test
+    fun clearingADetailActionErrorLeavesEveryOtherError() {
+        val shown = CirclesState(
+            selectedId = "c1",
+            places = listOf(place("p1", "c1")),
+            actionError = refusedSentence,
+            detailLoadError = "places stale",
+            detailActionError = "share failed",
+        )
+        val cleared = shown.detailActionCleared()
+        assertNull(cleared.detailActionError)
+        assertEquals(shown.copy(detailActionError = null), cleared)
     }
 
     @Test

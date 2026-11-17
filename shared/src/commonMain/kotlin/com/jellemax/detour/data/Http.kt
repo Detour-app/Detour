@@ -146,10 +146,14 @@ private fun statusReason(e: HttpStatusException): String = when {
  */
 fun failureSentence(e: Throwable): String {
     val own = e.message?.takeIf { it.isNotBlank() }
-    if (own != null && (e is NetworkFailureException || e is TokenRefusedException || e is AuthException)) {
-        return own
-    }
+    if (own != null && keepsOwnSentence(e)) return own
     return failureReason(e).replaceFirstChar { it.uppercaseChar() }
+}
+
+/** The failures whose own message is already a rider sentence; see [failureSentence]. */
+private fun keepsOwnSentence(e: Throwable): Boolean = when (e) {
+    is NetworkFailureException, is TokenRefusedException, is AuthException -> true
+    else -> false
 }
 
 internal object Http {

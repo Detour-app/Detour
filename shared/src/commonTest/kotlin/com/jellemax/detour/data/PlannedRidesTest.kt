@@ -308,7 +308,7 @@ class PlannedRidesTest {
     }
 
     @Test
-    fun aFailedActionSetsActionErrorAndClearingItLeavesTheLoadError() {
+    fun aFailedActionSetsActionErrorAndLeavesTheLoadError() {
         val loaded = PlannedRidesState(rides = listOf(ride()), loadError = "list stale")
         val failed = loaded.actionStarting().actionFailed(HttpStatusException(409, "", "HTTP 409", "That ride already started"))
 
@@ -316,6 +316,19 @@ class PlannedRidesTest {
         assertEquals("list stale", failed.loadError)
         assertEquals(loaded.rides, failed.rides)
         assertFalse(failed.busy)
+    }
+
+    @Test
+    fun clearingTheActionErrorLeavesTheLoadErrorAndTheRides() {
+        val shown = PlannedRidesState(
+            rides = listOf(ride()),
+            loadError = "list stale",
+            actionError = "That ride already started",
+        )
+        val cleared = shown.actionCleared()
+
+        assertNull(cleared.actionError)
+        assertEquals(shown.copy(actionError = null), cleared)
     }
 
     @Test

@@ -135,7 +135,7 @@ object ConvoysStore {
 
     /** Drops [ConvoysState.actionError] once a screen has shown it. */
     fun clearActionError() {
-        _state.update { it.copy(actionError = null) }
+        _state.update { it.actionCleared() }
     }
 
     /** True on success; false leaves the failure in [state]'s `actionError`. */
@@ -331,3 +331,6 @@ internal fun ConvoysState.nextIgnoredIds(
     knownAfter: Set<RiderId>,
 ): Set<RiderId> =
     if (knownAfter != knownBefore) emptySet() else ignored + (ids - knownAfter)
+
+/** [ConvoysState.actionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun ConvoysState.actionCleared() = copy(actionError = null)

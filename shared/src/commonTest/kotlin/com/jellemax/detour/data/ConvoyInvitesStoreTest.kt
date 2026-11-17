@@ -64,6 +64,15 @@ class ConvoyInvitesStoreTest {
     }
 
     @Test
+    fun clearingTheActionErrorLeavesTheLoadErrorAndTheGuests() {
+        val shown = state(ConvoyGuests(link.expiresAtMs, listOf(guest))).copy(loadError = "x", actionError = "y")
+        val cleared = shown.actionCleared()
+
+        assertNull(cleared.actionError)
+        assertEquals(shown.copy(actionError = null), cleared)
+    }
+
+    @Test
     fun reopeningTheSameConvoyKeepsItsGuestsOnScreen() {
         val open = state(ConvoyGuests(link.expiresAtMs, listOf(guest)))
 
