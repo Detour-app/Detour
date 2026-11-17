@@ -168,7 +168,6 @@ fun SearchIsland(
     var error by remember { mutableStateOf<String?>(null) }
     var noResults by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    val recentNames = remember(recents) { recents.map { it.name }.toSet() }
 
     // Back dismisses the island before it reaches the map, where back leaves
     // the app.
@@ -277,7 +276,7 @@ fun SearchIsland(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            if (r.name in recentNames) Icons.Rounded.History
+                            if (recents.any { it.isSamePlaceAs(r) }) Icons.Rounded.History
                                 else Icons.Rounded.Place,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
