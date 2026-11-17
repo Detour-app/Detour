@@ -19,11 +19,13 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.FeatureFlags
 import com.jellemax.detour.data.Flag
+import com.jellemax.detour.data.NotificationKind
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.BreakRequest
 import com.jellemax.detour.drive.RegroupPin
 import com.jellemax.detour.net.ConvoyLiveClient
+import com.jellemax.detour.notif.Notifier
 import com.jellemax.detour.notif.PendingMapOpen
 import com.jellemax.detour.presentation.BreakRequestAnnouncer
 import com.jellemax.detour.presentation.RegroupPinAnnouncer
@@ -125,8 +127,7 @@ internal object ConvoyAlertNotifications {
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()
-        NotificationManagerCompat.from(context).notify(id, notification)
-        posted += id
+        if (Notifier.post(context, NotificationKind.CONVOY_ALERT, id, notification)) posted += id
     }
 
     /** Any activity of this process started: the pills are on screen. */

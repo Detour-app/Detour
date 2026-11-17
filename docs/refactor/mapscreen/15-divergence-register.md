@@ -624,6 +624,13 @@ user's to end. The "moving" stamp still updates either way, as Android's does. *
 nothing in this repo runs the iOS app, so this was verified by reading the two recorders against
 each other. **Still open:** 5a, 5b, 5c, 5e and 5f.
 
+**RESOLVED (5e distance and trace gates) — #967, in favour of Android's.** The two accuracy
+thresholds and the 1 ms–15 s fix-gap window moved from `TripTrackingService.Companion` onto
+`TripFixMath` in `shared/`; the iOS recorder now banks distance through
+`TripFixMath.distanceHopMeters` and gates the in-trip trace on `MAX_TRACE_ACCURACY_M`, with a
+negative (invalid) `horizontalAccuracy` rejected. **Unobserved:** compile- and CI-checked only.
+**Still open in 5e:** auto-stop-at-origin has no iOS counterpart.
+
 **Blocks stage 3: no.** Trip auto-detection is explicitly **out of scope** at
 `specs/stage-3-hazard-machines-to-shared.md:122-124` — *"they are a separate programme, not this
 stage. Note them; do not start them."* This entry is that note. It is also the largest single
@@ -2698,6 +2705,37 @@ check 'Android calls mapScreenDimmed' 2 \
     "$(grep -c 'mapScreenDimmed(' app/src/main/java/com/jellemax/detour/ui/map/MapIdleDimmer.kt)"
 check 'iOS does not call mapScreenDimmed yet' 0 \
     "$(grep -rc 'mapScreenDimmed' iosApp/Detour | awk -F: '{s+=$2} END {print s+0}')"
+```
+
+---
+
+## 37. The notifications master switch gates Android only
+
+**New with `#977`** — recorded because iOS is parked (owner decision 2026-10-27) and the gate is
+written for both.
+
+**What.** Settings → Displays & media → "Show notifications" (`Settings.notificationsEnabled`, on
+by default). Off, Android posts none of circle arrivals, ride reminders, trip-ended, badges, convoy
+alerts or update notices; the ongoing trip-recording and update-download notifications stay, and
+the push-less `CircleNotifyService` stands down.
+
+**Copies.** The rule is not duplicated: `NotificationKind` and `NotificationGate` are in
+`shared/…/data/NotificationGate.kt`, the setting in `shared/…/data/Settings.kt`. Android checks it
+once, in `app/…/notif/Notifier.kt`. iOS's `CircleNotifications.swift` posts circle arrivals without
+asking the gate, and has no row for the setting.
+
+**Verdict: survive — and iOS follows.** Not a product question: iOS should ask
+`NotificationGate.allows(NotificationKind.CIRCLE_PLACE)` before adding the request, behind the same
+setting.
+
+**Fence.**
+
+```sh
+# Entry 37 — notifications master switch. A changed count means iOS gained the gate or Android lost it.
+check 'Android asks NotificationGate' 1 \
+    "$(grep -c 'NotificationGate.allows(' app/src/main/java/com/jellemax/detour/notif/Notifier.kt)"
+check 'iOS does not ask NotificationGate yet' 0 \
+    "$(grep -rc 'NotificationGate' iosApp/Detour | awk -F: '{s+=$2} END {print s+0}')"
 ```
 
 ---

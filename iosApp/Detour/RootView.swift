@@ -110,6 +110,19 @@ struct RootView: View {
             guard SyncClient.shared.configured() && launchSyncGate.signedIn else { return }
             _ = try? await SyncClient.shared.sync()
         }
+        // Remote feature flags (#816): Android asks on start, sign-in and
+        // sign-out (`refreshQuietly`, #815). One task keyed on the session
+        // covers all three here — it runs at launch and again on every flip
+        // of `signedIn` — and, unlike the sync above, also runs signed out:
+        // that answer is the server's defaults, and a sign-out has to drop
+        // the previous account's overrides. The cache is read first so the
+        // Diagnostics list shows this account's last answer while the
+        // request is out, or if it fails.
+        .task(id: launchSyncGate.signedIn) {
+            FeatureFlags.shared.ensureLoaded()
+            // Documented never to throw but for cancellation.
+            try? await FeatureFlags.shared.refresh()
+        }
         // Re-fetch when sharing is switched on, and drop what we hold the
         // moment it is switched off — a stale union would keep revealing a
         // friend's roads.

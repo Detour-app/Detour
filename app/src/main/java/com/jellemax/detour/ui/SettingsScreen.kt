@@ -92,6 +92,7 @@ import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.presentation.formatFixed
 import com.jellemax.detour.ui.settings.DimMapWhenIdleRow
 import com.jellemax.detour.ui.settings.LicencesScreen
+import com.jellemax.detour.ui.settings.NotificationsSection
 import com.jellemax.detour.ui.settings.ProblemReportScreen
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
@@ -209,6 +210,7 @@ fun SettingsSpokeScreen(
             Destination.SettingsNavigation -> NavigationSpoke()
             Destination.SettingsFog -> FogSection(context)
             Destination.SettingsDisplaysMedia -> {
+                NotificationsSection()
                 ExternalDisplaySection()
                 NowPlayingSection()
             }

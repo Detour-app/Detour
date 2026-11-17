@@ -83,8 +83,70 @@ Route the two hostnames to `http://api:7500` and `http://keycloak:8080` in the
 dashboard. Container names resolve because cloudflared shares the `edge` network
 with both.
 
-With the tunnel terminating TLS you can drop the published ports entirely — edit
-them out of the base file, and nothing is reachable except through Cloudflare.
+With the tunnel terminating TLS you can drop the published ports — edit them out
+of the base file, and nothing is reachable except through Cloudflare. Keep
+Keycloak's `127.0.0.1:${KC_PORT}` one: it binds loopback only, and it is how you
+reach the admin console once the edge blocks it (next section).
+
+## Keycloak's admin console stays off `idp.`
+
+Routing `idp.` straight to Keycloak publishes everything Keycloak serves,
+including the admin console (`/admin/master/console/`) and the `master` realm's
+sign-in. The admin REST API still wants a token, but the console's login is a
+brute-force target open to the whole internet, and any future admin-console or
+`master`-realm CVE is too. The caddy layer blocks `/auth/admin` for the same
+reason; on a tunnel, the block goes at Cloudflare.
+
+**1. Point the console at the loopback port.** In `docker/prod/.env`, with
+`KC_PORT` at its default:
+
+```properties
+KC_HOSTNAME_ADMIN=http://127.0.0.1:7580
+```
+
+**2. Point the `master` realm there too.** Without this the console loads over
+the tunnel, but its sign-in form posts to `https://idp.example.com/realms/master/…`,
+the session cookie it needs belongs to `127.0.0.1`, and the browser gets a
+`400`. Run once, from `docker/prod/`, after `up -d`:
+
+```bash
+# KC_CLI_PASSWORD rather than --password, so the password stays out of `ps`.
+docker compose exec keycloak sh -c '
+  export KC_CLI_PASSWORD="$KC_BOOTSTRAP_ADMIN_PASSWORD" &&
+  /opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 \
+    --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" &&
+  /opt/keycloak/bin/kcadm.sh update realms/master -s attributes.frontendUrl=http://127.0.0.1:7580'
+```
+
+`./detour` and anything else using `kcadm.sh` inside the container sign in over
+`localhost:8080`, not through the edge, so they still sign in. The `detour` realm is untouched; this moves
+only the admins' realm.
+
+**3. Block both at the edge.** Security → WAF → Custom rules, action **Block**,
+expression:
+
+```text
+(http.host eq "idp.example.com" and
+  (http.request.uri.path contains "/admin" or
+   http.request.uri.path contains "/realms/master"))
+```
+
+`contains` rather than `starts_with`, so `//admin/` and `/admin;x/` (Keycloak
+ignores matrix parameters) are caught as well. Percent-encoded paths
+(`/%61dmin/`) are caught only because Cloudflare normalizes incoming URLs
+(Rules → Settings, on by default); leave it on. Nothing the app or a rider's
+browser calls has either string in its path: they use `/realms/detour/…` and
+`/resources/…/login/…`.
+
+**4. Open the console over SSH.**
+
+```bash
+ssh -L 7580:127.0.0.1:7580 <server>
+# then http://127.0.0.1:7580/admin/master/console/ in your browser
+```
+
+Keep `KC_ADMIN_PASSWORD` long and unique anyway. The README says why the
+bootstrap admin user stays.
 
 ## What the stack needs to know about it
 
@@ -139,6 +201,14 @@ live.url=wss://api.example.com/api/live
 curl -s -o /dev/null -w '%{http_code}\n' \
   https://idp.example.com/realms/detour/.well-known/openid-configuration
 curl -s -o /dev/null -w '%{http_code}\n' https://api.example.com/api/health
+```
+
+The admin console and the `master` realm must be refused at the edge — `403`
+from Cloudflare, not `200` or a redirect from Keycloak:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://idp.example.com/admin/master/console/
+curl -s -o /dev/null -w '%{http_code}\n' https://idp.example.com/realms/master
 ```
 
 For the socket, `401` without a bearer token is the right answer: it proves the

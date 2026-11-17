@@ -109,7 +109,7 @@ class ArchitectureTest {
             // +4: #472 car-started flag on the nav start intent; +5: #500 precise-only trip start
             // +10: #590 saved-spin id on the nav start intent, carried to the saved trip
             // +13: #822 event-log lines at the start/stop/dormancy sites (helpers in Dormancy.kt, TripSession)
-            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1834,
+            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1817,
             // +3: #456 stale-destination guard; +1: #485 MapSurface import; -1: #432 route-fetch guard
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
             // +2: #549 camera banner and the island's gap under it
@@ -129,14 +129,17 @@ class ArchitectureTest {
             // +7: #823 problem-report spoke's title, dispatch and the onNavigate the Diagnostics row needs
             // (the screen is ui/settings/ProblemReportScreen.kt)
             // +2: #902 dim-when-idle row and its import (body in ui/settings/DimMapWhenIdleRow.kt)
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1287,
+            // +2: #977 notifications master switch section and its import (body in ui/settings/NotificationsSection.kt)
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1289,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             // +10: #653 traffic layers held and refilled on a replacement surface, as cameras are
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1016,
             // +11: #902 dimMapWhenIdle (flow, load, setter), 9 over the limit; one bag of
             // independent prefs with no second owner to hand a slice to yet
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt" to 1009,
+            // +11: #977 notificationsEnabled (flow, load, setter), same bag; the
+            // policy it feeds lives in NotificationGate.kt
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt" to 1020,
         )
         assertUnderLimit(1000, pinned, files.associate { it.rel to it.text.count { c -> c == '\n' } })
     }
@@ -153,7 +156,8 @@ class ArchitectureTest {
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#run" to 150,
             "shared/src/commonMain/kotlin/com/jellemax/detour/data/CirclePresence.kt#tick" to 108,
             // +3: #587 the three graph-dependent avoid options; +1: #902 dim_map_when_idle
-            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 105,
+            // +1: #977 notifications_enabled
+            "shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt#init" to 106,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt#attempt" to 105,
         )
         val sizes = files.filter { it.rel.startsWith("shared/") }

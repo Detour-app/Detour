@@ -6,9 +6,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.R
+import com.jellemax.detour.data.NotificationKind
 import com.jellemax.detour.data.PlaceEvent
 import com.jellemax.detour.data.catchUpSummaryText
 import com.jellemax.detour.data.notificationText
@@ -98,7 +98,7 @@ object PlaceNotifications {
             .setContentIntent(pending)
             .setAutoCancel(true)
             .build()
-        NotificationManagerCompat.from(context).notify(id, notification)
+        Notifier.post(context, NotificationKind.CIRCLE_PLACE, id, notification)
     }
 
     /** Stable per-event id, so a repeat delivery (a reconnect re-fetching a
