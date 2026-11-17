@@ -14,7 +14,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -55,7 +54,9 @@ fun DiagnosticsSection(onReportProblem: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val tracing by Settings.perfTracing.collectAsStateWithLifecycle()
-    var status by remember { mutableStateOf<String?>(null) }
+    // Export outcomes go to the app snackbar (§5.4). No Retry on the failure: a
+    // full disk fails the same way until the rider frees space, then taps Export.
+    val messages = LocalAppMessages.current
 
     SettingsSection(stringResource(R.string.settings_diagnostics)) {
         TextButton(onClick = onReportProblem) { Text(stringResource(R.string.settings_spoke_problem_report)) }
@@ -77,7 +78,6 @@ fun DiagnosticsSection(onReportProblem: () -> Unit) {
                 checked = tracing,
                 onCheckedChange = {
                     PerfSink.setEnabled(context, it)
-                    status = null
                 },
             )
         }
@@ -89,17 +89,19 @@ fun DiagnosticsSection(onReportProblem: () -> Unit) {
                 val uri = try {
                     withContext(Dispatchers.IO) { PerfSink.writeForShare(context) }
                 } catch (e: IOException) {
-                    status = context.getString(R.string.settings_timings_not_saved)
+                    messages.showError(context.getString(R.string.settings_timings_not_saved))
                     return@launch
                 } catch (e: IllegalArgumentException) {
-                    status = context.getString(R.string.settings_timings_not_saved)
+                    messages.showError(context.getString(R.string.settings_timings_not_saved))
                     return@launch
                 }
-                status = if (uri == null) context.getString(R.string.settings_nothing_recorded) else null
-                if (uri != null) context.startActivity(shareTimingsIntent(uri))
+                if (uri == null) {
+                    messages.showNotice(context.getString(R.string.settings_nothing_recorded))
+                } else {
+                    context.startActivity(shareTimingsIntent(uri))
+                }
             }
         }) { Text(stringResource(R.string.settings_export_timings)) }
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 
         // Announcements the #273 gate dropped. Empty is the expected steady state:
         // a row here is either a duplicate the gate correctly swallowed or the

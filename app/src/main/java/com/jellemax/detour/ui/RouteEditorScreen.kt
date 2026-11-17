@@ -108,11 +108,17 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     var distanceMeters by remember { mutableStateOf(editing?.distanceMeters) }
     var timeMs by remember { mutableStateOf(editing?.timeMs) }
     var routing by remember { mutableStateOf(false) }
-    var routingError by remember { mutableStateOf<String?>(null) }
+    // The last re-route failed: the summary line says "no route" rather than
+    // the stale distance; why it failed went to the app snackbar (§5.4).
+    var routeFailed by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf("") }
     var filling by remember { mutableStateOf(false) }
+    // Validation only (the rider's own stops already outlast the target),
+    // so it sits under the fill controls; a fill that failed to route is an
+    // action and goes to the snackbar (§5.4).
     var fillError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val messages = LocalAppMessages.current
 
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
@@ -194,11 +200,11 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             distanceMeters = null
             timeMs = null
             routing = false
-            routingError = null
+            routeFailed = false
             return@LaunchedEffect
         }
         routing = true
-        routingError = null
+        routeFailed = false
         try {
             val result = withContext(Dispatchers.IO) {
                 RoutingClient.routeVia(
@@ -211,14 +217,17 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             timeMs = result.timeMs
         } catch (e: CancellationException) {
             // A stop or mode change superseded us. Falling into the catch below
-            // would set routingError after the new run cleared it, and nothing
+            // would set routeFailed after the new run cleared it, and nothing
             // on its success path clears it again.
             throw e
         } catch (e: Exception) {
             // An IOException can surface in place of the cancellation when the
             // blocking call fails after we were superseded.
             ensureActive()
-            routingError = failureText("Routing", e)
+            routeFailed = true
+            // No Retry: the rider's next edit re-routes, and a retry outliving
+            // this screen would have no route to draw.
+            messages.showError(failureText("Routing", e))
         }
         // Not in a finally: a cancelled run's finally can land after the run
         // that replaced it set routing = true, hiding its spinner.
@@ -350,7 +359,9 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                fillError = failureText("Fill", e)
+                // No Retry: a fill re-run from the app's scope could land on a
+                // route the rider has since edited, or on no screen at all.
+                messages.showError(failureText("Fill", e))
             } finally {
                 filling = false
             }
@@ -540,10 +551,10 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
-                            routingError != null -> Text(
-                                routingError.orEmpty(),
+                            routeFailed -> Text(
+                                stringResource(R.string.route_editor_no_route),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             else -> Text(
                                 listOfNotNull(

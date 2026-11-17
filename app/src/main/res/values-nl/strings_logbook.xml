@@ -14,7 +14,6 @@
     <string name="history_no_car_rides">Nog geen autoritten.</string>
     <string name="history_empty_title">Nog geen ritten</string>
     <string name="history_empty_text">Registreer een rit of spin een bestemming — je ritten komen hier terecht.</string>
-    <string name="history_try_again">Opnieuw proberen</string>
     <string name="history_year_so_far">%1$d tot nu toe</string>
     <string name="history_week_streak">weken op rij</string>
     <string name="history_avg_kmh">gem. km/u</string>

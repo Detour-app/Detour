@@ -130,7 +130,7 @@ class ArchitectureTest {
             // (the screen is ui/settings/ProblemReportScreen.kt)
             // +2: #902 dim-when-idle row and its import (body in ui/settings/DimMapWhenIdleRow.kt)
             // +2: #977 notifications master switch section and its import (body in ui/settings/NotificationsSection.kt)
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1289,
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1285,
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             // +10: #653 traffic layers held and refilled on a replacement surface, as cameras are

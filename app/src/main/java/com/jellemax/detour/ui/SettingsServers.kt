@@ -19,9 +19,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +45,7 @@ import com.jellemax.detour.presentation.ServersSyncState
 import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.fileFailureText
 import com.jellemax.detour.presentation.serversSyncStateFrom
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,8 +61,9 @@ import kotlinx.coroutines.withContext
  * answers "what is set up" and "what can I do" and the reading is optional.
  *
  * One composable rather than three siblings because the three cards share
- * state: the status rows read the saved server and the sign-in, and the action
- * row's result line is written by the sync and by the file import alike.
+ * state: the status rows read the saved server and the sign-in, and the sync
+ * and the file import both tell them to re-read when they finish. What those
+ * actions report goes to the app snackbar (§5.4), not a line under the buttons.
  */
 @Composable
 internal fun ServersSyncSpoke(scrollState: ScrollState) {
@@ -67,12 +71,12 @@ internal fun ServersSyncSpoke(scrollState: ScrollState) {
     val builtInAvailable = remember { RoutingServer.bakedDefaults().usable }
     var custom by remember { mutableStateOf(RoutingServer.loadCustom()) }
     val signedInAs by Settings.authUsername.collectAsStateWithLifecycle()
-    var status by remember { mutableStateOf<String?>(null) }
+    var actionsFinished by remember { mutableIntStateOf(0) }
 
     // Re-derived when an action finishes, which is also when the sync stamp can
     // have moved. Not a StateFlow: `last_sync_ms` is a plain preference with no
     // observable behind it, and giving it one is a storage change.
-    val rows = remember(custom, signedInAs, status) {
+    val rows = remember(custom, signedInAs, actionsFinished) {
         serversSyncStateFrom(
             custom, builtInAvailable, signedInAs,
             Settings.lastSyncMs(), System.currentTimeMillis(),
@@ -101,8 +105,7 @@ internal fun ServersSyncSpoke(scrollState: ScrollState) {
         )
         ServersActionsCard(
             canSync = SyncClient.configured() && signedInAs.isNotBlank(),
-            status = status,
-            onStatus = { status = it },
+            onActionEnd = { actionsFinished++ },
             onServerChange = { custom = RoutingServer.loadCustom() },
         )
         ServerSection(
@@ -158,74 +161,86 @@ private fun ServersStatusCard(
 @Composable
 private fun ServersActionsCard(
     canSync: Boolean,
-    status: String?,
-    onStatus: (String?) -> Unit,
+    onActionEnd: () -> Unit,
     onServerChange: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SettingsSection(stringResource(R.string.settings_actions), modifier) {
-        SyncNowButton(canSync, onStatus)
-        ConfigFileButtons(onStatus, onServerChange)
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        SyncNowButton(canSync, onActionEnd)
+        ConfigFileButtons(onActionEnd, onServerChange)
     }
 }
 
 /** "Sync now" and the round trip behind it. Its own composable because
  *  `syncing` is state nothing else on the card reads — the same reason
- *  [RemoveCustomServerButton] holds its own confirmation. */
+ *  [RemoveCustomServerButton] holds its own confirmation.
+ *
+ *  The result goes to [LocalAppMessages]: "Synced: …" as a notice, a failure
+ *  as an error with Retry (a sync is safe to run again). The Retry runs on the
+ *  app's scope, so it may outlive this screen; [sync] then still syncs and only
+ *  its writes to `syncing` and [onActionEnd] land on nobody. */
 @Composable
 private fun SyncNowButton(
     enabled: Boolean,
-    onStatus: (String?) -> Unit,
+    onActionEnd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val messages = LocalAppMessages.current
     val scope = rememberCoroutineScope()
+    val currentOnActionEnd by rememberUpdatedState(onActionEnd)
     var syncing by remember { mutableStateOf(false) }
+
+    suspend fun sync() {
+        syncing = true
+        val result = try {
+            withContext(Dispatchers.IO) { Result.success(SyncClient.sync()) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        } finally {
+            syncing = false
+        }
+        currentOnActionEnd()
+        result.fold(
+            onSuccess = { r ->
+                messages.showNotice(context.getString(R.string.settings_synced, r.trips, r.traces, r.badges))
+            },
+            onFailure = { e -> messages.showError(failureText("Sync", e)) { sync() } },
+        )
+    }
+
     TextButton(
         modifier = modifier,
         enabled = enabled && !syncing,
-        onClick = {
-            syncing = true
-            onStatus(context.getString(R.string.settings_syncing))
-            scope.launch {
-                onStatus(
-                    withContext(Dispatchers.IO) {
-                        try {
-                            val r = SyncClient.sync()
-                            context.getString(R.string.settings_synced, r.trips, r.traces, r.badges)
-                        } catch (e: Exception) {
-                            failureText("Sync", e)
-                        }
-                    },
-                )
-                syncing = false
-            }
-        },
-    ) { Text(stringResource(R.string.settings_sync_now)) }
+        onClick = { scope.launch { sync() } },
+    ) { Text(stringResource(if (syncing) R.string.settings_syncing else R.string.settings_sync_now)) }
 }
 
 /** Export and import, with the file pickers and the import confirmation that
  *  only these two buttons use. */
 @Composable
 private fun ConfigFileButtons(
-    onStatus: (String?) -> Unit,
+    onActionEnd: () -> Unit,
     onServerChange: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    // No Retry on either: re-running means picking the file again, which the
+    // buttons already offer (§5.4 — Retry only re-runs the same call).
+    val messages = LocalAppMessages.current
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(ConfigFile.MIME_TYPE)
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        onStatus(
-            try {
-                ConfigFile.export(context, uri)
-                context.getString(R.string.settings_config_exported)
-            } catch (e: Exception) {
-                fileFailureText("Export", e)
-            },
-        )
+        try {
+            ConfigFile.export(context, uri)
+            messages.showNotice(context.getString(R.string.settings_config_exported))
+        } catch (e: Exception) {
+            messages.showError(fileFailureText("Export", e))
+        }
+        onActionEnd()
     }
     // The picked file is held rather than applied: importing overwrites the
     // server URL and the sign-in token with no preview and no undo, so the
@@ -240,28 +255,25 @@ private fun ConfigFileButtons(
     }
 
     fun runImport(uri: Uri) {
-        onStatus(
-            try {
-                ConfigFile.import(context, uri)
-                // An import writes RoutingServer behind the Server card's back,
-                // so the card is told to re-read. Without this the status row,
-                // the address fields and the Remove button all keep showing the
-                // server that was there before the file was applied.
-                onServerChange()
-                context.getString(R.string.settings_config_imported)
-            } catch (e: Exception) {
-                fileFailureText("Import", e)
-            },
-        )
+        try {
+            ConfigFile.import(context, uri)
+            // An import writes RoutingServer behind the Server card's back,
+            // so the card is told to re-read. Without this the status row,
+            // the address fields and the Remove button all keep showing the
+            // server that was there before the file was applied.
+            onServerChange()
+            messages.showNotice(context.getString(R.string.settings_config_imported))
+        } catch (e: Exception) {
+            messages.showError(fileFailureText("Import", e))
+        }
+        onActionEnd()
     }
 
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = {
-            onStatus(null)
             exportLauncher.launch(ConfigFile.SUGGESTED_NAME)
         }) { Text(stringResource(R.string.settings_export_config)) }
         TextButton(onClick = {
-            onStatus(null)
             // Some file pickers hide application/json; */* keeps the file reachable.
             importLauncher.launch(arrayOf(ConfigFile.MIME_TYPE, "*/*"))
         }) { Text(stringResource(R.string.settings_import_config)) }

@@ -565,9 +565,8 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
         onDispose { mapView.setOnTouchListener(null) }
     }
 
-    // Only ever set by a failed share; shown in the stats card because this
-    // screen has no other error surface.
-    var exportError by remember { mutableStateOf<String?>(null) }
+    // A failed GPX share goes to the app snackbar (§5.4's action bucket).
+    val messages = LocalAppMessages.current
 
     // Disabled until the trace is loaded: a trip with no recorded points has
     // nothing to put in a track or a card. Hoisted above the top bar so both
@@ -613,7 +612,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
                 }
                 TripOverflowMenu(enabled = points.isNotEmpty(), onExportGpx = {
                     scope.launch {
-                        exportError = try {
+                        val failure = try {
                             val uri = withContext(Dispatchers.IO) { Gpx.writeForShare(context, trip, points) }
                             context.startActivity(
                                 Intent.createChooser(shareGpxIntent(uri), context.getString(R.string.trip_export_gpx)),
@@ -630,6 +629,8 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
                             // FileProvider.getUriForFile refusing the path.
                             context.getString(R.string.trip_gpx_not_saved)
                         }
+                        // No Retry: the same write to a full disk fails the same way (§5.4).
+                        failure?.let { messages.showError(it) }
                     }
                 })
             }
@@ -660,9 +661,6 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
             ) {
                 TripStoryHeader(trip, editedTitle, extras)
                 RiddenSpinLink(trip, onOpenRoute)
-                exportError?.let {
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
-                }
                 if (canReplay) {
                     if (!replayOpen) {
                         FilledTonalButton(onClick = {

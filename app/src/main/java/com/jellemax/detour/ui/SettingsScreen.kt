@@ -1190,15 +1190,15 @@ private fun VehicleNameDialog(
 private fun LeanCalibrationSection() {
     val context = LocalContext.current
     val offsetDeg by Settings.leanOffsetDeg.collectAsStateWithLifecycle()
+    val messages = LocalAppMessages.current
     var calibrating by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf<String?>(null) }
 
     if (calibrating) {
         LaunchedEffect(Unit) {
             val sensorManager = context.getSystemService(SensorManager::class.java)
             val sensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
             if (sensor == null) {
-                status = context.getString(R.string.settings_no_rotation_sensor)
+                messages.showError(context.getString(R.string.settings_no_rotation_sensor))
                 calibrating = false
                 return@LaunchedEffect
             }
@@ -1218,15 +1218,13 @@ private fun LeanCalibrationSection() {
             sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
             // finally: leaving Settings cancels the effect at the delay (#897).
             try { delay(2000) } finally { sensorManager.unregisterListener(listener) }
-            status = if (samples.isNotEmpty()) {
+            if (samples.isNotEmpty()) {
                 val avg = samples.average()
                 Settings.setLeanOffsetDeg(avg.toFloat())
-                context.getString(
-                    R.string.settings_calibrated,
-                    formatFixed(avg, 1, Settings.decimalSeparatorChar()),
-                )
+                val offset = formatFixed(avg, 1, Settings.decimalSeparatorChar())
+                messages.showNotice(context.getString(R.string.settings_calibrated, offset))
             } else {
-                context.getString(R.string.settings_no_readings)
+                messages.showError(context.getString(R.string.settings_no_readings))
             }
             calibrating = false
         }
@@ -1249,16 +1247,14 @@ private fun LeanCalibrationSection() {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(
                 enabled = !calibrating,
-                onClick = { status = null; calibrating = true },
+                onClick = { calibrating = true },
             ) { Text(stringResource(if (calibrating) R.string.settings_calibrating else R.string.settings_calibrate)) }
             if (offsetDeg != 0f) {
                 TextButton(onClick = {
                     Settings.setLeanOffsetDeg(0f)
-                    status = null
                 }) { Text(stringResource(R.string.settings_reset)) }
             }
         }
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }
 

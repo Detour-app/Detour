@@ -109,12 +109,17 @@ internal class SavedLoopRide(
 }
 
 @Composable
-internal fun rememberSavedLoopRide(onStatus: (String?) -> Unit, onRide: () -> Unit): SavedLoopRide {
+internal fun rememberSavedLoopRide(
+    onStatus: (String?) -> Unit,
+    onRide: () -> Unit,
+    onError: (String) -> Unit,
+): SavedLoopRide {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val status by rememberUpdatedState(onStatus)
     val ride by rememberUpdatedState(onRide)
-    return remember { SavedLoopRide(context, scope, { status(it) }, { ride() }) }
+    val error by rememberUpdatedState(onError)
+    return remember { SavedLoopRide(context, scope, { status(it) }, { ride() }, { error(it) }) }
 }
 
 /** The "how do you want to join this loop?" choice, while [ride] waits on one. */
