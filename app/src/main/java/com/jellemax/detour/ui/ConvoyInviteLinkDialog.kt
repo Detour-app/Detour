@@ -119,6 +119,7 @@ internal fun ConvoyInviteLinkDialog(convoy: Group, onDismiss: () -> Unit) {
                     }
                 }
 
+                // inline: inside an AlertDialog, where a snackbar would draw under it.
                 current?.inlineError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
