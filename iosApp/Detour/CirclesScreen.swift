@@ -48,12 +48,12 @@ struct CirclesScreen: View {
         NavigationStack {
             VStack(spacing: 0) {
                 // The list-scoped banner: create/invite/respond/leave/toggle
-                // failures all land in `CirclesState.error`, which is shown
+                // failures all land in `CirclesState.actionError`/`loadError`, which is shown
                 // above whichever branch is on screen — the same place
                 // Android's `CirclesScreen.kt` shows it, above both
                 // `CircleListSection` and `CircleDetailSection`, since a
                 // detail-pane action (leave, toggle sharing) can set it too.
-                if let error = model.state.error {
+                if let error = model.state.actionError ?? model.state.loadError {
                     Text(error)
                         .font(.footnote)
                         .foregroundStyle(.red)
@@ -136,7 +136,7 @@ struct CirclesScreen: View {
             // — see its doc there — not cancellation.
             //
             // `CirclesStore.select` never throws for an ordinary failure
-            // either — it reports through `CirclesState.detailError` instead
+            // either — it reports through `CirclesState.detailActionError`/`detailLoadError` instead
             // — so `try?` here is mostly ceremony: the only thing it could
             // ever discard is a genuine Swift-side cancellation error, thrown
             // if this `Task` is torn down before the bridge call even starts.
@@ -280,7 +280,7 @@ final class CirclesModel: ObservableObject {
     }
 
     /// `CirclesStore.reload` never throws for an ordinary failure — it
-    /// reports through `CirclesState.error` instead — but
+    /// reports through `CirclesState.actionError`/`loadError` instead — but
     /// `CancellationException` still crosses (it is
     /// `@Throws(Exception::class)`), so Swift still needs `try`. `try?` lets
     /// a cancelled reload discard silently, same as `FriendsModel.reload`.
@@ -362,9 +362,9 @@ private struct CircleMemberRow: View {
 /// directly, same as Android's `CircleDetailSection` calls `CirclesStore`
 /// directly for the equivalents.
 ///
-/// Bound to `state.detailBusy`/`state.detailError` for the shared-places
+/// Bound to `state.detailBusy` and the detail errors for the shared-places
 /// section only; everything else here (the sharing/notify switches, Invite,
-/// Leave) reads `state.busy`/`state.error` instead — opening or refreshing
+/// Leave) reads `state.busy` and the list errors instead — opening or refreshing
 /// this pane must never grey those out, which is exactly the bug the split
 /// into two busy/error pairs fixed (see `CirclesState`'s doc in
 /// CirclesStore.kt).
@@ -437,7 +437,7 @@ private struct CircleDetailView: View {
                                         // not the tap that caused it.
                                         notifyOn = false
                                         // Local to this toggle, not
-                                        // `CirclesState.detailError`: this is
+                                        // `CirclesState.detailActionError`/`detailLoadError`: this is
                                         // a denial that happened entirely on
                                         // this device, with nothing to
                                         // reload, so it does not belong in
@@ -472,7 +472,7 @@ private struct CircleDetailView: View {
             }
 
             Section {
-                if let detailError = state.detailError {
+                if let detailError = state.detailActionError ?? state.detailLoadError {
                     Text(detailError).font(.caption).foregroundStyle(.red)
                 }
                 if state.places.isEmpty {

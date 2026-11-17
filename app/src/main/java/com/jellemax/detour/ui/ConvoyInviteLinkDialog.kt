@@ -38,6 +38,7 @@ import com.jellemax.detour.data.ConvoyInvitesStore
 import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.convoyInviteLink
+import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.data.shareableLink
 import kotlinx.coroutines.launch
 import java.util.Date
@@ -118,7 +119,7 @@ internal fun ConvoyInviteLinkDialog(convoy: Group, onDismiss: () -> Unit) {
                     }
                 }
 
-                current?.error?.let {
+                current?.inlineError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
 

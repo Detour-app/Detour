@@ -28,7 +28,7 @@ import com.jellemax.detour.data.CirclesStore
  *
  * [refresh] only kicks the *list* load. `CirclesState` also carries a
  * second, independent busy/error pair for the detail pane
- * (`detailBusy`/`detailError`, see CirclesStore.kt:13-19) — opening a
+ * (`detailBusy` with `detailLoadError`/`detailActionError`, see CirclesStore.kt:13-19) — opening a
  * circle, sharing a place, all reloaded through `CirclesStore.select`. That
  * pair is wired from the circle-detail screen (see [CircleDetailPresenter]),
  * not this presenter.

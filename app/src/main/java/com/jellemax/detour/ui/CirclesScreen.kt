@@ -71,6 +71,8 @@ import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.data.detailInlineError
+import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.notif.CircleNotifySettings
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.presentation.CircleDetailPresenter
@@ -211,7 +213,7 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
     CirclesScaffold(
         title = stringResource(R.string.circles_title),
         onBack = onBack,
-        error = state.error,
+        error = state.inlineError,
         actions = {
             IconButton(onClick = { createOpen = true }, modifier = Modifier.padding(end = 8.dp)) {
                 Box(
@@ -302,7 +304,7 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit, onFocusRider: (Ride
     CirclesScaffold(
         title = circle?.name ?: stringResource(R.string.circles_circle),
         onBack = onBack,
-        error = state.error,
+        error = state.inlineError,
         actions = {
             // The prototype's top-bar person_add, same treatment as the
             // list's "New circle" button above: the label survives as the
@@ -564,7 +566,7 @@ private fun CircleDetailSection(
     // Pure map from the store's raw circle/places/events to display rows,
     // recomputed on the render path — see circleDetailStateFrom's KDoc.
     // nowMs is a single snapshot taken here and threaded through, never read
-    // inside the mapper or per row. detailBusy/detailError are deliberately
+    // inside the mapper or per row. detailBusy and the detail errors are deliberately
     // not part of this mapper's output (same KDoc) — read straight off
     // `state` below, same as before.
     val nowMs = System.currentTimeMillis()
@@ -672,7 +674,7 @@ private fun CircleDetailSection(
             }
         }
     }
-    state.detailError?.let {
+    state.detailInlineError?.let {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
     if (detail.places.isEmpty()) {

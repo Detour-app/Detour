@@ -21,7 +21,12 @@ data class FriendsState(
      *  them, so this is computed locally or not at all. */
     val own: FriendStats? = null,
     val busy: Boolean = false,
-    val error: String? = null,
+    /** Why the last [FriendsStore.reload] failed; the list it would have
+     *  filled is stale or missing. Cleared when the next load starts. */
+    val loadError: String? = null,
+    /** Why the last respond/remove/family action failed. One-shot: a screen
+     *  shows it once, then calls [FriendsStore.clearActionError]. */
+    val actionError: String? = null,
     /** When the server last answered. Drives [isStale], so re-entering a
      *  screen seconds later shows what it showed instead of re-fetching.
      *  Null until a load has actually succeeded — a failure must not stamp,
@@ -45,10 +50,6 @@ data class FriendsState(
  * else's cannot leave the two disagreeing.
  */
 object FriendsStore {
-
-    /** What an exception with no message becomes. Named rather than inlined
-     *  because the test for it asserts this exact string. */
-    internal const val FALLBACK_ERROR = "Could not reach the server"
 
     private val _state = MutableStateFlow(FriendsState())
     val state: StateFlow<FriendsState> = _state.asStateFlow()
@@ -192,7 +193,12 @@ object FriendsStore {
         _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.copy(own = own)) }
     }
 
-    /** True on success; false leaves the failure in [state]'s `error`. */
+    /** Drops [FriendsState.actionError] once a screen has shown it. */
+    fun clearActionError() {
+        _state.update { it.actionCleared() }
+    }
+
+    /** True on success; false leaves the failure in [state]'s `actionError`. */
     // No `request` action here on purpose. Both platforms' add-friend dialogs
     // call `Friends.request` directly, so that a refused handle reports inside
     // the dialog the rider is looking at rather than also lighting the banner
@@ -236,7 +242,7 @@ object FriendsStore {
      * the per-platform helpers this replaces never rethrew to their callers
      * either, and every Android call site is a `scope.launch { }` with no
      * handler, where an escaping exception crashes the app. Instead this
-     * reports through `state.error` — the whole reason the store exists —
+     * reports through `state.actionError` — the whole reason the store exists —
      * and returns null so a caller that needs to react locally (e.g. not
      * clearing a text field on failure) still can, without racing a read of
      * `state` back after the `await`. A [CancellationException] is not an
@@ -249,13 +255,13 @@ object FriendsStore {
         // data — but it is the same shape, and leaving one instance of it is how
         // it comes back.
         val epoch = Auth.sessionEpoch.value
-        _state.update { it.starting() }
+        _state.update { it.actionStarting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.failed(e)) }
+            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.actionFailed(e)) }
             return null
         }
         reload()
@@ -263,18 +269,32 @@ object FriendsStore {
     }
 }
 
-/** Busy, and without the previous attempt's error under the new spinner. */
-internal fun FriendsState.starting() = copy(busy = true, error = null)
+/**
+ * Both kinds of error, the action's first, for a screen that still shows them in one inline
+ * line as it did when they shared a field. Goes when the screens move each kind to its own
+ * place (#212's migration issues).
+ */
+val FriendsState.inlineError: String? get() = actionError ?: loadError
+
+/** Busy, and without the previous attempt's error under the new spinner —
+ *  either kind: a fresh load supersedes an action error nobody cleared. */
+internal fun FriendsState.starting() = copy(busy = true, loadError = null, actionError = null)
+
+/** An action is running. The list's [FriendsState.loadError] is not this
+ *  action's to clear; the reload after a success does that. */
+internal fun FriendsState.actionStarting() = copy(busy = true, actionError = null)
 
 /** Note what is *not* touched: [FriendsState.own]. It is expensive to compute
  *  and unrelated to the server's answer, so a reload keeps it. */
 internal fun FriendsState.loaded(lists: FriendLists, leaderboard: List<FriendStats>, nowMs: Long) =
-    copy(lists = lists, leaderboard = leaderboard, busy = false, error = null, loadedAtMs = nowMs)
+    copy(lists = lists, leaderboard = leaderboard, busy = false, loadError = null, loadedAtMs = nowMs)
 
 /** Keeps every data field. An error is a banner over the last known good
  *  screen, never a reason to blank it. */
-internal fun FriendsState.failed(e: Exception) =
-    copy(busy = false, error = e.message?.ifBlank { null } ?: FriendsStore.FALLBACK_ERROR)
+internal fun FriendsState.failed(e: Exception) = copy(busy = false, loadError = failureSentence(e))
+
+/** Same, for an action: the list stays as it was. */
+internal fun FriendsState.actionFailed(e: Exception) = copy(busy = false, actionError = failureSentence(e))
 
 /**
  * [result] if [epoch] still names the session an in-flight action started
@@ -300,3 +320,6 @@ internal fun FriendsState.commitIfCurrent(epoch: Int, currentEpoch: Int, result:
  *  and asserted directly, rather than driving the singleton through
  *  `_state` the way [reset]'s own test used to. */
 internal fun FriendsState.cleared() = FriendsState()
+
+/** [FriendsState.actionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun FriendsState.actionCleared() = copy(actionError = null)

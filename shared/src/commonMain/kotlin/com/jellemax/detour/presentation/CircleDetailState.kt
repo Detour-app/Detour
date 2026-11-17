@@ -51,7 +51,7 @@ data class CircleEventRow(val text: String)
  * own load/busy/error/detail state, see CirclesStore.kt:13-19) nor
  * [CirclesListState] (the list screen's own display shape, see that type's
  * own KDoc) — three names, three shapes, none of them this one.
- * [CirclesState.detailBusy] and [CirclesState.detailError] are deliberately
+ * [CirclesState.detailBusy] and the detail errors are deliberately
  * not reproduced here: the screen already reads them straight off
  * `CirclesStore.state`, same as today, and folding them into this type would
  * just be a second copy of the pair CirclesStore.kt:13-19 explains keeping

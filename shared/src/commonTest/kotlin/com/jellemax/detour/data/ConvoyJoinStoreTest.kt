@@ -19,9 +19,15 @@ class ConvoyJoinStoreTest {
     }
 
     @Test
-    fun anyOtherFailureShowsItsMessageOrTheFallback() {
-        assertEquals(ConvoyJoinStep.Failed("HTTP 502"), joinStepFor(HttpStatusException(502, body = "")))
-        assertEquals(ConvoyJoinStep.Failed(ConvoyJoinStore.FALLBACK_ERROR), joinStepFor(okio.IOException("")))
+    fun anyOtherFailureShowsARiderSentenceNotTheExceptionText() {
+        assertEquals(
+            ConvoyJoinStep.Failed("The server hit a problem. Try again later."),
+            joinStepFor(HttpStatusException(502, body = "")),
+        )
+        assertEquals(
+            ConvoyJoinStep.Failed("Can't reach the server — check your connection"),
+            joinStepFor(networkFailure(okio.IOException("Unable to resolve host"))),
+        )
     }
 
     @Test

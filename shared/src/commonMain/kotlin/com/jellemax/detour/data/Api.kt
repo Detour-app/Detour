@@ -29,7 +29,7 @@ internal object Api {
         // runs well past 30s — SyncClient passes its own.
         readTimeoutMs: Long = 30_000,
     ): String {
-        val base = SyncClient.url() ?: throw IOException("No server configured")
+        val base = SyncClient.url() ?: throw NoServerException()
         val url = base.trimEnd('/') + PREFIX + path
         return try {
             // The token the most recent attempt actually sent. Auth.refreshAfterRefusal
@@ -90,7 +90,7 @@ internal object Api {
             // (NO_SESSION). The third code, SESSION_ENDED, is raised by
             // Auth.refresh as an AuthException and never lands in this catch.
             val code = if (auth) AuthRefusal.SERVER_REFUSED else AuthRefusal.NO_SESSION
-            throw IOException(AuthRefusal.message(detail, code))
+            throw TokenRefusedException(detail, code)
         }
     }
 

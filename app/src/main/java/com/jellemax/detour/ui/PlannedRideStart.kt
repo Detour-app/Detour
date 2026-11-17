@@ -54,7 +54,7 @@ internal class PlannedRideStart(
             val started = ConvoysStore.createAndInvite(ride.title, ride.convoyInvitees.map { it.username })
             starting = false
             if (started == null) {
-                error = ConvoysStore.state.value.error
+                error = ConvoysStore.state.value.actionError
                 return@launch
             }
             ConvoyLiveService.start(context, started.id)

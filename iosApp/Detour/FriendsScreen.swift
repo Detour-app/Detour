@@ -94,7 +94,7 @@ struct FriendsScreen: View {
             // Not a `.alert`: the store's error persists until the next
             // action attempt clears it, which doesn't fit a one-shot,
             // dismiss-to-clear alert the way it fits Android's inline Text.
-            if let error = model.friendsState.error {
+            if let error = model.friendsState.actionError ?? model.friendsState.loadError {
                 Section {
                     Text(error).foregroundStyle(.red)
                 }
@@ -339,7 +339,7 @@ struct FriendsScreen: View {
 
     private var convoysSection: some View {
         Section("Convoys") {
-            if let error = model.convoysState.error {
+            if let error = model.convoysState.actionError ?? model.convoysState.loadError {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
             ForEach(model.convoysState.convoys, id: \.id) { convoy in
@@ -607,7 +607,7 @@ final class FriendsModel: ObservableObject {
     ///
     /// `FriendsStore.reload`/`refreshOwn` and `ConvoysStore.reload` never
     /// throw for an ordinary failure — they report through their own
-    /// `state.error` instead — but `CancellationException` still crosses
+    /// `state.actionError` instead — but `CancellationException` still crosses
     /// (every one is `@Throws(Exception::class)`), so Swift still needs
     /// `try`. `try?` is what a cancelled reload deserves here: discarded
     /// silently, no error banner, the same effect the old

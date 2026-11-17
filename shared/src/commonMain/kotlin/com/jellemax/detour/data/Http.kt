@@ -64,14 +64,34 @@ class HttpStatusException(
  * A DNS failure cannot tell "offline" from "wrong address", so both get the
  * one sentence that is true for either.
  */
-internal fun networkFailure(e: Throwable): IOException = IOException(
-    when (e) {
-        is HttpRequestTimeoutException, is ConnectTimeoutException, is SocketTimeoutException ->
-            "The server took too long to answer — try again"
-        else -> "Can't reach the server — check your connection"
-    },
-    e,
+internal fun networkFailure(e: Throwable): NetworkFailureException = NetworkFailureException(
+    timedOut = e is HttpRequestTimeoutException || e is ConnectTimeoutException || e is SocketTimeoutException,
+    cause = e,
 )
+
+/**
+ * [networkFailure]'s result, typed so [failureReason] can tell "never got an
+ * answer" from any other [IOException] and [failureSentence] can keep its
+ * already-worded [message]. Still an [IOException]: every `catch` that falls
+ * back to the next server keeps catching it.
+ */
+class NetworkFailureException(val timedOut: Boolean, cause: Throwable) : IOException(
+    if (timedOut) "The server took too long to answer — try again"
+    else "Can't reach the server — check your connection",
+    cause,
+)
+
+/**
+ * A `401` that survived a good token refresh, or came with no session at all
+ * ([Api.request]). [message] is the server's own explanation followed by an
+ * `AUTH-401-*` identifier ([AuthRefusal]), which riders quote in bug reports,
+ * so [failureSentence] passes it through unchanged.
+ */
+class TokenRefusedException(serverMessage: String, val code: String) :
+    IOException(AuthRefusal.message(serverMessage, code))
+
+/** [Api] was asked for something with no sync server set up. */
+class NoServerException : IOException("No server configured")
 
 /**
  * Why a request failed, as the second half of a rider-facing sentence —
@@ -92,6 +112,12 @@ fun failureReason(e: Throwable): String = when {
     // A 4xx the API explained says what to fix ("No rider goes by X") better
     // than any status reading; a 5xx detail may be internals, so it doesn't.
     e is HttpStatusException -> statusReason(e)
+    e is NetworkFailureException ->
+        if (e.timedOut) "the server took too long to answer. Try again."
+        else "the server could not be reached. Check your connection and try again."
+    // The AUTH-401-* code is kept: it is what a rider quotes in a report.
+    e is TokenRefusedException -> "the server refused the sign-in [${e.code}]."
+    e is NoServerException -> "no server is set up. Add one in Settings → Servers & sync."
     e is IOException -> "it could not be opened. Check your connection and try again."
     else -> "the contents were not what this app expected."
 }
@@ -102,6 +128,32 @@ private fun statusReason(e: HttpStatusException): String = when {
     e.code == 404 -> "the server has nothing at that address."
     e.code >= 500 -> "the server hit a problem. Try again later."
     else -> "the server answered ${e.code}."
+}
+
+/**
+ * A whole rider-facing sentence for a failed call, for a store's error field —
+ * what used to be `e.message ?: FALLBACK_ERROR`, which handed the rider a
+ * parser's "Unexpected JSON token at offset 41" or a bare "HTTP 502".
+ *
+ * The failures that already arrive worded for the rider keep their own text:
+ * [networkFailure]'s two sentences, and both refusal paths whose messages
+ * carry an `AUTH-401-*` identifier ([TokenRefusedException], and
+ * [AuthException], whose every message is a written sentence and whose
+ * `SESSION_ENDED` one carries the code). Those identifiers are an append-only
+ * contract with riders (`AuthRetry.kt`), so they must survive. Everything
+ * else is [failureReason] as a sentence. Not [failureText]: that lives in
+ * presentation/, which data/ may not read (architecture.md §3).
+ */
+fun failureSentence(e: Throwable): String {
+    val own = e.message?.takeIf { it.isNotBlank() }
+    if (own != null && keepsOwnSentence(e)) return own
+    return failureReason(e).replaceFirstChar { it.uppercaseChar() }
+}
+
+/** The failures whose own message is already a rider sentence; see [failureSentence]. */
+private fun keepsOwnSentence(e: Throwable): Boolean = when (e) {
+    is NetworkFailureException, is TokenRefusedException, is AuthException -> true
+    else -> false
 }
 
 internal object Http {

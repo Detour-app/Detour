@@ -12,7 +12,11 @@ data class PlannedRidesState(
      *  must not render the same (§4.1). */
     val rides: List<PlannedRide>? = null,
     val busy: Boolean = false,
-    val error: String? = null,
+    /** Why the last [PlannedRidesStore.reload] failed. Cleared when the next load starts. */
+    val loadError: String? = null,
+    /** Why the last create/update/cancel/invite/answer failed. One-shot: a screen shows it
+     *  once, then calls [PlannedRidesStore.clearActionError]. */
+    val actionError: String? = null,
     /** When the server last answered; null until a load has succeeded. See [ConvoysState.loadedAtMs]. */
     val loadedAtMs: Long? = null,
 )
@@ -23,12 +27,11 @@ data class PlannedRidesState(
  * [PlannedRide.canStart].
  *
  * Same shape and contracts as [ConvoysStore]: actions are `suspend` and the caller supplies the
- * coroutine; an ordinary failure never throws, it lands in [PlannedRidesState.error]; every
- * mutation re-reads the list from the server rather than patching the local copy (§4.1).
+ * coroutine; an ordinary failure never throws, it lands in [PlannedRidesState.actionError] (an
+ * action) or [PlannedRidesState.loadError] (a load); every mutation re-reads the list from the
+ * server rather than patching the local copy (§4.1).
  */
 object PlannedRidesStore {
-
-    internal const val FALLBACK_ERROR = "Could not reach the server"
 
     private val _state = MutableStateFlow(PlannedRidesState())
     val state: StateFlow<PlannedRidesState> = _state.asStateFlow()
@@ -65,7 +68,12 @@ object PlannedRidesStore {
         _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, apply(it)) }
     }
 
-    /** The new ride's id, or null with the failure left in [state]'s `error`. */
+    /** Drops [PlannedRidesState.actionError] once a screen has shown it. */
+    fun clearActionError() {
+        _state.update { it.actionCleared() }
+    }
+
+    /** The new ride's id, or null with the failure left in [state]'s `actionError`. */
     @Throws(Exception::class)
     suspend fun create(draft: PlannedRideDraft): String? =
         act { PlannedRides.create(draft).id }
@@ -98,7 +106,7 @@ object PlannedRidesStore {
 
     private suspend fun <T> act(block: suspend () -> T): T? {
         val epoch = Auth.sessionEpoch.value
-        _state.update { it.starting() }
+        _state.update { it.actionStarting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
@@ -106,7 +114,7 @@ object PlannedRidesStore {
         } catch (e: Exception) {
             // Epoch-guarded like [reload]: a failure landing after a sign-out must not put its
             // banner on the next rider's store. See FriendsStore.act.
-            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.failed(e)) }
+            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.actionFailed(e)) }
             return null
         }
         reload()
@@ -121,14 +129,25 @@ object PlannedRidesStore {
  */
 fun PlannedRide.acceptsAnswer(me: RiderId, answer: RsvpAnswer): Boolean = canAnswer(me) && answer.isAnswer
 
-internal fun PlannedRidesState.starting() = copy(busy = true, error = null)
+/**
+ * Both kinds of error, the action's first, for a screen that still shows them in one inline
+ * line as it did when they shared a field. Goes when the screens move each kind to its own
+ * place (#212's migration issues).
+ */
+val PlannedRidesState.inlineError: String? get() = actionError ?: loadError
+
+/** A load supersedes an action error nobody cleared, as it did when both shared one field. */
+internal fun PlannedRidesState.starting() = copy(busy = true, loadError = null, actionError = null)
+
+internal fun PlannedRidesState.actionStarting() = copy(busy = true, actionError = null)
 
 internal fun PlannedRidesState.loaded(rides: List<PlannedRide>, nowMs: Long) =
-    copy(rides = rides, busy = false, error = null, loadedAtMs = nowMs)
+    copy(rides = rides, busy = false, loadError = null, loadedAtMs = nowMs)
 
 /** Keeps [PlannedRidesState.rides] as it was: a failed refresh is not an empty list. */
-internal fun PlannedRidesState.failed(e: Exception) =
-    copy(busy = false, error = e.message?.ifBlank { null } ?: PlannedRidesStore.FALLBACK_ERROR)
+internal fun PlannedRidesState.failed(e: Exception) = copy(busy = false, loadError = failureSentence(e))
+
+internal fun PlannedRidesState.actionFailed(e: Exception) = copy(busy = false, actionError = failureSentence(e))
 
 /** [result] if [epoch] still names the current session, this state untouched otherwise. Same
  *  guard as [ConvoysState.commitIfCurrent]. */
@@ -136,3 +155,6 @@ internal fun PlannedRidesState.commitIfCurrent(epoch: Int, currentEpoch: Int, re
     if (epoch == currentEpoch) result else this
 
 internal fun PlannedRidesState.cleared() = PlannedRidesState()
+
+/** [PlannedRidesState.actionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun PlannedRidesState.actionCleared() = copy(actionError = null)
