@@ -59,7 +59,7 @@ public class RequestLoggingTests(PostgresFixture postgres) : IAsyncLifetime
     {
         private readonly ConcurrentQueue<string> _messages = new();
 
-        public IReadOnlyCollection<string> Messages => _messages.ToArray();
+        public IReadOnlyCollection<string> Messages => [.. _messages];
 
         public ILogger CreateLogger(string categoryName) => new Logger(_messages);
 
