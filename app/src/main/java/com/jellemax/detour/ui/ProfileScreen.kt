@@ -69,7 +69,6 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
     val scope = rememberCoroutineScope()
     var signingOut by remember { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
-    var signOutError by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -135,10 +134,6 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                 )
             }
 
-            if (signOutError.isNotEmpty()) {
-                Text(signOutError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            }
-
             // Quieter than "Sign out" on purpose: the rare, irreversible action
             // is not the one the eye should land on. Play requires it in-app (#700).
             TextButton(
@@ -152,9 +147,11 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
         }
     }
 
-    // Both dialogs flip the same busy/error pair: one request at a time, one message line.
-    val onStart = { signingOut = true; signOutError = "" }
-    val onFail = { message: String -> signingOut = false; signOutError = message }
+    // Both dialogs flip the same busy flag: one request at a time. A failure is an action's (§5.4):
+    // the snackbar, with no Retry — the rider re-confirms a sign-out or a delete, it is not re-run.
+    val messages = LocalAppMessages.current
+    val onStart = { signingOut = true }
+    val onFail = { message: String -> signingOut = false; messages.showError(message) }
     if (confirmSignOut) {
         SignOutDialog(
             scope, onStart, onSignOut = onSignedOut, onFail = onFail, onDismiss = { confirmSignOut = false },

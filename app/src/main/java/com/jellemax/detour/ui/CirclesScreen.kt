@@ -71,8 +71,6 @@ import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
-import com.jellemax.detour.data.detailInlineError
-import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.notif.CircleNotifySettings
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.presentation.CircleDetailPresenter
@@ -113,7 +111,6 @@ private const val DEFAULT_CIRCLE_PLACE_RADIUS_M = 150.0
 private fun CirclesScaffold(
     title: String,
     onBack: () -> Unit,
-    error: String?,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -166,9 +163,6 @@ private fun CirclesScaffold(
                 )
                 return@Column
             }
-            error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
             content()
         }
     }
@@ -205,6 +199,10 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
     // its window.
     val presenter = remember { CirclesListPresenter() }
     LaunchedEffect(Unit) { presenter.refresh() }
+    val actions = rememberStoreActions(state.actionError, CirclesStore::clearActionError)
+    StaleLoadErrorEffect(state.loadError, state.loadedAtMs != null) { CirclesStore.reload() }
+    // Application context: a Retry runs on AppRoot's scope, after this screen may be gone.
+    val appContext = context.applicationContext
 
     // Pure map from the store's raw circles to display rows, recomputed on
     // the render path rather than cached — see circlesListStateFrom's KDoc.
@@ -213,7 +211,6 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
     CirclesScaffold(
         title = stringResource(R.string.circles_title),
         onBack = onBack,
-        error = state.inlineError,
         actions = {
             IconButton(onClick = { createOpen = true }, modifier = Modifier.padding(end = 8.dp)) {
                 Box(
@@ -228,19 +225,24 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
             }
         },
     ) {
+        val loadError = state.loadError
+        if (state.loadedAtMs == null && loadError != null) {
+            ErrorState(loadError, onRetry = { scope.launch { CirclesStore.reload() } })
+            return@CirclesScaffold
+        }
         CircleListSection(
             listState = listState,
             busy = state.busy,
             loaded = state.loadedAtMs != null,
             onOpen = onOpenCircle,
             onAccept = { id ->
-                scope.launch {
-                    if (CirclesStore.respond(id, true)) CircleNotifyService.refresh(context)
+                actions.launch(scope, retryable = true) {
+                    if (CirclesStore.respond(id, true)) CircleNotifyService.refresh(appContext)
                 }
             },
             onDecline = { id ->
-                scope.launch {
-                    if (CirclesStore.respond(id, false)) CircleNotifyService.refresh(context)
+                actions.launch(scope, retryable = false) {
+                    if (CirclesStore.respond(id, false)) CircleNotifyService.refresh(appContext)
                 }
             },
         )
@@ -250,8 +252,8 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
         CreateCircleDialog(
             onDismiss = { createOpen = false },
             onCreate = { name ->
-                scope.launch {
-                    if (CirclesStore.create(name)) CircleNotifyService.refresh(context)
+                actions.launch(scope, retryable = true) {
+                    if (CirclesStore.create(name)) CircleNotifyService.refresh(appContext)
                 }
                 createOpen = false
             },
@@ -289,6 +291,10 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit, onFocusRider: (Ride
     LaunchedEffect(circleId) { presenter.open(circleId) }
 
     val circle = state.circles.find { it.id == circleId }
+    // Leave, sharing and invite are list actions: they report through the list's pair.
+    val actions = rememberStoreActions(state.actionError, CirclesStore::clearActionError)
+    StaleLoadErrorEffect(state.loadError, state.loadedAtMs != null) { CirclesStore.reload() }
+    val appContext = context.applicationContext
 
     LaunchedEffect(circle, state.circles, state.busy) {
         if (circle == null && state.circles.isNotEmpty() && !state.busy) onBack()
@@ -304,7 +310,6 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit, onFocusRider: (Ride
     CirclesScaffold(
         title = circle?.name ?: stringResource(R.string.circles_circle),
         onBack = onBack,
-        error = state.inlineError,
         actions = {
             // The prototype's top-bar person_add, same treatment as the
             // list's "New circle" button above: the label survives as the
@@ -328,19 +333,25 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit, onFocusRider: (Ride
             }
         },
     ) {
+        val loadError = state.loadError
+        if (state.loadedAtMs == null && loadError != null) {
+            ErrorState(loadError, onRetry = { scope.launch { CirclesStore.reload() } })
+            return@CirclesScaffold
+        }
         circle?.let {
             CircleDetailSection(
                 circle = it,
                 riderId = riderId,
                 state = state,
                 onLeave = {
-                    scope.launch {
-                        if (CirclesStore.leave(it.id)) CircleNotifyService.refresh(context)
+                    actions.launch(scope, retryable = false) {
+                        if (CirclesStore.leave(it.id)) CircleNotifyService.refresh(appContext)
                     }
                 },
                 onToggleSharing = { sharing ->
-                    scope.launch {
-                        if (CirclesStore.setSharing(it.id, sharing)) CircleNotifyService.refresh(context)
+                    // Setting the switch to a value is safe to repeat; pausing hides nothing.
+                    actions.launch(scope, retryable = true) {
+                        if (CirclesStore.setSharing(it.id, sharing)) CircleNotifyService.refresh(appContext)
                     }
                 },
                 onFocusRider = onFocusRider,
@@ -353,8 +364,8 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit, onFocusRider: (Ride
             circle = c,
             onDismiss = { inviteFor = null },
             onInvite = { target ->
-                scope.launch {
-                    if (CirclesStore.invite(c.id, target) != null) CircleNotifyService.refresh(context)
+                actions.launch(scope, retryable = true) {
+                    if (CirclesStore.invite(c.id, target) != null) CircleNotifyService.refresh(appContext)
                 }
                 inviteFor = null
             },
@@ -562,6 +573,8 @@ private fun CircleDetailSection(
     LaunchedEffect(circle.id) {
         CirclesStore.select(circle.id)
     }
+    val detailActions = rememberStoreActions(state.detailActionError, CirclesStore::clearDetailActionError)
+    val detailLoadError = state.detailLoadError
 
     // Pure map from the store's raw circle/places/events to display rows,
     // recomputed on the render path — see circleDetailStateFrom's KDoc.
@@ -674,10 +687,10 @@ private fun CircleDetailSection(
             }
         }
     }
-    state.detailInlineError?.let {
-        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-    }
-    if (detail.places.isEmpty()) {
+    if (detailLoadError != null) {
+        // Places and activity are one load, so this stands in for both.
+        ErrorState(detailLoadError, onRetry = { scope.launch { CirclesStore.select(circle.id) } })
+    } else if (detail.places.isEmpty()) {
         // Gated on detailBusy for the same reason the list's "No circles
         // yet" is gated on loaded above: selecting() clears places to empty
         // the instant a circle opens, and detailStarting() sets detailBusy
@@ -730,13 +743,14 @@ private fun CircleDetailSection(
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
     )
-    if (detail.events.isEmpty()) {
+    // On a failed detail load the ErrorState above stands for this too; "no activity" would be a guess.
+    if (detailLoadError == null && detail.events.isEmpty()) {
         Text(
             stringResource(R.string.circles_activity_empty),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    } else {
+    } else if (detailLoadError == null) {
         ListCard {
             detail.events.forEachIndexed { i, row ->
                 if (i > 0) CardDivider()
@@ -754,7 +768,7 @@ private fun CircleDetailSection(
             places = savedPlaces,
             onDismiss = { shareOpen = false },
             onShare = { place, radiusM ->
-                scope.launch { CirclesStore.sharePlace(circle.id, place, radiusM) }
+                detailActions.launch(scope, retryable = true) { CirclesStore.sharePlace(circle.id, place, radiusM) }
                 shareOpen = false
             },
         )
@@ -775,7 +789,7 @@ private fun CircleDetailSection(
             title = stringResource(R.string.circles_unshare_title, row.name),
             text = stringResource(R.string.circles_unshare_text),
             confirmLabel = stringResource(R.string.circles_unshare),
-            onConfirm = { scope.launch { CirclesStore.unsharePlace(row.serverId) } },
+            onConfirm = { detailActions.launch(scope, retryable = false) { CirclesStore.unsharePlace(row.serverId) } },
             onDismiss = { unsharing = null },
         )
     }

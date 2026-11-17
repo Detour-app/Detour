@@ -243,7 +243,8 @@ private fun YouProfileCard(state: YouState, onClick: () -> Unit) {
 private fun YouGuestCard() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val error by PendingSignIn.error.collectAsStateWithLifecycle()
+    // A failed sign-in (PendingSignIn.error) is not drawn here: AppRoot already
+    // snackbars it on every screen, this one included (§5.4).
     val busy by PendingSignIn.busy.collectAsStateWithLifecycle()
 
     ListCard(borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)) {
@@ -289,9 +290,6 @@ private fun YouGuestCard() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                error?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
                 Button(
                     onClick = {
                         // begin() is reached from inside this launch, so it marks the
