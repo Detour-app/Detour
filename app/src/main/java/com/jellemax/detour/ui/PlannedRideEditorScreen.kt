@@ -28,6 +28,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,7 +52,6 @@ import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SavedRoute
-import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.presentation.PLANNED_DESCRIPTION_MAX_CHARS
 import com.jellemax.detour.presentation.PLANNED_TITLE_MAX_CHARS
 import com.jellemax.detour.presentation.PlannedRideForm
@@ -80,6 +80,10 @@ import java.util.TimeZone
  *
  * Back is held while a save runs: leaving would cancel this screen's scope between the request
  * and the store's re-read, and leave [PlannedRidesStore] busy with every action disabled.
+ *
+ * Errors per §5.4: a field's problem is inline under the field; a failed save goes to the app
+ * snackbar with Retry, which saves the same draft again on `AppRoot`'s scope and finishes this
+ * screen only if it is still showing; a ride to edit that never loaded is [ErrorState].
  */
 @Composable
 fun PlannedRideEditorScreen(rideId: String?, onBack: () -> Unit, onFinish: () -> Unit, modifier: Modifier = Modifier) {
@@ -87,7 +91,9 @@ fun PlannedRideEditorScreen(rideId: String?, onBack: () -> Unit, onFinish: () ->
     val state by PlannedRidesStore.state.collectAsStateWithLifecycle()
     val ride = rideId?.let { id -> state.rides?.find { it.id == id } }
     var form by remember { mutableStateOf(if (rideId == null) PlannedRideForm() else null) }
-    var saving by remember { mutableStateOf(false) }
+    val saver = rememberRideSaver(rideId, onFinish)
+    val saving = saver.saving
+    val actions = rememberStoreActions(state.actionError, PlannedRidesStore::clearActionError)
 
     LaunchedEffect(Unit) { if (rideId != null) PlannedRidesStore.reloadIfStale() }
     // Not a key: a new onBack lambda on recomposition must not re-run the check.
@@ -103,23 +109,18 @@ fun PlannedRideEditorScreen(rideId: String?, onBack: () -> Unit, onFinish: () ->
         onBack = { if (!saving) onBack() },
     ) {
         val current = form
-        if (current == null) {
-            Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
+        val loadError = state.loadError
+        when {
+            current == null && loadError != null ->
+                ErrorState(loadError, onRetry = { scope.launch { PlannedRidesStore.reload() } })
+            current == null -> Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        } else {
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            else -> Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 PlannedRideFields(current, enabled = !saving, onChange = { form = it })
-                state.inlineError?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
                 SaveButton(current, saving = saving, busy = state.busy) { draft ->
-                    saving = true
-                    scope.launch {
-                        val saved = saveRide(rideId, draft)
-                        saving = false
-                        if (saved) onFinish()
-                    }
+                    saver.saving = true
+                    actions.launch(scope, retryable = true) { saver.save(draft) }
                 }
             }
         }
@@ -132,6 +133,31 @@ private fun rideVanished(ride: PlannedRide?, state: PlannedRidesState) =
 
 private suspend fun saveRide(rideId: String?, draft: PlannedRideDraft): Boolean =
     if (rideId == null) PlannedRidesStore.create(draft) != null else PlannedRidesStore.update(rideId, draft)
+
+/**
+ * The editor's save. The snackbar's Retry runs [save] again on `AppRoot`'s scope, possibly after
+ * the editor has gone, so it calls [onFinish] only while the editor is still [shown]: finishing
+ * then would pop whichever screen is on top instead.
+ */
+private class RideSaver(private val rideId: String?, private val onFinish: () -> Unit) {
+    var saving by mutableStateOf(false)
+    var shown = true
+
+    suspend fun save(draft: PlannedRideDraft) {
+        saving = true
+        val saved = saveRide(rideId, draft)
+        saving = false
+        if (saved && shown) onFinish()
+    }
+}
+
+@Composable
+private fun rememberRideSaver(rideId: String?, onFinish: () -> Unit): RideSaver {
+    val currentOnFinish by rememberUpdatedState(onFinish)
+    val saver = remember(rideId) { RideSaver(rideId) { currentOnFinish() } }
+    DisposableEffect(saver) { onDispose { saver.shown = false } }
+    return saver
+}
 
 @Composable
 private fun SaveButton(form: PlannedRideForm, saving: Boolean, busy: Boolean, onSave: (PlannedRideDraft) -> Unit) {

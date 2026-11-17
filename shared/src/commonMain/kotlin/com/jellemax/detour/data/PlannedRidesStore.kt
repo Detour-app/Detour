@@ -129,13 +129,6 @@ object PlannedRidesStore {
  */
 fun PlannedRide.acceptsAnswer(me: RiderId, answer: RsvpAnswer): Boolean = canAnswer(me) && answer.isAnswer
 
-/**
- * Both kinds of error, the action's first, for a screen that still shows them in one inline
- * line as it did when they shared a field. Goes when the screens move each kind to its own
- * place (#212's migration issues).
- */
-val PlannedRidesState.inlineError: String? get() = actionError ?: loadError
-
 /** A load supersedes an action error nobody cleared, as it did when both shared one field. */
 internal fun PlannedRidesState.starting() = copy(busy = true, loadError = null, actionError = null)
 

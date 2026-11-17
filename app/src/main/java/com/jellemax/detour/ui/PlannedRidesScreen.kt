@@ -37,7 +37,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,7 +59,6 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.PlannedRidesStore
 import com.jellemax.detour.data.RsvpAnswer
 import com.jellemax.detour.data.SyncClient
-import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.presentation.PlannedInviteeRow
 import com.jellemax.detour.presentation.PlannedRideDetailState
 import com.jellemax.detour.presentation.PlannedRideRow
@@ -119,9 +117,9 @@ internal fun PlannedScaffold(
  * cached copy to go stale under a mutation.
  *
  * `rides` is null until the first load lands, so the three bodies stay apart: a spinner while
- * the first load runs, the failure with a retry when it never landed (offline, server down),
- * and "nothing planned" only once the server has actually said so. A failed refresh over a
- * list already shown keeps the list and puts the error above it.
+ * the first load runs, [ErrorState] with Retry when it never landed (offline, server down), and
+ * "nothing planned" only once the server has actually said so. A failed refresh over a list
+ * already shown keeps the list and says so in the app snackbar (§5.4).
  */
 @Composable
 fun PlannedRidesScreen(
@@ -134,6 +132,7 @@ fun PlannedRidesScreen(
     val state by PlannedRidesStore.state.collectAsStateWithLifecycle()
     val riderId by Account.riderId.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { PlannedRidesStore.reloadIfStale() }
+    StaleLoadErrorEffect(state.loadError, state.rides != null) { PlannedRidesStore.reload() }
     val rows = remember(state.rides, riderId) { state.rides?.let { plannedRideRowsFrom(it, riderId) } }
 
     PlannedScaffold(
@@ -155,15 +154,14 @@ fun PlannedRidesScreen(
     ) {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when {
-                rows == null && state.inlineError != null -> LoadFailed(
-                    error = state.inlineError.orEmpty(),
+                rows == null && state.loadError != null -> ErrorState(
+                    message = state.loadError.orEmpty(),
                     onRetry = { scope.launch { PlannedRidesStore.reload() } },
                 )
                 rows == null -> Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
                 else -> {
-                    state.inlineError?.let { ErrorLine(it) }
                     if (rows.isEmpty()) NothingPlanned()
                     rows.forEach { row -> PlannedRideCard(row, onClick = { onOpenRide(row.id) }) }
                 }
@@ -189,6 +187,11 @@ fun PlannedRidesScreen(
  * The host also gets Start (#758): [PlannedRideStart], with [onRide] opening the map and
  * [LocalAppMessages] carrying anything the rider should read after this screen is gone — it
  * shows on `AppRoot`'s host and scope, which outlive this screen.
+ *
+ * Errors per §5.4: a list that never loaded is [ErrorState] in place of the ride, not a spinner
+ * that never ends; a failed refresh, answer, delete or start goes to the app snackbar (Retry on
+ * the refresh and the answer, which re-send the same thing). An invite's failure stays in the
+ * picker, which is a dialog; while it is open the store's action error is the picker's to show.
  */
 @Composable
 fun PlannedRideDetailScreen(
@@ -205,6 +208,8 @@ fun PlannedRideDetailScreen(
     val ride = state.rides?.find { it.id == rideId }
     val detail = remember(ride, riderId) { ride?.let { plannedRideDetailStateFrom(it, riderId) } }
     var inviting by remember { mutableStateOf(false) }
+    val actions = rememberStoreActions(state.actionError.takeUnless { inviting }, PlannedRidesStore::clearActionError)
+    StaleLoadErrorEffect(state.loadError, detail != null) { PlannedRidesStore.reload() }
 
     // Not a key: a new onBack lambda on recomposition must not re-run the check.
     val currentOnBack by rememberUpdatedState(onBack)
@@ -214,7 +219,7 @@ fun PlannedRideDetailScreen(
 
     var confirmDelete by remember { mutableStateOf(false) }
     val messages = LocalAppMessages.current
-    val start = rememberPlannedRideStart(onRide, messages::showNotice)
+    val start = rememberPlannedRideStart(onRide, onNotice = messages::showNotice, onError = { messages.showError(it) })
     val enabled = !state.busy && !start.starting
 
     PlannedScaffold(
@@ -225,11 +230,16 @@ fun PlannedRideDetailScreen(
             if (detail?.hosting == true) HostActions(!state.busy, onEdit, onDelete = { confirmDelete = true })
         },
     ) {
+        if (detail == null) {
+            RideNotLoaded(state.loadError, onRetry = { scope.launch { PlannedRidesStore.reload() } })
+            return@PlannedScaffold
+        }
         RideDetailBody(
             detail = detail,
-            error = start.error ?: state.inlineError,
             enabled = enabled,
-            onAnswer = { id, answer -> scope.launch { PlannedRidesStore.answer(id, answer) } },
+            onAnswer = { id, answer ->
+                actions.launch(scope, retryable = true) { PlannedRidesStore.answer(id, answer) }
+            },
             hostButtons = {
                 StartButton(enabled = enabled, onClick = { start.confirming = ride })
                 InviteButton(enabled = enabled, onClick = { inviting = true })
@@ -244,18 +254,37 @@ fun PlannedRideDetailScreen(
         PlannedInviteDialog(
             ride = ride,
             busy = state.busy,
-            error = state.inlineError,
+            error = state.actionError,
             onInvite = { riderIds, circleIds ->
                 scope.launch { if (PlannedRidesStore.invite(rideId, riderIds, circleIds)) inviting = false }
             },
-            onDismiss = { inviting = false },
+            // Shown in the picker already: dropped here, or the snackbar would say it again on close.
+            onDismiss = {
+                inviting = false
+                PlannedRidesStore.clearActionError()
+            },
         )
     }
 
     if (confirmDelete) {
         // The ride drops out of the reloaded list, and the check above pops back to it.
-        DeleteRideDialog(detail, onConfirm = { scope.launch { PlannedRidesStore.cancel(rideId) } }) {
+        DeleteRideDialog(
+            detail,
+            onConfirm = { actions.launch(scope, retryable = false) { PlannedRidesStore.cancel(rideId) } },
+        ) {
             confirmDelete = false
+        }
+    }
+}
+
+/** The ride before the list holding it has landed: [ErrorState] if that load failed, else a spinner. */
+@Composable
+private fun RideNotLoaded(loadError: String?, onRetry: () -> Unit) {
+    if (loadError != null) {
+        ErrorState(loadError, onRetry = onRetry)
+    } else {
+        Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
         }
     }
 }
@@ -274,21 +303,13 @@ private fun DeleteRideDialog(detail: PlannedRideDetailState?, onConfirm: () -> U
 
 @Composable
 private fun RideDetailBody(
-    detail: PlannedRideDetailState?,
-    error: String?,
+    detail: PlannedRideDetailState,
     enabled: Boolean,
     onAnswer: (rideId: String, RsvpAnswer) -> Unit,
     hostButtons: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        error?.let { ErrorLine(it) }
-        if (detail == null) {
-            Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-            return@Column
-        }
         RideFacts(detail)
         if (detail.canAnswer) {
             AnswerRow(detail = detail, enabled = enabled, onAnswer = { answer -> onAnswer(detail.id, answer) })
@@ -472,20 +493,6 @@ private fun NothingPlanned() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-}
-
-@Composable
-private fun LoadFailed(error: String, onRetry: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.planned_load_failed), style = MaterialTheme.typography.bodyMedium)
-        ErrorLine(error)
-        TextButton(onClick = onRetry) { Text(stringResource(R.string.planned_retry)) }
-    }
-}
-
-@Composable
-private fun ErrorLine(error: String) {
-    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
 }
 
 private fun answerLabel(answer: RsvpAnswer): Int = when (answer) {

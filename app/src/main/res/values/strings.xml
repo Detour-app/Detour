@@ -177,8 +177,6 @@
     <string name="planned_setting_up">Setting up your account — check back in a moment.</string>
     <string name="planned_empty_title">Nothing planned</string>
     <string name="planned_empty_text">Rides you\'re invited to show up here.</string>
-    <string name="planned_load_failed">Couldn\'t load your planned rides.</string>
-    <string name="planned_retry">Try again</string>
     <string name="planned_you_host">You\'re hosting</string>
     <string name="planned_hosted_by">Hosted by %1$s</string>
     <string name="planned_your_answer">Your answer: %1$s</string>
