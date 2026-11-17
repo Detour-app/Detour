@@ -1289,6 +1289,8 @@ inclusive boundaries and its `voice.stop()`-on-mute, both applied to iOS.** The 
 `shared/` candidate under the *"a policy earns the core when it is written more than once"* rule —
 with delivery per platform, per the `CircleEvents.kt` shape.
 
+**Since #1012** the 800/300/80 m ladder is iOS's only; Android times the prompts by speed — entry 40.
+
 **RESOLVED — `c95b19d` (policy), `c9547ee` (car), `fb59b8e` (iOS), `e7cb39f` + `31b2ba5` +
 `d682603` (phone), in favour of decision 1's full parity.** The ladder, `spokenDistance` and the
 phase latch are now `NavAnnouncer` in `shared/…/data/NavAnnouncer.kt` with ten `commonTest` cases,
@@ -3107,8 +3109,8 @@ and adds ", then <cue>" to the near and now prompts when the following maneuver 
 `NavScreen.swift` still calls the speed-less overload `onProgress(instruction:distanceMeters:)`,
 which keeps the fixed 800/300/80 m ladder and never chains.
 
-**Verdict: catch-up on iOS.** Not a product question: pass the fix speed and the `Progress` to the
-two-argument overload, then delete the speed-less overload and `FIXED_LADDER`.
+**Verdict: catch-up on iOS.** Not a product question: call `onProgress(progress, speedMps)` with the fix speed,
+then delete the speed-less overload and `FIXED_LADDER`.
 
 **Fence.**
 

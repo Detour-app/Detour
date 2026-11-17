@@ -8,7 +8,9 @@ import kotlin.test.assertNull
  * Characterises the ladder both surfaces already implemented, including the one
  * boundary they disagreed on until convergence 3 made iOS inclusive. Written
  * before either surface was repointed, so a repoint that changes behaviour
- * fails here rather than in the field.
+ * fails here rather than in the field. That fixed ladder is now the
+ * speed-less overload iOS still calls; the timed ladder and ", then" the
+ * Android surfaces use (#1012) are tested at the end.
  */
 class NavAnnouncerTest {
 
