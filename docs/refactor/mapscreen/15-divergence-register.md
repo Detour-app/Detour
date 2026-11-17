@@ -2738,6 +2738,36 @@ check 'iOS does not ask NotificationGate yet' 0 \
     "$(grep -rc 'NotificationGate' iosApp/Detour | awk -F: '{s+=$2} END {print s+0}')"
 ```
 
+## 38. A superseded search lookup: cancelled, failed, or empty
+
+**New with `#1003`** — recorded because iOS is parked (owner decision 2026-10-27) and the fix was
+written for Android only.
+
+**What.** Each keystroke cancels the geocoder lookup still running. A cancelled lookup is neither a
+failure nor an empty result; the surface should say nothing and let the next lookup draw.
+
+**Copies.** Android's map (`app/…/ui/SearchIsland.kt`), car (`app/…/car/SearchScreen.kt`), route
+editor and saved places all rethrow `CancellationException` before their generic catch, and show a
+failure as an error. iOS (`iosApp/Detour/MapScreen.swift`, the search sheet's `.task(id: query)`)
+uses `try?`, so a cancelled lookup flashes "Nothing found" and a real network failure reads as
+"Nothing found" too.
+
+**Verdict: bug — iOS follows.** Not a product question: iOS should catch `CancellationError`
+separately, show an error for a thrown lookup, and keep "Nothing found" for an empty one. The
+shared search session (`#1005`) would make this one copy.
+
+**Fence.**
+
+```sh
+# Entry 38 — superseded search. A changed count means iOS dropped try? or an Android catch regressed.
+check 'map search rethrows cancellation' 1 \
+    "$(grep -c 'catch (e: CancellationException)' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt)"
+check 'car search rethrows cancellation' 1 \
+    "$(grep -c 'catch (e: CancellationException)' app/src/main/java/com/jellemax/detour/car/SearchScreen.kt)"
+check 'iOS search still swallows errors with try?' 1 \
+    "$(grep -c 'results = (try? await Geocoder.shared.search' iosApp/Detour/MapScreen.swift)"
+```
+
 ---
 
 ## §A — Summary, ranked by how user-visible the decision is

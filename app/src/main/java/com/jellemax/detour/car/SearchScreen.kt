@@ -25,9 +25,11 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.startHeading
 import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.tracking.hasLocationPermission
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -145,7 +147,12 @@ class SearchScreen(
                 results = withContext(Dispatchers.IO) {
                     Geocoder.search(text, myLocation)
                 }
+            } catch (e: CancellationException) {
+                // The next keystroke cancelled us (#1003): not a failure, and
+                // the job replacing this one draws its own result.
+                throw e
             } catch (e: Exception) {
+                ensureActive()
                 results = emptyList()
                 errorText = failureText("Search", e)
             } finally {
