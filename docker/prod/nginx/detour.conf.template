@@ -52,12 +52,24 @@ map $http_x_forwarded_proto $forwarded_proto {
 limit_req_zone $binary_remote_addr zone=route_per_ip:10m rate=2r/s;
 limit_req_zone $binary_remote_addr zone=search_per_ip:10m rate=5r/s;
 
+# The access log without query strings or referrers. nginx's default `combined`
+# format logs `$request`, query included, and a dashboard key travels as
+# `?key=` (#981) — so does a rider's search text (/api/?q=) and the points of a
+# GET /route. The referrer can carry the same query from a page that embeds a
+# dashboard. `$uri` is the path alone.
+log_format detour_no_query '$remote_addr - $remote_user [$time_local] '
+                           '"$request_method $uri $server_protocol" '
+                           '$status $body_bytes_sent "$http_user_agent"';
+
 server {
     # default_server: the image ships its own default.conf, also on port 80,
     # and it sorts first. Without this every request whose Host isn't
     # `localhost` — every rider on the public hostname — lands there and 404s.
     listen 80 default_server;
     server_name _;
+
+    # The image links this file to stdout; only the format changes.
+    access_log /var/log/nginx/access.log detour_no_query;
 
     # The rider's address, not the hop in front of this one. cloudflared (or
     # whatever terminates the public hostname) connects from another host, so
