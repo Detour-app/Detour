@@ -588,7 +588,12 @@ private fun CircleDetailSection(
     // already loaded: those stay on screen and the failure goes to the
     // snackbar. ErrorState only stands in when there is nothing to show.
     val hasDetailContent = detail.places.isNotEmpty() || detail.events.isNotEmpty()
-    StaleLoadErrorEffect(detailLoadError, hasDetailContent) { CirclesStore.select(circle.id) }
+    // The snackbar outlives this section (it runs on AppRoot's host), so by the time
+    // Retry is tapped the rider may have opened another circle: re-selecting this one
+    // then would put its places/events under the other circle's header.
+    StaleLoadErrorEffect(detailLoadError, hasDetailContent) {
+        if (CirclesStore.state.value.selectedId == circle.id) CirclesStore.select(circle.id)
+    }
     val detailErrorState = detailLoadError.takeUnless { hasDetailContent }
 
     Text(
