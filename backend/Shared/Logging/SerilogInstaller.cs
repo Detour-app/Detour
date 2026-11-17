@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using Serilog.Enrichers.Span;
+using Serilog.Events;
 using Serilog.Exceptions;
 using Serilog.Exceptions.Core;
 using Serilog.Exceptions.EntityFrameworkCore.Destructurers;
@@ -24,7 +25,14 @@ public static class SerilogInstaller
 
         hostBuilder.UseSerilog((_, configuration) =>
         {
+            // appsettings' Logging:LogLevel section never reaches Serilog (nothing reads it into
+            // this configuration), so its levels are set here. Microsoft.AspNetCore matters most:
+            // at Information, Hosting logs every request line with its query string, and a
+            // dashboard key travels as ?key= (#981) — in plain text to the console, the file
+            // sink and, through writeToProviders, the OTLP exporter.
             configuration
+                .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+                .MinimumLevel.Override("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Warning)
                 .Enrich.FromLogContext()
                 .Enrich.WithExceptionDetails(destructuringOptions)
                 .Enrich.WithSpan()
