@@ -1289,6 +1289,8 @@ inclusive boundaries and its `voice.stop()`-on-mute, both applied to iOS.** The 
 `shared/` candidate under the *"a policy earns the core when it is written more than once"* rule —
 with delivery per platform, per the `CircleEvents.kt` shape.
 
+**Since #1012** the 800/300/80 m ladder is iOS's only; Android times the prompts by speed — entry 40.
+
 **RESOLVED — `c95b19d` (policy), `c9547ee` (car), `fb59b8e` (iOS), `e7cb39f` + `31b2ba5` +
 `d682603` (phone), in favour of decision 1's full parity.** The ladder, `spokenDistance` and the
 phase latch are now `NavAnnouncer` in `shared/…/data/NavAnnouncer.kt` with ten `commonTest` cases,
@@ -3089,6 +3091,38 @@ check 'Android merges by isSamePlaceAs' 1 \
     "$(grep -c 'merged.none { it.isSamePlaceAs(' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt)"
 check 'iOS still keys search rows by name' 1 \
     "$(grep -c 'ForEach(results, id: \\.name)' iosApp/Detour/MapScreen.swift)"
+```
+
+---
+
+## 40. Voice prompt timing: Android times prompts by speed and chains close turns, iOS keeps 800/300/80 m
+
+**New with `#1012`** — recorded because iOS is parked (owner decision 2026-10-27) and the rule is
+written for both.
+
+**What.** `NavAnnouncer.onProgress(progress, speedMps)` places the three prompts 25/10/3 s before
+the turn at the current speed (floors 400/150/30 m, far capped at 2 km, plus 1.5 s of speech lead),
+and adds ", then <cue>" to the near and now prompts when the following maneuver is within
+`max(8 s, 150 m)`. The phone (`ui/MapNavigation.kt`) and the head unit (`car/NavScreen.kt`) call it.
+
+**Copies.** The rule is not duplicated: both ladders are in `shared/…/data/NavAnnouncer.kt`. iOS's
+`NavScreen.swift` still calls the speed-less overload `onProgress(instruction:distanceMeters:)`,
+which keeps the fixed 800/300/80 m ladder and never chains.
+
+**Verdict: catch-up on iOS.** Not a product question: call `onProgress(progress, speedMps)` with the fix speed,
+then delete the speed-less overload and `FIXED_LADDER`.
+
+**Fence.**
+
+```sh
+# Entry 40 — voice timing. Measured against the #1012 branch. A changed count means a surface
+# moved to the other overload.
+check 'Android surfaces pass speed to the announcer' 2 \
+    "$(grep -c 'announcer.onProgress(p, speedMps)\|announcer.onProgress(progress, fix.speedMps)' \
+        app/src/main/java/com/jellemax/detour/car/NavScreen.kt app/src/main/java/com/jellemax/detour/ui/MapNavigation.kt \
+        | awk -F: '{s+=$2} END {print s}')"
+check 'iOS still uses the speed-less overload' 1 \
+    "$(grep -c 'instruction: p.nextInstruction, distanceMeters: p.distanceToTurnMeters' iosApp/Detour/NavScreen.swift)"
 ```
 
 ---
