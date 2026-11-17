@@ -32,7 +32,6 @@ import com.jellemax.detour.data.CirclesStore
 import com.jellemax.detour.data.FriendsStore
 import com.jellemax.detour.data.PlannedRide
 import com.jellemax.detour.data.RiderId
-import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.presentation.PlannedInviteOption
 import com.jellemax.detour.presentation.plannedInviteChoicesFrom
 
@@ -88,7 +87,7 @@ internal fun PlannedInviteDialog(
                 InviteSection(
                     heading = stringResource(R.string.planned_invite_friends),
                     loaded = friends != null,
-                    loadError = friendsState.inlineError,
+                    loadError = friendsState.loadError,
                     options = choices.friends,
                     picked = pickedFriends,
                     onToggle = { id -> pickedFriends = pickedFriends.toggled(id) },
@@ -96,7 +95,7 @@ internal fun PlannedInviteDialog(
                 InviteSection(
                     heading = stringResource(R.string.planned_invite_circles),
                     loaded = circlesLoaded,
-                    loadError = circlesState.inlineError,
+                    loadError = circlesState.loadError,
                     options = choices.circles,
                     picked = pickedCircles,
                     onToggle = { id -> pickedCircles = pickedCircles.toggled(id) },
@@ -108,6 +107,7 @@ internal fun PlannedInviteDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // inline: inside an AlertDialog, where a snackbar would draw under it.
                 error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
@@ -141,6 +141,7 @@ private fun InviteSection(
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(heading, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         when {
+            // inline: inside an AlertDialog, where a snackbar would draw under it.
             !loaded && loadError != null ->
                 Text(loadError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             !loaded -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)

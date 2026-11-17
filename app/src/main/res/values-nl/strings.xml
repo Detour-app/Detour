@@ -173,8 +173,6 @@
     <string name="planned_setting_up">Je account wordt ingesteld — kijk zo meteen opnieuw.</string>
     <string name="planned_empty_title">Niets gepland</string>
     <string name="planned_empty_text">Ritten waarvoor je bent uitgenodigd verschijnen hier.</string>
-    <string name="planned_load_failed">Je geplande ritten konden niet worden geladen.</string>
-    <string name="planned_retry">Opnieuw proberen</string>
     <string name="planned_you_host">Jij organiseert</string>
     <string name="planned_hosted_by">Georganiseerd door %1$s</string>
     <string name="planned_your_answer">Jouw antwoord: %1$s</string>

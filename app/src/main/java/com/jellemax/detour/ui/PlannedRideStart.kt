@@ -28,33 +28,37 @@ import kotlinx.coroutines.launch
  * host's friend) go to [onNotice] — `LocalAppMessages.showNotice` from the detail screen: the
  * detail screen is gone by the time anyone could read them there.
  *
- * Screen-lifetime, like [SavedLoopRide], which it rides a saved loop through. Its own [error]
- * and [starting] rather than the planned-rides store's: a failure here is the convoy store's or
- * routing's.
+ * Screen-lifetime, like [SavedLoopRide], which it rides a saved loop through. Its own [starting]
+ * rather than the planned-rides store's: a failure here is the convoy store's or routing's, and
+ * goes to [onError] — `LocalAppMessages.showError`, without Retry, since running it again would
+ * make a second convoy (§5.4). A loop's "routing…" progress goes to [onNotice].
  */
 internal class PlannedRideStart(
     private val context: Context,
     private val scope: CoroutineScope,
     private val onRide: () -> Unit,
     private val onNotice: (String) -> Unit,
+    private val onError: (String) -> Unit,
 ) {
     /** The ride waiting on the host's confirm. */
     var confirming: PlannedRide? by mutableStateOf(null)
     var starting: Boolean by mutableStateOf(false)
         private set
-    var error: String? by mutableStateOf(null)
-    val loopRide = SavedLoopRide(context, scope, onStatus = { error = it }, onRide = onRide)
+    val loopRide = SavedLoopRide(
+        context, scope, onStatus = { it?.let(onNotice) }, onRide = onRide, onError = onError,
+    )
 
     fun confirm() {
         val ride = confirming ?: return
         confirming = null
-        error = null
         starting = true
         scope.launch {
             val started = ConvoysStore.createAndInvite(ride.title, ride.convoyInvitees.map { it.username })
             starting = false
             if (started == null) {
-                error = ConvoysStore.state.value.actionError
+                // Shown here, so dropped from the store: the Convoys tab would otherwise say it again.
+                ConvoysStore.state.value.actionError?.let(onError)
+                ConvoysStore.clearActionError()
                 return@launch
             }
             ConvoyLiveService.start(context, started.id)
@@ -64,19 +68,24 @@ internal class PlannedRideStart(
             val route = ride.route
             if (route == null) onRide() else rideSavedRoute(
                 context, route, loopRide, RoutingServer.routingUsable(RoutingServer.load()),
-                onStatus = { error = it }, onRide,
+                onStatus = { it?.let(onError) }, onRide,
             )
         }
     }
 }
 
 @Composable
-internal fun rememberPlannedRideStart(onRide: () -> Unit, onNotice: (String) -> Unit): PlannedRideStart {
+internal fun rememberPlannedRideStart(
+    onRide: () -> Unit,
+    onNotice: (String) -> Unit,
+    onError: (String) -> Unit,
+): PlannedRideStart {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val ride by rememberUpdatedState(onRide)
     val notice by rememberUpdatedState(onNotice)
-    return remember { PlannedRideStart(context, scope, { ride() }, { notice(it) }) }
+    val error by rememberUpdatedState(onError)
+    return remember { PlannedRideStart(context, scope, { ride() }, { notice(it) }, { error(it) }) }
 }
 
 /** The "start this ride?" confirm, and the loop-join choice a saved loop route may ask after it. */
