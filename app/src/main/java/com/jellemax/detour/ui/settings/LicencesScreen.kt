@@ -7,13 +7,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.jellemax.detour.R
+import com.jellemax.detour.ui.LocalAppMessages
 import com.jellemax.detour.ui.SettingsSection
 
 /**
@@ -44,17 +41,16 @@ fun LicencesScreen() {
 @Composable
 private fun LicenceSection(name: String, text: String, url: String) {
     val context = LocalContext.current
-    var error by remember { mutableStateOf<String?>(null) }
+    // §5.4: a tap that failed. No Retry — with no browser it fails the same way again.
+    val messages = LocalAppMessages.current
     SettingsSection(name) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = {
-            error = try {
+            try {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                null
             } catch (e: ActivityNotFoundException) {
-                context.getString(R.string.settings_no_app_to_open, url)
+                messages.showError(context.getString(R.string.settings_no_app_to_open, url))
             }
         }) { Text(stringResource(R.string.settings_view_licence)) }
-        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     }
 }
