@@ -139,22 +139,24 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     // hasn't landed — still running, or failed, which the message below tells
     // apart; the reloads after an edit go through IO too.
     var data by remember { mutableStateOf<LogbookData?>(null) }
-    // One message for both failures: a failed load has no list to sit above and
-    // a failed delete has a list but no other place to say so, and the two can't
-    // be pending at once. Clearing it as a load starts stops a stale message
-    // from outliving the state it described.
-    var error by remember { mutableStateOf("") }
-    fun reload() = scope.launch {
-        error = ""
+    // A load that failed (§5.4): with no list yet it replaces the list
+    // ([ErrorState]); with the last good list on screen the list stays and
+    // the snackbar says so. Cleared as a load starts, so a stale message
+    // can't outlive the state it described.
+    var loadError by remember { mutableStateOf<String?>(null) }
+    val messages = LocalAppMessages.current
+    suspend fun load() {
+        loadError = null
         // loadStrict (inside loadLogbook), not load: load() reads a corrupt
         // file as an empty list, and this is the one screen that can tell the
         // rider the difference.
         val result = withContext(Dispatchers.IO) { runCatching { loadLogbook() } }
         result.onSuccess { data = it }.onFailure {
             Log.w("DetourHistory", "logbook load failed", it)
-            error = context.getString(R.string.history_load_failed)
+            loadError = context.getString(R.string.history_load_failed)
         }
     }
+    fun reload() = scope.launch { load() }
     LaunchedEffect(Unit) { reload() }
 
     fun edit(trip: Trip, edit: RideEdit) = scope.launch {
@@ -167,7 +169,8 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
                 // with no hint that the delete never happened.
                 val deleted = withContext(Dispatchers.IO) { runCatching { TripStore.delete(trip.startTimeMs) } }
                 if (deleted.isFailure) {
-                    error = context.getString(R.string.history_delete_failed)
+                    // No Retry: never offered on a delete (§5.4).
+                    messages.showError(context.getString(R.string.history_delete_failed))
                     return@launch
                 }
             }
@@ -176,8 +179,12 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
         // correction survives a reinstall, and a delete's tombstone stops other
         // devices resurrecting the trip. No-op when signed out.
         SyncClient.syncQuietly()
-        reload() // clears any message on its way in
+        load()
     }
+
+    // The retry runs on the app's scope (§5.4); load() only writes this
+    // screen's state, which nobody reads once it has gone.
+    StaleLoadErrorEffect(loadError, hasContent = data != null) { load() }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -186,23 +193,23 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     ) { padding ->
         val loaded = data
         val slot = Modifier.fillMaxSize().padding(padding)
+        val failed = loadError
         when {
-            loaded == null && error.isNotEmpty() -> HistoryLoadFailed(error, onRetry = { reload() }, modifier = slot)
+            // The exception itself went to logcat; the rider gets the sentence.
+            loaded == null && failed != null -> Box(slot, contentAlignment = Alignment.Center) {
+                ErrorState(failed, onRetry = { reload() })
+            }
             loaded == null -> Box(slot, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             loaded.trips.isEmpty() -> NoTripsYet(slot)
-            else -> LogbookList(loaded, error, onOpenTrip, ::edit, slot)
+            else -> LogbookList(loaded, onOpenTrip, ::edit, slot)
         }
     }
 }
 
-/** The filter chips over the month chapters. [error] sits above the list, not
- *  in it: a delete fails on the row the rider is looking at, which is rarely
- *  the first one, and a message inserted at the top of a scrolled list lands
- *  off screen. */
+/** The filter chips over the month chapters. */
 @Composable
 private fun LogbookList(
     loaded: LogbookData,
-    error: String,
     onOpenTrip: (Trip) -> Unit,
     onEdit: (Trip, RideEdit) -> Unit,
     modifier: Modifier = Modifier,
@@ -224,14 +231,6 @@ private fun LogbookList(
         MonthWrappedDialog(wrapped, onDismiss = { wrappedYm = null })
     }
     Column(modifier) {
-        if (error.isNotEmpty()) {
-            Text(
-                error,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (f in LogbookFilter.entries) {
                 FilterChip(selected = f == filter, onClick = { filter = f }, label = {
@@ -328,25 +327,6 @@ private fun NoTripsYet(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-}
-
-/** The read failed: plain words for what went wrong and a way to run the load
- *  again, in the slot [NoTripsYet] would have filled. The exception itself goes
- *  to logcat — a rider can act on "try again", not on a stack trace. */
-@Composable
-private fun HistoryLoadFailed(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        TextButton(onClick = onRetry) { Text(stringResource(R.string.history_try_again)) }
     }
 }
 

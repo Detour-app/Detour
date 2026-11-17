@@ -15,7 +15,6 @@
     <string name="history_no_car_rides">No car rides yet.</string>
     <string name="history_empty_title">No trips yet</string>
     <string name="history_empty_text">Track a drive or spin a destination — your rides land here.</string>
-    <string name="history_try_again">Try again</string>
     <string name="history_year_so_far">%1$d so far</string>
     <string name="history_week_streak">week streak</string>
     <string name="history_avg_kmh">avg km/h</string>
