@@ -170,7 +170,6 @@ fun SearchIsland(
     var error by remember { mutableStateOf<String?>(null) }
     var noResults by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    val recentNames = remember(recents) { recents.map { it.name }.toSet() }
 
     // Back dismisses the island before it reaches the map, where back leaves
     // the app.
@@ -227,9 +226,9 @@ fun SearchIsland(
         searching = true
         try {
             val hits = withContext(Dispatchers.IO) { Geocoder.search(q, near) }
-            val seen = HashSet(recentMatches.map { it.name })
+            // Same place, not same name: two branches of one chain share a label (#1004).
             val merged = ArrayList(recentMatches)
-            for (hit in hits) if (seen.add(hit.name)) merged.add(hit)
+            for (hit in hits) if (merged.none { it.isSamePlaceAs(hit) }) merged.add(hit)
             results = merged
             noResults = merged.isEmpty()
         } catch (e: CancellationException) {
@@ -285,7 +284,7 @@ fun SearchIsland(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            if (r.name in recentNames) Icons.Rounded.History
+                            if (recents.any { it.isSamePlaceAs(r) }) Icons.Rounded.History
                                 else Icons.Rounded.Place,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
