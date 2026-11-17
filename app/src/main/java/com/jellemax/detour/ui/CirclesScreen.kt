@@ -584,6 +584,12 @@ private fun CircleDetailSection(
     // `state` below, same as before.
     val nowMs = System.currentTimeMillis()
     val detail = circleDetailStateFrom(circle, riderId, state.places, state.events.take(20), nowMs)
+    // A failed refresh, re-open or post-share reload keeps the places/events
+    // already loaded: those stay on screen and the failure goes to the
+    // snackbar. ErrorState only stands in when there is nothing to show.
+    val hasDetailContent = detail.places.isNotEmpty() || detail.events.isNotEmpty()
+    StaleLoadErrorEffect(detailLoadError, hasDetailContent) { CirclesStore.select(circle.id) }
+    val detailErrorState = detailLoadError.takeUnless { hasDetailContent }
 
     Text(
         stringResource(R.string.circles_members),
@@ -687,9 +693,9 @@ private fun CircleDetailSection(
             }
         }
     }
-    if (detailLoadError != null) {
+    if (detailErrorState != null) {
         // Places and activity are one load, so this stands in for both.
-        ErrorState(detailLoadError, onRetry = { scope.launch { CirclesStore.select(circle.id) } })
+        ErrorState(detailErrorState, onRetry = { scope.launch { CirclesStore.select(circle.id) } })
     } else if (detail.places.isEmpty()) {
         // Gated on detailBusy for the same reason the list's "No circles
         // yet" is gated on loaded above: selecting() clears places to empty
@@ -744,13 +750,13 @@ private fun CircleDetailSection(
         color = MaterialTheme.colorScheme.primary,
     )
     // On a failed detail load the ErrorState above stands for this too; "no activity" would be a guess.
-    if (detailLoadError == null && detail.events.isEmpty()) {
+    if (detailErrorState == null && detail.events.isEmpty()) {
         Text(
             stringResource(R.string.circles_activity_empty),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    } else if (detailLoadError == null) {
+    } else if (detailErrorState == null) {
         ListCard {
             detail.events.forEachIndexed { i, row ->
                 if (i > 0) CardDivider()
