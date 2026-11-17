@@ -107,6 +107,9 @@
     <string name="nav_curvy_comparing">Comparing with the fastest route…</string>
     <string name="nav_curvy_unsupported">Curvy routes: your routing server can\'t do this yet</string>
 
+    <!-- SearchIsland.kt -->
+    <string name="search_no_results">No results</string>
+
     <!-- RouteEditorScreen.kt, RouteFillControls.kt -->
     <string name="route_editor_new">New route</string>
     <string name="route_editor_edit">Edit route</string>

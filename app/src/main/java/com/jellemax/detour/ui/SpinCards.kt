@@ -290,6 +290,8 @@ internal fun SpinSheet(
                 }
             }
 
+            // inline: mirrored to map snackbar (MapPermissions' LaunchedEffect(s.error)), §5.4's
+            // map exception; this copy is for when the sheet is open and the snackbar has gone.
             error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
