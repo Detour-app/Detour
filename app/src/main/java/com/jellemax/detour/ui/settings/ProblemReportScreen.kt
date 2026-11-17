@@ -99,6 +99,10 @@ fun ProblemReportScreen(onClose: () -> Unit, modifier: Modifier = Modifier, with
             Text(stringResource(R.string.settings_report_sent, id), style = MaterialTheme.typography.bodyMedium)
             Button(onClick = onClose) { Text(stringResource(R.string.settings_report_done)) }
         } else {
+            // inline: the form keeps the failure beside its own Retry. A failed send relabels
+            // Send as Retry with the note still typed, and the result (sent id, the crash
+            // cleared) is this screen's state — a snackbar Retry on the app's scope could
+            // race the button into a second report. Unsupported is the server's state, not a moment.
             notSent?.let { Text(stringResource(notSentMessage(it)), color = MaterialTheme.colorScheme.error) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onClose) { Text(stringResource(R.string.settings_report_cancel)) }
