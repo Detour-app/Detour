@@ -3093,6 +3093,38 @@ check 'iOS still keys search rows by name' 1 \
 
 ---
 
+## 40. Voice prompt timing: Android times prompts by speed and chains close turns, iOS keeps 800/300/80 m
+
+**New with `#1012`** — recorded because iOS is parked (owner decision 2026-10-27) and the rule is
+written for both.
+
+**What.** `NavAnnouncer.onProgress(progress, speedMps)` places the three prompts 25/10/3 s before
+the turn at the current speed (floors 400/150/30 m, far capped at 2 km, plus 1.5 s of speech lead),
+and adds ", then <cue>" to the near and now prompts when the following maneuver is within
+`max(8 s, 150 m)`. The phone (`ui/MapNavigation.kt`) and the head unit (`car/NavScreen.kt`) call it.
+
+**Copies.** The rule is not duplicated: both ladders are in `shared/…/data/NavAnnouncer.kt`. iOS's
+`NavScreen.swift` still calls the speed-less overload `onProgress(instruction:distanceMeters:)`,
+which keeps the fixed 800/300/80 m ladder and never chains.
+
+**Verdict: catch-up on iOS.** Not a product question: pass the fix speed and the `Progress` to the
+two-argument overload, then delete the speed-less overload and `FIXED_LADDER`.
+
+**Fence.**
+
+```sh
+# Entry 40 — voice timing. Measured against the #1012 branch. A changed count means a surface
+# moved to the other overload.
+check 'Android surfaces pass speed to the announcer' 2 \
+    "$(grep -c 'announcer.onProgress(p, speedMps)\|announcer.onProgress(progress, fix.speedMps)' \
+        app/src/main/java/com/jellemax/detour/car/NavScreen.kt app/src/main/java/com/jellemax/detour/ui/MapNavigation.kt \
+        | awk -F: '{s+=$2} END {print s}')"
+check 'iOS still uses the speed-less overload' 1 \
+    "$(grep -c 'instruction: p.nextInstruction, distanceMeters: p.distanceToTurnMeters' iosApp/Detour/NavScreen.swift)"
+```
+
+---
+
 ## §D — Keeping this register current
 
 This file is stale the moment anyone edits a copy it cites, and it cites 40-odd line numbers

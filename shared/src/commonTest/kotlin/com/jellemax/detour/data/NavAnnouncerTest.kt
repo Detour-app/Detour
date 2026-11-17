@@ -113,4 +113,127 @@ class NavAnnouncerTest {
         assertEquals("80 meters", spokenDistance(84.0))
         assertEquals("0 meters", spokenDistance(4.0))
     }
+
+    // ---- timed ladder and ", then" (#1012) --------------------------------
+
+    private fun progress(
+        distance: Double,
+        instruction: NavInstruction? = turn(),
+        following: NavInstruction? = null,
+        followingAt: Double? = null,
+    ) = NavEngine.Progress(
+        offRouteMeters = 0.0,
+        snappedAt = LatLon(0.0, 0.0),
+        segmentBearingDeg = null,
+        nextInstruction = instruction,
+        distanceToTurnMeters = distance,
+        remainingMeters = 10_000.0,
+        routeMeters = 20_000.0,
+        remainingTimeMs = null,
+        speedLimitKmh = null,
+        nextNextInstruction = following,
+        distanceToNextNextMeters = followingAt,
+    )
+
+    private fun assertLadder(expected: Ladder, actual: Ladder, at: String) {
+        assertEquals(expected.farMeters, actual.farMeters, 1e-9, "far at $at")
+        assertEquals(expected.nearMeters, actual.nearMeters, 1e-9, "near at $at")
+        assertEquals(expected.nowMeters, actual.nowMeters, 1e-9, "now at $at")
+    }
+
+    @Test
+    fun timedLadderFollowsSpeedBetweenItsFloorsAndCeiling() {
+        // Standing still: the floors, nothing added for speech.
+        assertLadder(Ladder(400.0, 150.0, 30.0), timedLadder(0.0), "0 m/s")
+        // 120 km/h ≈ 33.3 m/s: 25/10/3 s of travel plus 1.5 s of lead. The
+        // last prompt now lands ~4.5 s before the exit, not 2.4 s.
+        val v = 120.0 / 3.6
+        assertLadder(Ladder(26.5 * v, 11.5 * v, 4.5 * v), timedLadder(v), "120 km/h")
+        // 300 km/h: the far prompt stops at 2 km (plus lead).
+        val fast = 300.0 / 3.6
+        assertEquals(2000.0 + 1.5 * fast, timedLadder(fast).farMeters, 1e-9)
+    }
+
+    @Test
+    fun townSpeedNoLongerWarnsAMinuteAndAHalfAhead() {
+        val a = NavAnnouncer()
+        val v = 30.0 / 3.6
+        a.onProgress(progress(3000.0), v) // burns the start prompt
+        // 800 m used to fire here: 96 s out at 30 km/h.
+        assertNull(a.onProgress(progress(800.0), v))
+        assertEquals("In 400 meters, Turn right", a.onProgress(progress(400.0), v))
+        assertEquals("In 200 meters, Turn right", a.onProgress(progress(160.0), v))
+        assertNull(a.onProgress(progress(60.0), v))
+        assertEquals("Turn right", a.onProgress(progress(40.0), v))
+        assertNull(a.onProgress(progress(5.0), v))
+    }
+
+    @Test
+    fun motorwaySpeedWarnsEarlierAndCallsTheExitInTime() {
+        val a = NavAnnouncer()
+        val v = 120.0 / 3.6
+        a.onProgress(progress(5000.0), v)
+        assertEquals("In 900 meters, Turn right", a.onProgress(progress(880.0), v))
+        assertEquals("In 400 meters, Turn right", a.onProgress(progress(380.0), v))
+        // 80 m would be 2.4 s before the turn; the now prompt fires at ~150 m.
+        assertEquals("Turn right", a.onProgress(progress(140.0), v))
+    }
+
+    @Test
+    fun aCloseFollowingTurnIsChainedOnNearAndNowOnly() {
+        val a = NavAnnouncer()
+        val v = 30.0 / 3.6
+        val left = turn("Turn left onto Kerkstraat", startIndex = 5)
+        a.onProgress(progress(3000.0, following = left, followingAt = 3100.0), v)
+        // Far prompt: just this turn — the next one would be forgotten by then.
+        assertEquals(
+            "In 400 meters, Turn right",
+            a.onProgress(progress(400.0, following = left, followingAt = 500.0), v),
+        )
+        assertEquals(
+            "In 200 meters, Turn right, then turn left onto Kerkstraat",
+            a.onProgress(progress(160.0, following = left, followingAt = 260.0), v),
+        )
+        assertEquals(
+            "Turn right, then turn left onto Kerkstraat",
+            a.onProgress(progress(40.0, following = left, followingAt = 140.0), v),
+        )
+    }
+
+    @Test
+    fun aDistantFollowingTurnIsNotChained() {
+        val a = NavAnnouncer()
+        val v = 30.0 / 3.6
+        val left = turn("Turn left", startIndex = 5)
+        a.onProgress(progress(3000.0), v)
+        // 151 m apart at 30 km/h: past both the 150 m floor and 8 s (67 m).
+        assertEquals("Turn right", a.onProgress(progress(40.0, following = left, followingAt = 191.0), v))
+    }
+
+    @Test
+    fun theChainingGapScalesWithSpeed() {
+        val a = NavAnnouncer()
+        val v = 120.0 / 3.6 // 8 s ≈ 267 m
+        val left = turn("Keep left", startIndex = 5)
+        a.onProgress(progress(5000.0), v)
+        assertEquals(
+            "Turn right, then keep left",
+            a.onProgress(progress(140.0, following = left, followingAt = 400.0), v),
+        )
+    }
+
+    @Test
+    fun anUnusableSpeedCountsAsStandingStill() {
+        for (bad in listOf(-1.0, Double.NaN, Double.POSITIVE_INFINITY)) {
+            val a = NavAnnouncer()
+            a.onProgress(progress(3000.0), bad)
+            assertNull(a.onProgress(progress(401.0), bad), "speed $bad")
+            assertEquals("In 400 meters, Turn right", a.onProgress(progress(400.0), bad), "speed $bad")
+        }
+    }
+
+    @Test
+    fun noInstructionIsSilentOnTheTimedPathToo() {
+        assertNull(NavAnnouncer().onProgress(progress(100.0, instruction = null), 10.0))
+    }
 }
