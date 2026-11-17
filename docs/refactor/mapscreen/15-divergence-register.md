@@ -3053,8 +3053,10 @@ index), as #1004 asks.
 
 ```sh
 # Entry 38 — same-name results. A changed count means iOS stopped keying by name or Android lost the rule.
+# Both counts measured against 6bd2ee3. The Android one anchors on the merge, not the bare call:
+# the history icon in the same file calls isSamePlaceAs too.
 check 'Android merges by isSamePlaceAs' 1 \
-    "$(grep -c 'isSamePlaceAs(' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt)"
+    "$(grep -c 'merged.none { it.isSamePlaceAs(' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt)"
 check 'iOS still keys search rows by name' 1 \
     "$(grep -c 'ForEach(results, id: \\.name)' iosApp/Detour/MapScreen.swift)"
 ```
