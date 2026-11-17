@@ -10,7 +10,9 @@ import androidx.core.app.NotificationCompat
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.R
 import com.jellemax.detour.data.BadgeDef
+import com.jellemax.detour.data.NotificationKind
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.notif.Notifier
 import com.jellemax.detour.notif.TripEndedNotification
 
 /** Builds and posts [TripTrackingService]'s foreground notification and its
@@ -48,7 +50,7 @@ class TripNotifications(private val service: Service) {
             )
             .setAutoCancel(true)
             .build()
-        service.getSystemService(NotificationManager::class.java).notify(3, notification)
+        Notifier.post(service, NotificationKind.BADGES_EARNED, 3, notification)
     }
 
     /** Rebuilds and re-posts the foreground notification. [stats] and
@@ -56,8 +58,10 @@ class TripNotifications(private val service: Service) {
      *  is [TripTrackingService]'s private ACTION_END_TRIP, passed in rather than
      *  duplicated here. */
     fun update(stats: TripStats?, stationary: Boolean, endTripAction: String) {
-        service.getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, build(stats, stationary, endTripAction))
+        Notifier.post(
+            service, NotificationKind.TRIP_RECORDING, NOTIFICATION_ID,
+            build(stats, stationary, endTripAction),
+        )
     }
 
     fun build(stats: TripStats?, stationary: Boolean, endTripAction: String): Notification {

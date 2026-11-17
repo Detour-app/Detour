@@ -2709,6 +2709,37 @@ check 'iOS does not call mapScreenDimmed yet' 0 \
 
 ---
 
+## 37. The notifications master switch gates Android only
+
+**New with `#977`** — recorded because iOS is parked (owner decision 2026-10-27) and the gate is
+written for both.
+
+**What.** Settings → Displays & media → "Show notifications" (`Settings.notificationsEnabled`, on
+by default). Off, Android posts none of circle arrivals, ride reminders, trip-ended, badges, convoy
+alerts or update notices; the ongoing trip-recording and update-download notifications stay, and
+the push-less `CircleNotifyService` stands down.
+
+**Copies.** The rule is not duplicated: `NotificationKind` and `NotificationGate` are in
+`shared/…/data/NotificationGate.kt`, the setting in `shared/…/data/Settings.kt`. Android checks it
+once, in `app/…/notif/Notifier.kt`. iOS's `CircleNotifications.swift` posts circle arrivals without
+asking the gate, and has no row for the setting.
+
+**Verdict: survive — and iOS follows.** Not a product question: iOS should ask
+`NotificationGate.allows(NotificationKind.CIRCLE_PLACE)` before adding the request, behind the same
+setting.
+
+**Fence.**
+
+```sh
+# Entry 37 — notifications master switch. A changed count means iOS gained the gate or Android lost it.
+check 'Android asks NotificationGate' 1 \
+    "$(grep -c 'NotificationGate.allows(' app/src/main/java/com/jellemax/detour/notif/Notifier.kt)"
+check 'iOS does not ask NotificationGate yet' 0 \
+    "$(grep -rc 'NotificationGate' iosApp/Detour | awk -F: '{s+=$2} END {print s+0}')"
+```
+
+---
+
 ## §A — Summary, ranked by how user-visible the decision is
 
 **22 divergences.** By kind:
