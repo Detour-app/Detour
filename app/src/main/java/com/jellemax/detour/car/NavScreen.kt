@@ -141,6 +141,9 @@ class NavScreen(
     private var lastRerouteMs = 0L
     /** [NavPolicy.trackOffRoute]'s run of off-route fixes (#1008). */
     private var offRoute: NavPolicy.OffRouteStreak? = null
+    /** [NavPolicy.offRouteConfirmed] at the newest fix: what the trip card's
+     *  "Off route" shows, the same confirmation [NavPolicy.decide] reroutes on. */
+    private var offRouteShown = false
 
     /** True between [NavigationManager.navigationStarted] and its end. The
      *  manager throws on updateTrip/clearCallback in the wrong state, and the
@@ -300,6 +303,12 @@ class NavScreen(
         currentSpeedKmh = speedMps * 3.6
         val p = NavEngine.progress(route, pos) ?: return
         progress = p
+        // Drive clock: the reroute cooldown bounds how often a *drive* may
+        // reroute, so a 5x replay must not get five times the reroutes. Read
+        // before the redraw below, so the trip card's "Off route" is this fix's.
+        val now = clock.nowMs()
+        offRoute = NavPolicy.trackOffRoute(offRoute, p.offRouteMeters, accuracyMeters, fixElapsedMs, now)
+        offRouteShown = NavPolicy.offRouteConfirmed(offRoute, now)
 
         renderer.follow(
             pos, bearingDeg, speedMps,
@@ -343,10 +352,6 @@ class NavScreen(
         // Arrival and reroute are NavPolicy's call, shared with MapScreen.kt's
         // navigating LaunchedEffect. `arrived` stays here: it is this screen's
         // own once-only latch on popping itself, not part of the policy.
-        // Drive clock: the reroute cooldown bounds how often a *drive* may
-        // reroute, so a 5x replay must not get five times the reroutes.
-        val now = clock.nowMs()
-        offRoute = NavPolicy.trackOffRoute(offRoute, p.offRouteMeters, accuracyMeters, fixElapsedMs, now)
         when (NavPolicy.decide(
             progress = p,
             hasDestination = true, // a constructor parameter on this screen
@@ -528,7 +533,7 @@ class NavScreen(
             // Part of the key, not just of the template: leaving the route has
             // to redraw even when nothing else moved, and a car stopped just
             // off the line moves none of the five values above.
-            append(offRoute(p))
+            append(offRouteShown)
         }
         if (key == templateKey) return
         templateKey = key
@@ -628,7 +633,7 @@ class NavScreen(
             travelEstimate(
                 p.remainingMeters,
                 remainingSeconds(p.withTrafficDelay(traffic)),
-                offRoute = offRoute(p),
+                offRoute = offRouteShown,
                 trafficText = trafficText(),
             ))
         return builder.build()
@@ -669,15 +674,6 @@ class NavScreen(
 
     private fun destinationLabel(): String =
         destinationName?.takeIf { it.isNotBlank() } ?: carContext.getString(R.string.car_nav_destination)
-
-    /** Off the drawn line far enough that [NavPolicy] would ask for a fresh
-     *  route. The same bound the phone's nav bar reads
-     *  (`ui/MapScreen.kt:1426-1427`) and the same one [NavPolicy.decide]
-     *  reroutes on, so what the driver is told cannot disagree with what the
-     *  policy decided. Entry 8 of the divergence register is precisely that
-     *  this bound is named once. */
-    private fun offRoute(p: NavEngine.Progress): Boolean =
-        p.offRouteMeters > NavPolicy.OFF_ROUTE_METERS
 
     private fun remainingSeconds(p: NavEngine.Progress): Long =
         ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
