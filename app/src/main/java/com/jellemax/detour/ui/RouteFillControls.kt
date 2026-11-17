@@ -31,7 +31,10 @@ import com.jellemax.detour.data.RouteFill
  * row's own screen state, since nothing else reads them. The fill itself (the
  * routing calls and what they write) stays with the editor, which owns the
  * stops being filled. [onClearFill] is null when the route has no fill to
- * remove, which is also what hides that button.
+ * remove, which is also what hides that button. [error] is validation only —
+ * the chosen time is shorter than the rider's own stops — so it sits under the
+ * slider that caused it; a fill that failed to route goes to the app snackbar
+ * (§5.4).
  */
 @Composable
 internal fun RouteFillControls(
@@ -84,6 +87,7 @@ internal fun RouteFillControls(
                 }
             }
         }
+        // inline: validation of the chosen minutes (§5.4).
         error?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }

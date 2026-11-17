@@ -46,12 +46,16 @@ import kotlinx.coroutines.withContext
  * [seedLoopNavigation], then [onRide] opens the map.
  *
  * Screen-lifetime: the pending choice is the Routes screen's, not the map's.
+ *
+ * [onStatus] gets progress ("routing…") and null once it is over; [onError] gets a failure, and
+ * defaults to [onStatus] for a caller that shows both on one line.
  */
 internal class SavedLoopRide(
     private val context: Context,
     private val scope: CoroutineScope,
     private val onStatus: (String?) -> Unit,
     private val onRide: () -> Unit,
+    private val onError: (String) -> Unit = onStatus,
 ) {
     /** A loop and where the rider is, while they choose how to join it. */
     var joining: Pair<SavedRoute, LatLon>? by mutableStateOf(null)
@@ -65,7 +69,10 @@ internal class SavedLoopRide(
                 null
             }
             when {
-                here == null -> onStatus(context.getString(R.string.map_no_location))
+                here == null -> {
+                    onStatus(null)
+                    onError(context.getString(R.string.map_no_location))
+                }
                 SavedSpins.atStart(route, here, NavPolicy.ARRIVE_METERS) -> ride(route, route.stops.map { it.at })
                 else -> {
                     onStatus(null)
@@ -95,18 +102,24 @@ internal class SavedLoopRide(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            onStatus(failureText("Routing", e))
+            onStatus(null)
+            onError(failureText("Routing", e))
         }
     }
 }
 
 @Composable
-internal fun rememberSavedLoopRide(onStatus: (String?) -> Unit, onRide: () -> Unit): SavedLoopRide {
+internal fun rememberSavedLoopRide(
+    onStatus: (String?) -> Unit,
+    onRide: () -> Unit,
+    onError: (String) -> Unit,
+): SavedLoopRide {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val status by rememberUpdatedState(onStatus)
     val ride by rememberUpdatedState(onRide)
-    return remember { SavedLoopRide(context, scope, { status(it) }, { ride() }) }
+    val error by rememberUpdatedState(onError)
+    return remember { SavedLoopRide(context, scope, { status(it) }, { ride() }, { error(it) }) }
 }
 
 /** The "how do you want to join this loop?" choice, while [ride] waits on one. */

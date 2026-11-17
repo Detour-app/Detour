@@ -116,6 +116,7 @@ fun MonthWrappedDialog(wrapped: MonthWrapped, onDismiss: () -> Unit) {
                     Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.history_close))
                 }
                 WrappedCard(wrapped, layer)
+                // inline: inside a Dialog, where the app snackbar would draw under it (§5.4).
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Button(onClick = { share() }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Share, contentDescription = null, Modifier.size(18.dp))

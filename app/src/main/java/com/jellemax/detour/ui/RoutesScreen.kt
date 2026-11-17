@@ -88,6 +88,7 @@ import com.jellemax.detour.presentation.gmapsTravelMode
 import com.jellemax.detour.presentation.routeOpensExternally
 import com.jellemax.detour.presentation.routesStateFrom
 import com.jellemax.detour.presentation.thumbnailPoints
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -109,8 +110,7 @@ private fun shareRouteGpxIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).a
  * route rather than a loop back to the start.
  *
  * Returns an error message on failure (no app to open the link), null on
- * success, so the caller can surface it the same way every other action here
- * reports through `status`.
+ * success, for the caller to show as an error (§5.4).
  */
 private fun navigateStopsExternally(context: Context, stops: List<RouteStop>, mode: TravelMode): String? {
     val origin = stops.first().at
@@ -135,8 +135,8 @@ private fun navigateStopsExternally(context: Context, stops: List<RouteStop>, mo
 
 /**
  * Rides a saved route the way Routes' action pill does; a planned ride's Start (#758) rides its
- * route the same way. [onRide] opens the map once the route is on it; [onStatus] gets anything
- * the rider should read instead. [serverUsable] is whether a routing server can ride it in-app.
+ * route the same way. [onRide] opens the map once the route is on it; [onStatus] gets a failure
+ * the rider should read instead, or null. [serverUsable] is whether a routing server can ride it in-app.
  */
 internal fun rideSavedRoute(
     context: Context,
@@ -207,7 +207,9 @@ fun RoutesScreen(
     var sharingTo by remember { mutableStateOf<SavedRoute?>(null) }
     var menuOpenFor by remember { mutableStateOf<Long?>(null) }
     var refreshing by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf<String?>(null) }
+    // Every outcome below goes to the app snackbar (§5.4): a success with news
+    // as a notice, a failure as an error.
+    val messages = LocalAppMessages.current
 
     var exportTarget by remember { mutableStateOf<SavedRoute?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
@@ -220,11 +222,13 @@ fun RoutesScreen(
         // trackpoints; off the main thread the same way refresh() below does
         // its network + store work, so writing one doesn't jank a frame.
         scope.launch {
-            status = try {
+            try {
                 withContext(Dispatchers.IO) { RouteFiles.export(context, uri, target) }
-                context.getString(R.string.routes_exported, target.name)
+                messages.showNotice(context.getString(R.string.routes_exported, target.name))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                fileFailureText("Export", e)
+                messages.showError(fileFailureText("Export", e))
             }
         }
     }
@@ -236,52 +240,77 @@ fun RoutesScreen(
         // fine for the small ConfigFile.kt does this pattern for, not fine for
         // a multi-thousand-point track on the main thread.
         scope.launch {
-            status = try {
+            try {
                 val imported = withContext(Dispatchers.IO) { RouteFiles.import(context, uri) }
-                if (imported != null) context.getString(R.string.routes_imported, imported.name)
-                else context.getString(R.string.routes_import_unreadable)
+                if (imported != null) messages.showNotice(context.getString(R.string.routes_imported, imported.name))
+                else messages.showError(context.getString(R.string.routes_import_unreadable))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                fileFailureText("Import", e)
+                messages.showError(fileFailureText("Import", e))
             }
         }
     }
 
-    val loopRide = rememberSavedLoopRide(onStatus = { status = it }, onRide = onNavigate)
+    // A loop's "routing…" is news while the rider waits; its failure is an
+    // error. No Retry on either: a re-run would launch on this screen's scope.
+    val loopRide = rememberSavedLoopRide(
+        onStatus = { it?.let(messages::showNotice) },
+        onRide = onNavigate,
+        onError = messages::showError,
+    )
 
     fun navigate(route: SavedRoute) =
-        rideSavedRoute(context, route, loopRide, serverUsable, onStatus = { status = it }, onNavigate)
+        rideSavedRoute(context, route, loopRide, serverUsable, onStatus = { it?.let(messages::showError) }, onNavigate)
 
     fun shareFile(route: SavedRoute) {
-        status = try {
+        try {
             val uri = RouteFiles.writeForShare(context, route)
             context.startActivity(
                 Intent.createChooser(shareRouteGpxIntent(uri), context.getString(R.string.routes_share_route)),
             )
-            null
         } catch (e: ActivityNotFoundException) {
-            context.getString(R.string.routes_no_gpx_app)
+            messages.showError(context.getString(R.string.routes_no_gpx_app))
         } catch (e: Exception) {
             // A write to our own cache (or FileProvider refusing the path), not
             // a picked file — e.message would only hand the rider a path.
-            context.getString(R.string.routes_share_failed)
+            messages.showError(context.getString(R.string.routes_share_failed))
         }
     }
 
-    fun refresh() {
+    // The pull itself, `suspend` so a Retry runs it in the app's scope (§5.4):
+    // the screen may be gone by then, and only its `refreshing` write lands on
+    // nobody — the pulled routes still reach RouteStore.
+    suspend fun pull() {
         refreshing = true
-        status = null
-        scope.launch {
-            status = try {
-                // Saving locally, minting a fresh id per route and draining the
-                // server-side inbox all happen in RouteShare.pullInbox() now —
-                // shared with iOS instead of each platform growing its own copy.
-                val pulled = withContext(Dispatchers.IO) { RouteShare.pullInbox() }
+        try {
+            // Saving locally, minting a fresh id per route and draining the
+            // server-side inbox all happen in RouteShare.pullInbox() now —
+            // shared with iOS instead of each platform growing its own copy.
+            val pulled = withContext(Dispatchers.IO) { RouteShare.pullInbox() }
+            messages.showNotice(
                 if (pulled == 0) context.getString(R.string.routes_pulled_none)
-                else context.resources.getQuantityString(R.plurals.routes_pulled, pulled, pulled)
-            } catch (e: Exception) {
-                failureText("Refresh", e)
-            }
+                else context.resources.getQuantityString(R.plurals.routes_pulled, pulled, pulled),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            messages.showError(failureText("Refresh", e)) { pull() }
+        } finally {
             refreshing = false
+        }
+    }
+
+    // Retry re-sends the same route: safe, a send (§5.4). Suspend for the same
+    // reason as pull().
+    suspend fun send(route: SavedRoute, username: String) {
+        try {
+            withContext(Dispatchers.IO) { RouteShare.share(username, route) }
+            messages.showNotice(context.getString(R.string.routes_sent, route.name, username))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            messages.showError(failureText("Send", e)) { send(route, username) }
         }
     }
 
@@ -297,17 +326,14 @@ fun RoutesScreen(
                 }
                 IconButton(
                     enabled = !refreshing,
-                    onClick = { refresh() },
+                    onClick = { scope.launch { pull() } },
                     modifier = Modifier.padding(end = 8.dp),
                 ) {
                     if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.routes_pull))
                 }
                 IconButton(
-                    onClick = {
-                        status = null
-                        importLauncher.launch(RouteFiles.IMPORT_MIME_TYPES)
-                    },
+                    onClick = { importLauncher.launch(RouteFiles.IMPORT_MIME_TYPES) },
                     modifier = Modifier.padding(end = 8.dp),
                 ) {
                     Box(
@@ -356,27 +382,9 @@ fun RoutesScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                // A first pull or import lands here while the list is still empty.
-                status?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(padding)) {
-                status?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth()
-                            .padding(start = 16.dp, end = 16.dp, top = 12.dp),
-                    )
-                }
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
@@ -428,12 +436,7 @@ fun RoutesScreen(
             onDismiss = { sharingTo = null },
             onShare = { username ->
                 scope.launch {
-                    status = try {
-                        withContext(Dispatchers.IO) { RouteShare.share(username, route) }
-                        context.getString(R.string.routes_sent, route.name, username)
-                    } catch (e: Exception) {
-                        failureText("Send", e)
-                    }
+                    send(route, username)
                     sharingTo = null
                 }
             },
