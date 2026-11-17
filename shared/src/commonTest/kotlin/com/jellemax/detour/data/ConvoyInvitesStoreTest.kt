@@ -54,11 +54,12 @@ class ConvoyInvitesStoreTest {
 
     @Test
     fun openingAnotherConvoyDropsTheGuestsButKeepsEveryMintedLink() {
-        val opened = state(ConvoyGuests(link.expiresAtMs, listOf(guest))).copy(error = "x").opened("c2")
+        val opened = state(ConvoyGuests(link.expiresAtMs, listOf(guest))).copy(loadError = "x", actionError = "y").opened("c2")
 
         assertEquals("c2", opened.convoyId)
         assertNull(opened.guests)
-        assertNull(opened.error)
+        assertNull(opened.loadError)
+        assertNull(opened.actionError)
         assertEquals(mapOf("c1" to link), opened.minted)
     }
 
@@ -106,7 +107,7 @@ class ConvoyInvitesStoreTest {
             sameSession = false,
             convoyId = "c1",
             change = { it.copy(minted = it.minted + ("c1" to link)) },
-            answer = { it.copy(error = "boom") },
+            answer = { it.copy(actionError = "boom") },
         )
 
         assertSame(cleared, committed)
@@ -128,5 +129,19 @@ class ConvoyInvitesStoreTest {
         assertFalse(ownerless.isOwnedBy(RiderId("")))
         assertFalse(ownerless.copy(ownerId = RiderId("")).isOwnedBy(RiderId("")))
         assertFalse(ownerless.isOwnedBy(RiderId("h1")))
+    }
+
+    @Test
+    fun aFailureInTheActionIsTheActionsAndOneInTheReReadIsTheLists() {
+        val busy = state(guests = null).copy(busy = true)
+
+        val byAction = guestsFailed("refused", byAction = true)(busy)
+        assertEquals("refused", byAction.actionError)
+        assertNull(byAction.loadError)
+        assertFalse(byAction.busy)
+
+        val byLoad = guestsFailed("offline", byAction = false)(busy)
+        assertEquals("offline", byLoad.loadError)
+        assertNull(byLoad.actionError)
     }
 }

@@ -51,6 +51,7 @@ import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.presentation.PLANNED_DESCRIPTION_MAX_CHARS
 import com.jellemax.detour.presentation.PLANNED_TITLE_MAX_CHARS
 import com.jellemax.detour.presentation.PlannedRideForm
@@ -109,7 +110,7 @@ fun PlannedRideEditorScreen(rideId: String?, onBack: () -> Unit, onFinish: () ->
         } else {
             Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 PlannedRideFields(current, enabled = !saving, onChange = { form = it })
-                state.error?.let {
+                state.inlineError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
                 SaveButton(current, saving = saving, busy = state.busy) { draft ->

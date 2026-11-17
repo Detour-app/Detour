@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import io.ktor.client.network.sockets.SocketTimeoutException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -279,10 +280,11 @@ class PlannedRidesTest {
 
     @Test
     fun aLoadClearsBusyAndErrorAndStampsTheTime() {
-        val s = PlannedRidesState(error = "old").starting().loaded(listOf(ride()), nowMs = 1_000L)
+        val s = PlannedRidesState(loadError = "old", actionError = "older").starting().loaded(listOf(ride()), nowMs = 1_000L)
 
         assertFalse(s.busy)
-        assertNull(s.error)
+        assertNull(s.loadError)
+        assertNull(s.actionError)
         assertEquals(1_000L, s.loadedAtMs)
         assertEquals(1, s.rides?.size)
     }
@@ -291,17 +293,29 @@ class PlannedRidesTest {
     fun aFailedRefreshKeepsTheRidesAlreadyShownAndDoesNotStamp() {
         val loaded = PlannedRidesState().loaded(listOf(ride()), nowMs = 1_000L)
 
-        val failed = loaded.starting().failed(Exception("timeout"))
+        val failed = loaded.starting().failed(networkFailure(SocketTimeoutException("read timed out")))
 
         assertEquals(loaded.rides, failed.rides)
-        assertEquals("timeout", failed.error)
+        assertEquals("The server took too long to answer — try again", failed.loadError)
+        assertNull(failed.actionError)
         assertEquals(1_000L, failed.loadedAtMs)
         assertFalse(failed.busy)
     }
 
     @Test
     fun aFailureWithoutAMessageFallsBackToAReadableOne() {
-        assertEquals(PlannedRidesStore.FALLBACK_ERROR, PlannedRidesState().failed(Exception()).error)
+        assertEquals("The contents were not what this app expected.", PlannedRidesState().failed(Exception()).loadError)
+    }
+
+    @Test
+    fun aFailedActionSetsActionErrorAndClearingItLeavesTheLoadError() {
+        val loaded = PlannedRidesState(rides = listOf(ride()), loadError = "list stale")
+        val failed = loaded.actionStarting().actionFailed(HttpStatusException(409, "", "HTTP 409", "That ride already started"))
+
+        assertEquals("That ride already started", failed.actionError)
+        assertEquals("list stale", failed.loadError)
+        assertEquals(loaded.rides, failed.rides)
+        assertFalse(failed.busy)
     }
 
     @Test
@@ -315,7 +329,7 @@ class PlannedRidesTest {
 
     @Test
     fun clearingDropsEveryField() {
-        val s = PlannedRidesState(listOf(ride()), busy = true, error = "x", loadedAtMs = 1L)
+        val s = PlannedRidesState(listOf(ride()), busy = true, loadError = "x", actionError = "y", loadedAtMs = 1L)
 
         assertEquals(PlannedRidesState(), s.cleared())
     }

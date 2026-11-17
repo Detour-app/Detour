@@ -7,6 +7,9 @@ import com.jellemax.detour.data.NoRouteException
 import com.jellemax.detour.data.NoRoutingServerException
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.SpinFailure
+import com.jellemax.detour.data.TokenRefusedException
+import com.jellemax.detour.data.networkFailure
+import io.ktor.client.network.sockets.SocketTimeoutException
 import okio.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -93,6 +96,26 @@ class ServersSyncStateTest {
             assertTrue(text.startsWith("Sync failed: "), text)
             assertFalse(text.contains(e.message.orEmpty()), "leaked the exception text: $text")
         }
+    }
+
+    @Test
+    fun `a network failure is not read as a file that could not be opened`() {
+        assertEquals(
+            "Sync failed: the server could not be reached. Check your connection and try again.",
+            failureText("Sync", networkFailure(IOException("Unable to resolve host nas.local"))),
+        )
+        assertEquals(
+            "Sync failed: the server took too long to answer. Try again.",
+            failureText("Sync", networkFailure(SocketTimeoutException("read timed out"))),
+        )
+    }
+
+    @Test
+    fun `a refused token keeps its AUTH-401 code in the sync line`() {
+        assertEquals(
+            "Sync failed: the server refused the sign-in [AUTH-401-REFUSED].",
+            failureText("Sync", TokenRefusedException("HTTP 401", "AUTH-401-REFUSED")),
+        )
     }
 
     @Test

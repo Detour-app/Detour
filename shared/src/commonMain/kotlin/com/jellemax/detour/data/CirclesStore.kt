@@ -10,9 +10,9 @@ import kotlinx.coroutines.flow.update
  * Everything the Circles screen and its detail pane show: the list plus the
  * one circle currently open in it.
  *
- * Two independent busy/error pairs, not one. [busy]/[error] cover list
- * operations — create, invite, respond, leave, toggle sharing.
- * [detailBusy]/[detailError] cover the detail pane — opening a circle,
+ * Two independent busy/error sets, not one. [busy]/[loadError]/[actionError]
+ * cover the list — its load, and create, invite, respond, leave, toggle sharing.
+ * [detailBusy]/[detailLoadError]/[detailActionError] cover the detail pane — opening a circle,
  * refreshing it, sharing or unsharing a place. They used to be one pair,
  * which meant merely opening a circle disabled Invite/Leave/sharing while
  * its detail loaded, and a list mutation's failure could show twice (once
@@ -39,9 +39,17 @@ data class CirclesState(
     val places: List<CirclePlace> = emptyList(),
     val events: List<PlaceEvent> = emptyList(),
     val busy: Boolean = false,
-    val error: String? = null,
+    /** Why the circle list could not be read. Cleared when the next load starts. */
+    val loadError: String? = null,
+    /** Why the last list action failed. One-shot: a screen shows it once, then calls
+     *  [CirclesStore.clearActionError]. */
+    val actionError: String? = null,
     val detailBusy: Boolean = false,
-    val detailError: String? = null,
+    /** Why the open circle's places/events could not be read. */
+    val detailLoadError: String? = null,
+    /** Why the last share/unshare failed. One-shot, like [actionError]; cleared by
+     *  [CirclesStore.clearDetailActionError]. */
+    val detailActionError: String? = null,
     /** When the server last answered. Drives [isStale], so re-entering a
      *  screen seconds later shows what it showed instead of re-fetching.
      *  Null until a load has actually succeeded — a failure must not stamp,
@@ -64,8 +72,6 @@ data class CirclesState(
  * must never become an error banner.
  */
 object CirclesStore {
-
-    internal const val FALLBACK_ERROR = "Could not reach the server"
 
     private val _state = MutableStateFlow(CirclesState())
     val state: StateFlow<CirclesState> = _state.asStateFlow()
@@ -166,25 +172,35 @@ object CirclesStore {
         _state.update { it.selecting(groupId) }
     }
 
-    /** True on success; false leaves the failure in [state]'s `error`. */
+    /** Drops [CirclesState.actionError] once a screen has shown it. */
+    fun clearActionError() {
+        _state.update { it.copy(actionError = null) }
+    }
+
+    /** Drops [CirclesState.detailActionError] once a screen has shown it. */
+    fun clearDetailActionError() {
+        _state.update { it.copy(detailActionError = null) }
+    }
+
+    /** True on success; false leaves the failure in [state]'s `actionError`. */
     @Throws(Exception::class)
     suspend fun create(name: String): Boolean =
         act { Groups.create(KIND, name) } != null
 
     /** Returns the resulting status, e.g. "invited" — or null if the invite
-     *  failed, with the failure left in [state]'s `error`. Only accepted
+     *  failed, with the failure left in [state]'s `actionError`. Only accepted
      *  friends can be invited; the server enforces that and this surfaces
      *  its refusal. */
     @Throws(Exception::class)
     suspend fun invite(groupId: String, username: String): String? =
         act { Groups.invite(groupId, username) }
 
-    /** True on success; false leaves the failure in [state]'s `error`. */
+    /** True on success; false leaves the failure in [state]'s `actionError`. */
     @Throws(Exception::class)
     suspend fun respond(groupId: String, accept: Boolean): Boolean =
         act { Groups.respond(groupId, accept) } != null
 
-    /** True on success; false leaves the failure in [state]'s `error`. A
+    /** True on success; false leaves the failure in [state]'s `actionError`. A
      *  circle left successfully drops out of the reloaded list, which is
      *  what clears [CirclesState.selectedId] if it was the one open — see
      *  [loaded]. */
@@ -192,12 +208,12 @@ object CirclesStore {
     suspend fun leave(groupId: String): Boolean =
         act { Groups.leave(groupId) } != null
 
-    /** True on success; false leaves the failure in [state]'s `error`. */
+    /** True on success; false leaves the failure in [state]'s `actionError`. */
     @Throws(Exception::class)
     suspend fun setSharing(groupId: String, sharing: Boolean): Boolean =
         act { Groups.setSharing(groupId, sharing) } != null
 
-    /** True on success; false leaves the failure in [state]'s `detailError`.
+    /** True on success; false leaves the failure in [state]'s `detailActionError`.
      *  Reloads the open circle's detail afterwards, same as [unsharePlace]. */
     @Throws(Exception::class)
     suspend fun sharePlace(groupId: String, place: SavedPlace, radiusM: Double): Boolean =
@@ -206,7 +222,7 @@ object CirclesStore {
     /** Removes a shared place by its own server identifier — [CirclePlace.serverId],
      *  not the circle it was shared into, because that is what
      *  [CirclePlaces.delete] takes. True on success; false leaves the failure
-     *  in [state]'s `detailError`. */
+     *  in [state]'s `detailActionError`. */
     @Throws(Exception::class)
     suspend fun unsharePlace(serverId: String): Boolean =
         actDetail { CirclePlaces.delete(serverId) } != null
@@ -214,8 +230,8 @@ object CirclesStore {
     /** Loads [CirclesState.places] and [CirclesState.events] for [groupId],
      *  newest event first — the order both platforms' screens already show
      *  them in. Busy and failure go through [CirclesState.detailBusy]/
-     *  [CirclesState.detailError], not the list's [CirclesState.busy]/
-     *  [CirclesState.error] — so opening a circle or refreshing its detail
+     *  [CirclesState.detailLoadError], not the list's [CirclesState.busy]/
+     *  [CirclesState.loadError] — so opening a circle or refreshing its detail
      *  never disables Invite, Leave or the sharing switch, which read the
      *  list pair. */
     private suspend fun loadDetail(groupId: String) {
@@ -292,20 +308,20 @@ object CirclesStore {
 
     /** Runs a circle-list mutation, then reloads the whole list — same
      *  shape as [FriendsStore]'s private `act`, see its doc for why an
-     *  ordinary failure is reported through `state.error` and returned as
+     *  ordinary failure is reported through `state.actionError` and returned as
      *  null rather than thrown. */
     private suspend fun <T> act(block: suspend () -> T): T? {
         // Epoch-guarded like [reload]'s commit: a mutation failing after the
         // rider signed out must not write its banner onto the next rider's
         // freshly reset store. See FriendsStore.act for the full reasoning.
         val epoch = Auth.sessionEpoch.value
-        _state.update { it.starting() }
+        _state.update { it.actionStarting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.failed(e)) }
+            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.actionFailed(e)) }
             return null
         }
         reload()
@@ -316,20 +332,20 @@ object CirclesStore {
      *  circle's places/events afterwards instead of the circle list, since
      *  that is the only part a place share or removal can have changed.
      *  Busy and failure go through [CirclesState.detailBusy]/
-     *  [CirclesState.detailError] rather than [act]'s list pair, for the
+     *  [CirclesState.detailActionError] rather than [act]'s list fields, for the
      *  same reason [loadDetail] does. A null [CirclesState.selectedId]
      *  (nothing open any more) just skips the reload — clearing
      *  [CirclesState.detailBusy] instead of leaving it stuck, since nothing
      *  else will. */
     private suspend fun <T> actDetail(block: suspend () -> T): T? {
         val epoch = Auth.sessionEpoch.value
-        _state.update { it.detailStarting() }
+        _state.update { it.detailActionStarting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.detailFailed(e)) }
+            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.detailActionFailed(e)) }
             return null
         }
         val selectedId = _state.value.selectedId
@@ -368,17 +384,32 @@ internal fun CirclesState.commitIfCurrent(epoch: Int, currentEpoch: Int, result:
  *  asserted directly — see [FriendsState.cleared]'s doc for why. */
 internal fun CirclesState.cleared() = CirclesState()
 
-internal fun CirclesState.starting() = copy(busy = true, error = null)
+/**
+ * Both kinds of error, the action's first, for a screen that still shows them in one inline
+ * line as it did when they shared a field. Goes when the screens move each kind to its own
+ * place (#212's migration issues).
+ */
+val CirclesState.inlineError: String? get() = actionError ?: loadError
 
-/** Same as [starting], for the detail pair — kept separate so a detail
+/** [inlineError] for the detail pane. */
+val CirclesState.detailInlineError: String? get() = detailActionError ?: detailLoadError
+
+/** A load supersedes an action error nobody cleared, as it did when both shared one field. */
+internal fun CirclesState.starting() = copy(busy = true, loadError = null, actionError = null)
+
+internal fun CirclesState.actionStarting() = copy(busy = true, actionError = null)
+
+/** Same as [starting], for the detail fields — kept separate so a detail
  *  load or mutation never disables the list-scoped controls (Invite,
  *  Leave, the sharing switch) that read [CirclesState.busy]. */
-internal fun CirclesState.detailStarting() = copy(detailBusy = true, detailError = null)
+internal fun CirclesState.detailStarting() = copy(detailBusy = true, detailLoadError = null, detailActionError = null)
+
+internal fun CirclesState.detailActionStarting() = copy(detailBusy = true, detailActionError = null)
 
 /** Clears [CirclesState.detailBusy] with nothing else to show for it — the
  *  no-op end of a detail action that found no circle open to reload, or a
  *  detail load cancelled before it reached [commitIfViewing]. Neither is a
- *  failure, so [CirclesState.detailError] is left alone; there is just a
+ *  failure, so the detail errors are left alone; there is just a
  *  spinner that must stop. */
 internal fun CirclesState.detailIdle() = copy(detailBusy = false)
 
@@ -390,16 +421,20 @@ internal fun CirclesState.loaded(circles: List<Group>, nowMs: Long) = copy(
     circles = circles,
     selectedId = selectedId?.takeIf { id -> circles.any { it.id == id } },
     busy = false,
-    error = null,
+    loadError = null,
     loadedAtMs = nowMs,
 )
 
-internal fun CirclesState.failed(e: Exception) =
-    copy(busy = false, error = e.message?.ifBlank { null } ?: CirclesStore.FALLBACK_ERROR)
+internal fun CirclesState.failed(e: Exception) = copy(busy = false, loadError = failureSentence(e))
 
-/** Same as [failed], for the detail pair. */
+internal fun CirclesState.actionFailed(e: Exception) = copy(busy = false, actionError = failureSentence(e))
+
+/** Same as [failed], for the detail fields. */
 internal fun CirclesState.detailFailed(e: Exception) =
-    copy(detailBusy = false, detailError = e.message?.ifBlank { null } ?: CirclesStore.FALLBACK_ERROR)
+    copy(detailBusy = false, detailLoadError = failureSentence(e))
+
+internal fun CirclesState.detailActionFailed(e: Exception) =
+    copy(detailBusy = false, detailActionError = failureSentence(e))
 
 /** Opens (or closes, for null) [groupId]'s detail pane. Clears
  *  [CirclesState.places] and [CirclesState.events] on an actual change of
@@ -408,12 +443,17 @@ internal fun CirclesState.detailFailed(e: Exception) =
  *  else's addresses under the wrong heading. Leaves them untouched on a
  *  reselect of the *same* circle, which is what a refresh does, so a
  *  refresh keeps showing the stale detail instead of flashing the empty
- *  state while it refetches. Either way only [CirclesState.detailError] is
- *  cleared — the list's own [CirclesState.error] is not this transition's
- *  business. */
+ *  state while it refetches. Either way only the detail errors are
+ *  cleared — the list's own are not this transition's business. */
 internal fun CirclesState.selecting(groupId: String?): CirclesState =
-    if (groupId == selectedId) copy(selectedId = groupId, detailError = null)
-    else copy(selectedId = groupId, places = emptyList(), events = emptyList(), detailError = null)
+    if (groupId == selectedId) copy(selectedId = groupId, detailLoadError = null, detailActionError = null)
+    else copy(
+        selectedId = groupId,
+        places = emptyList(),
+        events = emptyList(),
+        detailLoadError = null,
+        detailActionError = null,
+    )
 
 internal fun CirclesState.detailLoaded(places: List<CirclePlace>, events: List<PlaceEvent>) =
-    copy(places = places, events = events, detailBusy = false, detailError = null)
+    copy(places = places, events = events, detailBusy = false, detailLoadError = null)
