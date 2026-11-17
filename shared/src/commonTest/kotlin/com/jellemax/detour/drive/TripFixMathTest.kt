@@ -12,19 +12,27 @@ import kotlin.test.assertTrue
  * failure mode that only shows up in the field (a tunnel, a parking garage, a
  * BT dropout), which is exactly the kind that needs pinning here.
  *
- * The thresholds below are this test's *own* copies of the service's values,
- * deliberately re-declared rather than defaulted inside [TripFixMath]: a
- * default in production code that happens to equal the app's constant is how
- * two thresholds silently drift apart.
+ * The thresholds below are this test's *own* copies of [TripFixMath]'s named
+ * constants, which both the Android service and the iOS recorder pass in;
+ * [sharedThresholdsAreTheValuesBothRecordersWereTunedTo] pins the two together,
+ * so moving an odometer threshold is a deliberate edit in two places.
  */
 class TripFixMathTest {
 
     private val t0 = 1_700_000_000_000L
 
-    // Mirrors the literals in onTripLocation's distance gate.
+    // Mirrors TripFixMath's distance-gate constants (pinned below).
     private val maxAccuracyM = 50f
     private val minGapMs = 1L
     private val maxGapMs = 15_000L
+
+    @Test
+    fun sharedThresholdsAreTheValuesBothRecordersWereTunedTo() {
+        assertEquals(maxAccuracyM, TripFixMath.MAX_DISTANCE_ACCURACY_M)
+        assertEquals(50f, TripFixMath.MAX_TRACE_ACCURACY_M)
+        assertEquals(minGapMs, TripFixMath.MIN_FIX_GAP_MS)
+        assertEquals(maxGapMs, TripFixMath.MAX_FIX_GAP_MS)
+    }
 
     // ---- distanceHopMeters -------------------------------------------------
 
