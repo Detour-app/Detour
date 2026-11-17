@@ -20,7 +20,12 @@ data class ConvoyInvitesState(
      */
     val minted: Map<String, ConvoyInvite> = emptyMap(),
     val busy: Boolean = false,
-    val error: String? = null,
+    /** Why the guest list could not be read. Cleared when [ConvoyInvitesStore.open] starts
+     *  again or a read lands. */
+    val loadError: String? = null,
+    /** Why the last mint/revoke/remove failed. One-shot: a screen shows it once, then calls
+     *  [ConvoyInvitesStore.clearActionError]. */
+    val actionError: String? = null,
 )
 
 /**
@@ -29,12 +34,11 @@ data class ConvoyInvitesState(
  * sheet that shows them.
  *
  * Same contract as [ConvoysStore]: actions are `suspend` with the caller's scope, an ordinary
- * failure lands in [ConvoyInvitesState.error] instead of throwing, every mutation re-reads the
- * guest list rather than patching it, and a commit started under another session is dropped.
+ * failure lands in [ConvoyInvitesState.loadError] or [ConvoyInvitesState.actionError] instead of
+ * throwing, every mutation re-reads the guest list rather than patching it, and a commit started
+ * under another session is dropped.
  */
 object ConvoyInvitesStore {
-
-    internal const val FALLBACK_ERROR = "Could not reach the server"
 
     private val _state = MutableStateFlow(ConvoyInvitesState())
     val state: StateFlow<ConvoyInvitesState> = _state.asStateFlow()
@@ -49,7 +53,12 @@ object ConvoyInvitesStore {
     @Throws(Exception::class)
     suspend fun open(convoyId: String) {
         _state.update { it.opened(convoyId) }
-        act(convoyId) { noChange }
+        act(convoyId, load = true) { noChange }
+    }
+
+    /** Drops [ConvoyInvitesState.actionError] once a screen has shown it. */
+    fun clearActionError() {
+        _state.update { it.actionCleared() }
     }
 
     /** Mints a link for the open convoy. The server revokes any earlier one, so a link shared
@@ -90,21 +99,32 @@ object ConvoyInvitesStore {
      * token would leave the host nothing to share. The guest list and error commit only while
      * [convoyId] is still the one open, and nothing commits once the session has changed — a
      * token minted before a sign-out is not the next rider's.
+     *
+     * A failure in [block] is the action's ([ConvoyInvitesState.actionError]); one in the
+     * re-read after it, or in [open]'s read ([load]), is the list's
+     * ([ConvoyInvitesState.loadError]).
      */
-    private suspend fun act(convoyId: String, block: suspend () -> StateChange) {
+    private suspend fun act(convoyId: String, load: Boolean = false, block: suspend () -> StateChange) {
         val epoch = Auth.sessionEpoch.value
-        _state.update { it.copy(busy = true, error = null) }
+        _state.update {
+            if (load) {
+                it.copy(busy = true, loadError = null, actionError = null)
+            } else {
+                it.copy(busy = true, actionError = null)
+            }
+        }
         var change = noChange
+        var acted = false
         val answer: StateChange = try {
             change = block()
+            acted = true
             val guests = ConvoyInvites.guests(convoyId)
-            val loaded: StateChange = { s -> s.copy(guests = guests, busy = false, error = null) }
+            val loaded: StateChange = { s -> s.copy(guests = guests, busy = false, loadError = null) }
             loaded
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val message = e.message?.ifBlank { null } ?: FALLBACK_ERROR
-            val failed: StateChange = { s -> s.copy(busy = false, error = message) }
+            val failed: StateChange = guestsFailed(failureSentence(e), byAction = !acted)
             failed
         }
         commit(epoch, convoyId, change, answer)
@@ -118,6 +138,18 @@ object ConvoyInvitesStore {
 }
 
 internal typealias StateChange = (ConvoyInvitesState) -> ConvoyInvitesState
+
+/**
+ * Both kinds of error, the action's first, for a screen that still shows them in one inline
+ * line as it did when they shared a field. Goes when the screens move each kind to its own
+ * place (#212's migration issues).
+ */
+val ConvoyInvitesState.inlineError: String? get() = actionError ?: loadError
+
+/** [message] into the field its failure belongs to; see [ConvoyInvitesStore.act]. */
+internal fun guestsFailed(message: String, byAction: Boolean): StateChange =
+    if (byAction) { s -> s.copy(busy = false, actionError = message) }
+    else { s -> s.copy(busy = false, loadError = message) }
 
 /** What [ConvoyInvitesStore.act] commits; see its doc for the three cases. */
 internal fun ConvoyInvitesState.committed(
@@ -134,7 +166,11 @@ internal fun ConvoyInvitesState.committed(
 /** [convoyId] open; its guests dropped when it isn't the convoy already open, so the sheet never
  *  shows one convoy's guests under another's name. Minted tokens stay. */
 internal fun ConvoyInvitesState.opened(convoyId: String): ConvoyInvitesState =
-    if (this.convoyId == convoyId) this else copy(convoyId = convoyId, guests = null, error = null)
+    if (this.convoyId == convoyId) {
+        this
+    } else {
+        copy(convoyId = convoyId, guests = null, loadError = null, actionError = null)
+    }
 
 /**
  * The open convoy's link this device can share, or null when there is none to share: never
@@ -148,3 +184,6 @@ fun ConvoyInvitesState.shareableLink(nowMs: Long): ConvoyInvite? {
     val loaded = guests ?: return invite
     return invite.takeIf { loaded.inviteExpiresAtMs == it.expiresAtMs }
 }
+
+/** [ConvoyInvitesState.actionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun ConvoyInvitesState.actionCleared() = copy(actionError = null)

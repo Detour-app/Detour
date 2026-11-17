@@ -56,8 +56,6 @@ data class ConvoyJoinState(val link: ConvoyInviteLink? = null, val step: ConvoyJ
  */
 object ConvoyJoinStore {
 
-    internal const val FALLBACK_ERROR = "Could not reach the server"
-
     private val _state = MutableStateFlow(ConvoyJoinState())
     val state: StateFlow<ConvoyJoinState> = _state.asStateFlow()
 
@@ -159,7 +157,7 @@ object ConvoyJoinStore {
 /** What a failed preview or join shows: the refusal §4.1 names, or the plain error. */
 internal fun joinStepFor(e: Exception): ConvoyJoinStep =
     if (e is ConvoyJoinException) ConvoyJoinStep.Refused(e.refusal)
-    else ConvoyJoinStep.Failed(e.message?.ifBlank { null } ?: ConvoyJoinStore.FALLBACK_ERROR)
+    else ConvoyJoinStep.Failed(failureSentence(e))
 
 /**
  * The held link stepped to [ConvoyJoinStep.OtherServer] when it wasn't minted on [apiBase]

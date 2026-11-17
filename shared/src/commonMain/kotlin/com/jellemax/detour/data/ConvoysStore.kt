@@ -13,7 +13,12 @@ import kotlinx.coroutines.sync.Mutex
 data class ConvoysState(
     val convoys: List<Group> = emptyList(),
     val busy: Boolean = false,
-    val error: String? = null,
+    /** Why the last load (on-screen or background) failed. Cleared when the next load
+     *  starts or lands. */
+    val loadError: String? = null,
+    /** Why the last create/invite/respond/leave failed. One-shot: a screen shows it
+     *  once, then calls [ConvoysStore.clearActionError]. */
+    val actionError: String? = null,
     /** When the server last answered. Drives [isStale], so re-entering a
      *  screen seconds later shows what it showed instead of re-fetching.
      *  Null until a load has actually succeeded — a failure must not stamp,
@@ -43,8 +48,6 @@ data class ConvoyStarted(
  * own `act` below is not part of this store's public surface either.
  */
 object ConvoysStore {
-
-    internal const val FALLBACK_ERROR = "Could not reach the server"
 
     private val _state = MutableStateFlow(ConvoysState())
     val state: StateFlow<ConvoysState> = _state.asStateFlow()
@@ -130,7 +133,12 @@ object ConvoysStore {
         _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, apply(it)) }
     }
 
-    /** True on success; false leaves the failure in [state]'s `error`. */
+    /** Drops [ConvoysState.actionError] once a screen has shown it. */
+    fun clearActionError() {
+        _state.update { it.actionCleared() }
+    }
+
+    /** True on success; false leaves the failure in [state]'s `actionError`. */
     @Throws(Exception::class)
     suspend fun create(name: String): Boolean =
         act { Groups.create(KIND, name) } != null
@@ -138,7 +146,7 @@ object ConvoysStore {
     /**
      * Creates a convoy named [name] and invites [usernames] into it, for starting a planned ride
      * (#758). Null if the convoy itself could not be created, with the failure left in [state]'s
-     * `error`. A refused invite does not undo the convoy: the server refuses anyone who is not
+     * `actionError`. A refused invite does not undo the convoy: the server refuses anyone who is not
      * the caller's friend, and a ride whose circle brought in a stranger still has to start, so
      * the refused names come back in [ConvoyStarted.refused] for the screen to say who was not
      * asked. One reload at the end, not one per invite.
@@ -160,26 +168,26 @@ object ConvoysStore {
     }
 
     /** Returns the resulting status, e.g. "invited" — or null if the invite
-     *  failed, with the failure left in [state]'s `error`. Only accepted
+     *  failed, with the failure left in [state]'s `actionError`. Only accepted
      *  friends can be invited; the server enforces that and this surfaces
      *  its refusal. */
     @Throws(Exception::class)
     suspend fun invite(groupId: String, username: String): String? =
         act { Groups.invite(groupId, username) }
 
-    /** True on success; false leaves the failure in [state]'s `error`. */
+    /** True on success; false leaves the failure in [state]'s `actionError`. */
     @Throws(Exception::class)
     suspend fun respond(groupId: String, accept: Boolean): Boolean =
         act { Groups.respond(groupId, accept) } != null
 
-    /** True on success; false leaves the failure in [state]'s `error`. */
+    /** True on success; false leaves the failure in [state]'s `actionError`. */
     @Throws(Exception::class)
     suspend fun leave(groupId: String): Boolean =
         act { Groups.leave(groupId) } != null
 
     private suspend fun <T> act(block: suspend () -> T): T? {
         val epoch = Auth.sessionEpoch.value
-        _state.update { it.starting() }
+        _state.update { it.actionStarting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
@@ -188,7 +196,7 @@ object ConvoysStore {
             // Epoch-guarded for the same reason the commit in [reload] is: a
             // mutation failing after a sign-out must not put its banner on the
             // next rider's store. See FriendsStore.act.
-            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.failed(e)) }
+            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.actionFailed(e)) }
             return null
         }
         reload()
@@ -250,13 +258,24 @@ object ConvoysStore {
     private const val KIND = "convoy"
 }
 
-internal fun ConvoysState.starting() = copy(busy = true, error = null)
+/**
+ * Both kinds of error, the action's first, for a screen that still shows them in one inline
+ * line as it did when they shared a field. Goes when the screens move each kind to its own
+ * place (#212's migration issues).
+ */
+val ConvoysState.inlineError: String? get() = actionError ?: loadError
+
+/** A load supersedes an action error nobody cleared, as it did when both shared one field. */
+internal fun ConvoysState.starting() = copy(busy = true, loadError = null, actionError = null)
+
+internal fun ConvoysState.actionStarting() = copy(busy = true, actionError = null)
 
 internal fun ConvoysState.loaded(convoys: List<Group>, nowMs: Long) =
-    copy(convoys = convoys, busy = false, error = null, loadedAtMs = nowMs)
+    copy(convoys = convoys, busy = false, loadError = null, loadedAtMs = nowMs)
 
-internal fun ConvoysState.failed(e: Exception) =
-    copy(busy = false, error = e.message?.ifBlank { null } ?: ConvoysStore.FALLBACK_ERROR)
+internal fun ConvoysState.failed(e: Exception) = copy(busy = false, loadError = failureSentence(e))
+
+internal fun ConvoysState.actionFailed(e: Exception) = copy(busy = false, actionError = failureSentence(e))
 
 /** Same as [loaded], but leaves [ConvoysState.busy] exactly as it found it.
  *  Used only by [ConvoysStore.resolveUnknown]'s background self-heal, which
@@ -264,12 +283,11 @@ internal fun ConvoysState.failed(e: Exception) =
  *  `CirclesState.busy` — a reload the rider never asked for must not flip
  *  it. */
 internal fun ConvoysState.loadedQuietly(convoys: List<Group>, nowMs: Long) =
-    copy(convoys = convoys, error = null, loadedAtMs = nowMs)
+    copy(convoys = convoys, loadError = null, loadedAtMs = nowMs)
 
 /** Same as [failed], but leaves [ConvoysState.busy] exactly as it found it
  *  — see [loadedQuietly] for why. */
-internal fun ConvoysState.failedQuietly(e: Exception) =
-    copy(error = e.message?.ifBlank { null } ?: ConvoysStore.FALLBACK_ERROR)
+internal fun ConvoysState.failedQuietly(e: Exception) = copy(loadError = failureSentence(e))
 
 /** [result] if [epoch] still names the session an in-flight [ConvoysStore.reload]
  *  started under, checked against [currentEpoch] read fresh at commit time —
@@ -313,3 +331,6 @@ internal fun ConvoysState.nextIgnoredIds(
     knownAfter: Set<RiderId>,
 ): Set<RiderId> =
     if (knownAfter != knownBefore) emptySet() else ignored + (ids - knownAfter)
+
+/** [ConvoysState.actionError] dropped, once a screen has shown it; nothing else changes. */
+internal fun ConvoysState.actionCleared() = copy(actionError = null)

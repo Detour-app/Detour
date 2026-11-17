@@ -20,6 +20,14 @@ import kotlin.test.assertTrue
  */
 class StoresTest {
 
+    /** A failure as it really arrives from [Http]: already worded by [networkFailure]. */
+    private val offline = networkFailure(okio.IOException("no route to host"))
+    private val offlineSentence = "Can't reach the server — check your connection"
+
+    /** A server refusal as [Api] rethrows it, with no problem detail. */
+    private val refused = HttpStatusException(403, "", "HTTP 403")
+    private val refusedSentence = "The server refused the sign-in."
+
     private fun lists() = FriendLists(
         friends = listOf(RiderRef(RiderId("ada"), "ada"), RiderRef(RiderId("grace"), "grace")),
         incoming = listOf(RiderRef(RiderId("linus"), "linus")),
@@ -44,24 +52,50 @@ class StoresTest {
 
     @Test
     fun aStartedActionIsBusyAndHasNoStaleErrorOnIt() {
-        val before = FriendsState(error = "the last attempt failed")
+        val before = FriendsState(loadError = "the last load failed", actionError = "the last action failed")
         val started = before.starting()
         assertTrue(started.busy)
         // A new attempt must not show the previous attempt's error underneath
         // its own spinner.
-        assertNull(started.error)
+        assertNull(started.loadError)
+        assertNull(started.actionError)
+    }
+
+    @Test
+    fun aFailedFriendActionSetsActionErrorNotLoadError() {
+        val failed = FriendsState(lists = lists()).actionStarting().actionFailed(offline)
+        assertEquals(offlineSentence, failed.actionError)
+        assertNull(failed.loadError)
+        assertEquals(lists(), failed.lists)
+        assertFalse(failed.busy)
+    }
+
+    @Test
+    fun clearingAFriendActionErrorLeavesTheLoadErrorAndTheLists() {
+        val shown = FriendsState(lists = lists(), loadError = "list stale", actionError = offlineSentence)
+        val cleared = shown.actionCleared()
+        assertNull(cleared.actionError)
+        assertEquals(shown.copy(actionError = null), cleared)
+    }
+
+    @Test
+    fun anActionStartLeavesTheLoadErrorForTheNextLoadToClear() {
+        val started = FriendsState(loadError = "list stale", actionError = "old").actionStarting()
+        assertEquals("list stale", started.loadError)
+        assertNull(started.actionError)
     }
 
     @Test
     fun aFailedActionKeepsTheDataItAlreadyHad() {
         val loaded = FriendsState(lists = lists(), leaderboard = listOf(stats("ada")))
-        val failed = loaded.starting().failed(RuntimeException("no route to host"))
+        val failed = loaded.starting().failed(offline)
         // The whole point: an error banner over the last-known-good list, not
         // an empty screen. A refresh that fails must not destroy what is on
         // screen.
         assertEquals(loaded.lists, failed.lists)
         assertEquals(loaded.leaderboard, failed.leaderboard)
-        assertEquals("no route to host", failed.error)
+        assertEquals(offlineSentence, failed.loadError)
+        assertNull(failed.actionError)
     }
 
     @Test
@@ -76,16 +110,16 @@ class StoresTest {
     @Test
     fun anExceptionWithNoMessageStillSaysSomething() {
         val failed = FriendsState().starting().failed(RuntimeException())
-        assertEquals(FriendsStore.FALLBACK_ERROR, failed.error)
+        assertEquals("The contents were not what this app expected.", failed.loadError)
     }
 
     @Test
     fun aSuccessfulLoadClearsBusyAndError() {
-        val loaded = FriendsState(error = "stale")
+        val loaded = FriendsState(loadError = "stale")
             .starting()
             .loaded(lists(), listOf(stats("ada")), nowMs = 0L)
         assertTrue(!loaded.busy)
-        assertNull(loaded.error)
+        assertNull(loaded.loadError)
         assertEquals(2, loaded.lists!!.friends.size)
     }
 
@@ -143,28 +177,42 @@ class StoresTest {
 
     @Test
     fun aStartedConvoyActionIsBusyAndHasNoStaleErrorOnIt() {
-        val before = ConvoysState(error = "the last attempt failed")
+        val before = ConvoysState(loadError = "the last load failed", actionError = "the last action failed")
         val started = before.starting()
         assertTrue(started.busy)
-        assertNull(started.error)
+        assertNull(started.loadError)
+        assertNull(started.actionError)
     }
 
     @Test
     fun aFailedConvoyActionKeepsTheConvoyList() {
         val loaded = ConvoysState(convoys = listOf(convoy("c1", "Sunday run")))
-        val failed = loaded.starting().failed(RuntimeException("500"))
+        val failed = loaded.actionStarting().actionFailed(HttpStatusException(500, "", "HTTP 500"))
         assertEquals(loaded.convoys, failed.convoys)
-        assertEquals("500", failed.error)
+        assertEquals("The server hit a problem. Try again later.", failed.actionError)
+        assertNull(failed.loadError)
         assertTrue(!failed.busy)
     }
 
     @Test
+    fun clearingAConvoyActionErrorLeavesTheLoadErrorAndTheList() {
+        val shown = ConvoysState(
+            convoys = listOf(convoy("c1", "Sunday run")),
+            loadError = "list stale",
+            actionError = "x",
+        )
+        val cleared = shown.actionCleared()
+        assertNull(cleared.actionError)
+        assertEquals(shown.copy(actionError = null), cleared)
+    }
+
+    @Test
     fun aSuccessfulConvoyLoadClearsBusyAndError() {
-        val loaded = ConvoysState(error = "stale")
+        val loaded = ConvoysState(loadError = "stale")
             .starting()
             .loaded(listOf(convoy("c1", "Sunday run")), nowMs = 0L)
         assertTrue(!loaded.busy)
-        assertNull(loaded.error)
+        assertNull(loaded.loadError)
         assertEquals(1, loaded.convoys.size)
     }
 
@@ -185,17 +233,17 @@ class StoresTest {
     @Test
     fun anActionsTwoOutcomesAreTheReducerHalfOfItsReturnValue() {
         // An action never throws for an ordinary failure any more — it
-        // reports through `error` and returns null/false instead, so a
+        // reports through `actionError` and returns null/false instead, so a
         // caller branches on the return value rather than racing to read
         // `state` back after an `await`. `act()`'s failure half is exactly
-        // `starting().failed(e)` below, which is what makes it return null.
+        // `actionStarting().actionFailed(e)` below, which is what makes it return null.
         // Its success half also calls through to `reload()` — a real
         // network round trip — so it isn't reachable here; `loaded()`
         // stands in for the transition that lets it return the value.
-        val failure = ConvoysState().starting().failed(RuntimeException("no route to host"))
-        assertEquals("no route to host", failure.error)
-        val success = ConvoysState(error = "stale").starting().loaded(emptyList(), nowMs = 0L)
-        assertNull(success.error)
+        val failure = ConvoysState().actionStarting().actionFailed(offline)
+        assertEquals(offlineSentence, failure.actionError)
+        val success = ConvoysState(loadError = "stale").starting().loaded(emptyList(), nowMs = 0L)
+        assertNull(success.loadError)
     }
 
     // --- ConvoysStore's background self-heal (#133) ------------------------
@@ -214,9 +262,9 @@ class StoresTest {
 
     @Test
     fun aQuietConvoyFailureLeavesBusyAloneButStillReportsTheError() {
-        val whileBusy = ConvoysState(busy = true).failedQuietly(RuntimeException("offline"))
+        val whileBusy = ConvoysState(busy = true).failedQuietly(offline)
         assertTrue(whileBusy.busy)
-        assertEquals("offline", whileBusy.error)
+        assertEquals(offlineSentence, whileBusy.loadError)
     }
 
     @Test
@@ -375,10 +423,38 @@ class StoresTest {
     @Test
     fun aFailedCircleActionKeepsTheCircleList() {
         val loaded = CirclesState(circles = listOf(circle("c1", "Family")))
-        val failed = loaded.starting().failed(RuntimeException("403"))
+        val failed = loaded.actionStarting().actionFailed(refused)
         assertEquals(loaded.circles, failed.circles)
-        assertEquals("403", failed.error)
+        assertEquals(refusedSentence, failed.actionError)
+        assertNull(failed.loadError)
         assertTrue(!failed.busy)
+    }
+
+    @Test
+    fun clearingACircleActionErrorLeavesEveryOtherError() {
+        val shown = CirclesState(
+            circles = listOf(circle("c1", "Family")),
+            loadError = "list stale",
+            actionError = refusedSentence,
+            detailActionError = "share failed",
+        )
+        val cleared = shown.actionCleared()
+        assertNull(cleared.actionError)
+        assertEquals(shown.copy(actionError = null), cleared)
+    }
+
+    @Test
+    fun clearingADetailActionErrorLeavesEveryOtherError() {
+        val shown = CirclesState(
+            selectedId = "c1",
+            places = listOf(place("p1", "c1")),
+            actionError = refusedSentence,
+            detailLoadError = "places stale",
+            detailActionError = "share failed",
+        )
+        val cleared = shown.detailActionCleared()
+        assertNull(cleared.detailActionError)
+        assertEquals(shown.copy(detailActionError = null), cleared)
     }
 
     @Test
@@ -453,9 +529,9 @@ class StoresTest {
         // actDetail's null-selectedId branch and loadDetail's cancellation
         // branch both land here instead of detailFailed — neither is a
         // failure, just a busy flag with nothing left to clear it.
-        val idle = CirclesState(detailBusy = true, detailError = "stale").detailIdle()
+        val idle = CirclesState(detailBusy = true, detailLoadError = "stale").detailIdle()
         assertTrue(!idle.detailBusy)
-        assertEquals("stale", idle.detailError)
+        assertEquals("stale", idle.detailLoadError)
     }
 
     @Test
@@ -479,9 +555,20 @@ class StoresTest {
     fun aDetailFailureSetsDetailErrorAndLeavesTheListErrorAlone() {
         val failed = CirclesState(circles = listOf(circle("c1", "Family")))
             .detailStarting()
-            .detailFailed(RuntimeException("no route to host"))
-        assertEquals("no route to host", failed.detailError)
-        assertNull(failed.error)
+            .detailFailed(offline)
+        assertEquals(offlineSentence, failed.detailLoadError)
+        assertNull(failed.loadError)
+        assertNull(failed.detailActionError)
+        assertTrue(!failed.detailBusy)
+    }
+
+    @Test
+    fun aFailedShareSetsDetailActionErrorAndLeavesTheLoadedPlaces() {
+        val viewing = CirclesState(selectedId = "c1", places = listOf(place("p1", "c1")))
+        val failed = viewing.detailActionStarting().detailActionFailed(refused)
+        assertEquals(refusedSentence, failed.detailActionError)
+        assertNull(failed.detailLoadError)
+        assertEquals(viewing.places, failed.places)
         assertTrue(!failed.detailBusy)
     }
 
@@ -489,9 +576,9 @@ class StoresTest {
     fun aListFailureSetsErrorAndLeavesTheDetailErrorAlone() {
         val failed = CirclesState(circles = listOf(circle("c1", "Family")))
             .starting()
-            .failed(RuntimeException("403"))
-        assertEquals("403", failed.error)
-        assertNull(failed.detailError)
+            .failed(refused)
+        assertEquals(refusedSentence, failed.loadError)
+        assertNull(failed.detailLoadError)
         assertTrue(!failed.busy)
     }
 
@@ -527,7 +614,8 @@ class StoresTest {
             leaderboard = listOf(stats("ada")),
             own = stats("me"),
             busy = true,
-            error = "stale",
+            loadError = "stale",
+            actionError = "stale action",
         )
         assertEquals(FriendsState(), dirty.cleared())
     }
@@ -545,7 +633,7 @@ class StoresTest {
 
     @Test
     fun clearedConvoysStateIsTheDefault() {
-        val dirty = ConvoysState(convoys = listOf(convoy("c1", "Sunday run")), busy = true, error = "stale")
+        val dirty = ConvoysState(convoys = listOf(convoy("c1", "Sunday run")), busy = true, loadError = "stale", actionError = "x")
         assertEquals(ConvoysState(), dirty.cleared())
     }
 
@@ -557,9 +645,11 @@ class StoresTest {
             places = listOf(place("p1", "c1")),
             events = listOf(event("e1")),
             busy = true,
-            error = "stale",
+            loadError = "stale",
+            actionError = "stale action",
             detailBusy = true,
-            detailError = "stale detail",
+            detailLoadError = "stale detail",
+            detailActionError = "stale detail action",
         )
         assertEquals(CirclesState(), dirty.cleared())
     }

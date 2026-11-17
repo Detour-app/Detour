@@ -76,6 +76,7 @@ import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.handleFor
+import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.data.isOwnedBy
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.presentation.FriendRequestRow
@@ -293,7 +294,7 @@ private fun FriendsSection(username: String) {
     }
     val storeState by FriendsStore.state.collectAsStateWithLifecycle()
 
-    storeState.error?.let {
+    storeState.inlineError?.let {
         Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall)
     }
@@ -722,7 +723,7 @@ private fun ConvoysSection() {
 
     ConvoysHeader(onNew = { createOpen = true })
 
-    state.error?.let {
+    state.inlineError?.let {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 

@@ -60,6 +60,7 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.PlannedRidesStore
 import com.jellemax.detour.data.RsvpAnswer
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.data.inlineError
 import com.jellemax.detour.presentation.PlannedInviteeRow
 import com.jellemax.detour.presentation.PlannedRideDetailState
 import com.jellemax.detour.presentation.PlannedRideRow
@@ -154,15 +155,15 @@ fun PlannedRidesScreen(
     ) {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when {
-                rows == null && state.error != null -> LoadFailed(
-                    error = state.error.orEmpty(),
+                rows == null && state.inlineError != null -> LoadFailed(
+                    error = state.inlineError.orEmpty(),
                     onRetry = { scope.launch { PlannedRidesStore.reload() } },
                 )
                 rows == null -> Box(Modifier.fillMaxWidth().padding(top = 32.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
                 else -> {
-                    state.error?.let { ErrorLine(it) }
+                    state.inlineError?.let { ErrorLine(it) }
                     if (rows.isEmpty()) NothingPlanned()
                     rows.forEach { row -> PlannedRideCard(row, onClick = { onOpenRide(row.id) }) }
                 }
@@ -226,7 +227,7 @@ fun PlannedRideDetailScreen(
     ) {
         RideDetailBody(
             detail = detail,
-            error = start.error ?: state.error,
+            error = start.error ?: state.inlineError,
             enabled = enabled,
             onAnswer = { id, answer -> scope.launch { PlannedRidesStore.answer(id, answer) } },
             hostButtons = {
@@ -243,7 +244,7 @@ fun PlannedRideDetailScreen(
         PlannedInviteDialog(
             ride = ride,
             busy = state.busy,
-            error = state.error,
+            error = state.inlineError,
             onInvite = { riderIds, circleIds ->
                 scope.launch { if (PlannedRidesStore.invite(rideId, riderIds, circleIds)) inviting = false }
             },
