@@ -15,7 +15,6 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.LocationServices
 import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
-import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RecentSearchStore
 import com.jellemax.detour.data.RoutingClient
@@ -24,23 +23,23 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.startHeading
 import com.jellemax.detour.presentation.failureText
+import com.jellemax.detour.presentation.SearchSession
+import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.tracking.hasLocationPermission
-import kotlinx.coroutines.CancellationException
+import com.jellemax.detour.ui.androidSearchSession
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-private const val SEARCH_DEBOUNCE_MS = 350L
 
 /**
  * Pick a destination by name from the car screen, or hand off to
  * [SpinScreen]'s roulette instead. Same Photon backend as the phone's search,
  * and the same [RecentSearchStore] — so a place searched on the phone is one
  * tap away here, which matters when typing on a head unit is the slowest
- * thing in the car.
+ * thing in the car. The search itself is the phone's too: the shared
+ * [SearchSession] (#1005), so its floor, debounce, bias and recents merge
+ * match the map's search island.
  *
  * This is also where Spin lives now — as the first row, before any recents —
  * rather than as a second, title-bearing action strip button crowding the map
@@ -56,21 +55,30 @@ class SearchScreen(
     private val onSpin: () -> Unit,
 ) : Screen(carContext) {
 
-    private var results: List<GeocodeResult> = emptyList()
-    private var recents: List<GeocodeResult> = emptyList()
+    private val session = androidSearchSession()
+    private val queries = MutableStateFlow("")
     private var query = ""
-    private var searching = false
-    private var errorText: String? = null
+    /** Routing to a picked result is in flight. */
+    private var routing = false
+    /** Why routing to a pick failed, or that there is no location to route from yet. */
+    private var routeError: String? = null
     private var myLocation: LatLon? = null
-    private var searchJob: Job? = null
 
     init {
+        // Created once per screen: the session answers every keystroke until the screen goes.
+        lifecycleScope.launch { session.run(queries) }
+        lifecycleScope.launch { session.state.collect { invalidate() } }
+        // Same bias source as the phone's search: the tracker's last accurate fix.
+        lifecycleScope.launch {
+            TripTrackingService.lastFix.collect { fix ->
+                fix?.let { session.onFix(LatLon(it.lat, it.lon), it.accuracyMeters) }
+            }
+        }
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 fetchLocation()
                 lifecycleScope.launch {
-                    recents = withContext(Dispatchers.IO) { RecentSearchStore.load() }
-                    if (query.isBlank()) invalidate()
+                    session.setRecents(withContext(Dispatchers.IO) { RecentSearchStore.load() })
                 }
             }
         })
@@ -79,13 +87,14 @@ class SearchScreen(
     override fun onGetTemplate(): Template {
         val builder = SearchTemplate.Builder(object : SearchTemplate.SearchCallback {
             override fun onSearchTextChanged(searchText: String) = onQuery(searchText)
-            override fun onSearchSubmitted(searchText: String) = onQuery(searchText, immediate = true)
+            override fun onSearchSubmitted(searchText: String) = onQuery(searchText)
         })
             .setHeaderAction(Action.BACK)
             .setSearchHint(carContext.getString(R.string.car_search_hint))
             .setShowKeyboardByDefault(false)
 
-        if (searching) return builder.setLoading(true).build()
+        val search = session.state.value
+        if (routing || search.searching) return builder.setLoading(true).build()
 
         val list = ItemList.Builder()
         if (query.isBlank()) {
@@ -103,7 +112,9 @@ class SearchScreen(
                     }
                     .build(),
             )
-            recents.forEach { result ->
+            // Recents, not results: the session answers a cleared query a moment
+            // after the host reports it, and results would hold the old hits till then.
+            search.recents.forEach { result ->
                 list.addItem(
                     Row.Builder()
                         .setTitle(result.name)
@@ -112,9 +123,10 @@ class SearchScreen(
                 )
             }
         } else when {
-            errorText != null -> list.setNoItemsMessage(errorText!!)
-            results.isEmpty() -> list.setNoItemsMessage(carContext.getString(R.string.car_search_nothing_found))
-            else -> results.forEach { result ->
+            routeError != null -> list.setNoItemsMessage(routeError!!)
+            search.failure != null -> list.setNoItemsMessage(failureText("Search", search.failure!!))
+            search.noResults -> list.setNoItemsMessage(carContext.getString(R.string.car_search_nothing_found))
+            else -> search.results.forEach { result ->
                 list.addItem(
                     Row.Builder()
                         .setTitle(result.name)
@@ -126,50 +138,21 @@ class SearchScreen(
         return builder.setItemList(list.build()).build()
     }
 
-    private fun onQuery(text: String, immediate: Boolean = false) {
+    private fun onQuery(text: String) {
         query = text
-        searchJob?.cancel()
-        if (text.isBlank()) {
-            results = emptyList()
-            searching = false
-            errorText = null
-            invalidate()
-            return
-        }
-        searchJob = lifecycleScope.launch {
-            // The host fires a callback per keystroke; without this every letter
-            // would be its own request to the geocoder.
-            if (!immediate) delay(SEARCH_DEBOUNCE_MS)
-            searching = true
-            errorText = null
-            invalidate()
-            try {
-                results = withContext(Dispatchers.IO) {
-                    Geocoder.search(text, myLocation)
-                }
-            } catch (e: CancellationException) {
-                // The next keystroke cancelled us (#1003): not a failure, and
-                // the job replacing this one draws its own result.
-                throw e
-            } catch (e: Exception) {
-                ensureActive()
-                results = emptyList()
-                errorText = failureText("Search", e)
-            } finally {
-                searching = false
-                invalidate()
-            }
-        }
+        routeError = null
+        queries.value = text
+        invalidate()
     }
 
     private fun navigateTo(result: GeocodeResult) {
         val from = myLocation ?: run {
-            errorText = carContext.getString(R.string.car_waiting_for_location)
+            routeError = carContext.getString(R.string.car_waiting_for_location)
             fetchLocation()
             invalidate()
             return
         }
-        searching = true
+        routing = true
         invalidate()
         lifecycleScope.launch {
             try {
@@ -187,7 +170,7 @@ class SearchScreen(
                         Settings.routePreferences(), heading)
                 }
                 withContext(Dispatchers.IO) { RecentSearchStore.save(result) }
-                searching = false
+                routing = false
                 if (route.instructions.isEmpty()) {
                     // No turn data to drive our own nav screen with — hand off
                     // the same way SpinScreen does.
@@ -198,8 +181,8 @@ class SearchScreen(
                     )
                 }
             } catch (e: Exception) {
-                searching = false
-                errorText = failureText("Routing", e)
+                routing = false
+                routeError = failureText("Routing", e)
                 invalidate()
             }
         }
@@ -215,7 +198,10 @@ class SearchScreen(
         if (!hasLocationPermission(carContext)) return
         LocationServices.getFusedLocationProviderClient(carContext).lastLocation
             .addOnSuccessListener { loc ->
-                if (loc != null) myLocation = LatLon(loc.latitude, loc.longitude)
+                if (loc != null) {
+                    myLocation = LatLon(loc.latitude, loc.longitude)
+                    session.onFix(LatLon(loc.latitude, loc.longitude), loc.accuracy)
+                }
             }
     }
 }
