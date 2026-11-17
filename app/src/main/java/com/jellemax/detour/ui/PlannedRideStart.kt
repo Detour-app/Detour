@@ -25,8 +25,8 @@ import kotlinx.coroutines.launch
  * [PlannedRide.convoyInvitees] into it with the ordinary convoy invite, goes live, and rides the
  * attached route the way Routes does ([rideSavedRoute]); [onRide] opens the map, where the convoy
  * shows. With no route the map opens as it is. Riders the server would not invite (not the
- * host's friend) go to [onNotice]: the detail screen is gone by the time anyone could read them
- * there.
+ * host's friend) go to [onNotice] — `LocalAppMessages.showNotice` from the detail screen: the
+ * detail screen is gone by the time anyone could read them there.
  *
  * Screen-lifetime, like [SavedLoopRide], which it rides a saved loop through. Its own [error]
  * and [starting] rather than the planned-rides store's: a failure here is the convoy store's or

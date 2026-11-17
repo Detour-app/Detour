@@ -79,6 +79,11 @@ style:
     active: false
   MagicNumber:
     active: false
+  # A @Preview is called by the IDE, never by code: private and "unused" is its
+  # normal shape (ErrorState.kt, #989).
+  UnusedPrivateMember:
+    active: true
+    ignoreAnnotated: ['Preview']
 
 Compose:
   # ---------------------------------------------------------------------
@@ -108,7 +113,12 @@ Compose:
     # would take MapNavigationSession to six of boundaries.md §8.4's seven, and
     # parking it on MapScreenState or RetainedMap would put process lifetime
     # inside screen and Activity lifetime, which §8.1's first test forbids.
-    allowedCompositionLocals: 'LocalDriveClock'
+    #
+    # LocalAppMessages (#989, multiplatform.md §5.4) is the second: the app-wide
+    # snackbar entry point. App-scoped (AppRoot's host and scope, outliving any
+    # screen), read by ~15 screens; as a parameter it would thread through every
+    # NavDisplay entry. Default logs and drops. Argument in its KDoc (AppMessages.kt).
+    allowedCompositionLocals: 'LocalDriveClock,LocalAppMessages'
 
   CompositionLocalNaming:
     active: true

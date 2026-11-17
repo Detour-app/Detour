@@ -187,7 +187,8 @@ fun PlannedRidesScreen(
  * picker closes once the invite lands, and the new invitees show in the list below as pending.
  *
  * The host also gets Start (#758): [PlannedRideStart], with [onRide] opening the map and
- * [onNotice] carrying anything the rider should read after this screen is gone.
+ * [LocalAppMessages] carrying anything the rider should read after this screen is gone — it
+ * shows on `AppRoot`'s host and scope, which outlive this screen.
  */
 @Composable
 fun PlannedRideDetailScreen(
@@ -195,7 +196,6 @@ fun PlannedRideDetailScreen(
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onRide: () -> Unit,
-    onNotice: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -213,7 +213,8 @@ fun PlannedRideDetailScreen(
     }
 
     var confirmDelete by remember { mutableStateOf(false) }
-    val start = rememberPlannedRideStart(onRide, onNotice)
+    val messages = LocalAppMessages.current
+    val start = rememberPlannedRideStart(onRide, messages::showNotice)
     val enabled = !state.busy && !start.starting
 
     PlannedScaffold(

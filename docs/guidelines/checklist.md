@@ -39,6 +39,11 @@ the §8 size limits — live in `app/src/test/.../arch/ArchitectureTest.kt`.
 - [ ] A new `StateFlow` element type either reuses a `FlowWatcher` subclass or
       adds one.
 
+**Errors** (§5.4)
+- [ ] A new failure shows in its bucket — field, `LocalAppMessages`, `ErrorState`
+      or notification — or sits inline with a `// inline: <reason>` comment, and
+      never shows `e.message`.
+
 **Concurrency and correctness**
 - [ ] Network I/O is not awaited inline inside a conflating `StateFlow`
       collector — it gets its own job with an in-flight guard.

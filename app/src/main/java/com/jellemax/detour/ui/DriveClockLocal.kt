@@ -7,9 +7,9 @@ import com.jellemax.detour.tracking.DriveClocks
 /**
  * The drive's clock, for the composables that read it.
  *
- * This app defines no other `CompositionLocal` of its own — it consumes
- * `LocalDensity` and `LocalContentColor`, and that is all — so this is close to
- * a new pattern here, which `CONTRIBUTING.md` asks to be deliberate about. #307
+ * The app's first `CompositionLocal` of its own (the other is `LocalAppMessages`,
+ * #989) — it otherwise consumes `LocalDensity` and `LocalContentColor` — so this
+ * was a new pattern here, which `CONTRIBUTING.md` asks to be deliberate about. #307
  * left the choice open; the argument for it over a parameter, and over parking
  * the clock on an existing holder:
  *

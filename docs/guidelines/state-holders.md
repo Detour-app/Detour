@@ -143,7 +143,7 @@ These have **zero** baseline entries, so any new occurrence fails the build:
 
 | Rule | Enforces |
 | --- | --- |
-| `CompositionLocalAllowlist` | §14.2 — the allowlist is **empty**. The app defines no `CompositionLocal` today and a new one is a design decision, not a convenience |
+| `CompositionLocalAllowlist` | §14.2 — the allowlist holds `LocalDriveClock` and `LocalAppMessages`, each argued in its KDoc. A new one is a design decision, not a convenience |
 | `ViewModelForwarding` | §14.3 — no holder threaded past `.*Content` |
 | `ContentTrailingLambda`, `ContentSlotReused` | §14.4 — slots shaped correctly |
 | `RememberMissing` | `mutableStateOf` outside a `remember` |

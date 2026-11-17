@@ -248,6 +248,9 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    // @Preview (ErrorState, #989): the annotation ships in release, the renderer in debug only.
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
     // Release notes are GitHub's generated Markdown, rendered in Settings →
     // "What's new" (#357). 0.46.0 needs compileSdk 37 and dropped the
     // `linkText` / `inlineCodeText` / `codeText` colours and the `link` style:
