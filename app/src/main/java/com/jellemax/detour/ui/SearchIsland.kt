@@ -73,8 +73,10 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RecentSearchStore
 import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.tracking.TripTrackingService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -230,7 +232,13 @@ fun SearchIsland(
             for (hit in hits) if (seen.add(hit.name)) merged.add(hit)
             results = merged
             noResults = merged.isEmpty()
+        } catch (e: CancellationException) {
+            // The next keystroke cancelled us (#1003). Falling into the catch
+            // below would show "Search failed" while the next lookup is still
+            // in its debounce.
+            throw e
         } catch (e: Exception) {
+            ensureActive()
             error = failureText("Search", e)
         }
         searching = false
