@@ -20,6 +20,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -106,7 +107,9 @@ import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.SettingsSpokeScreen
 import com.jellemax.detour.ui.SocialScreen
 import com.jellemax.detour.ui.TripDetailScreen
+import com.jellemax.detour.ui.LocalAppMessages
 import com.jellemax.detour.ui.isAppDarkTheme
+import com.jellemax.detour.ui.rememberAppMessages
 import com.jellemax.detour.ui.rememberRetainedMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -312,6 +315,9 @@ private fun AppRoot() {
     // spin errors, which genuinely are the map's.
     val appSnackbar = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
+    // What screens reach through LocalAppMessages (§5.4): this host, on this scope,
+    // so a notice fired as its screen pops still shows.
+    val appMessages = rememberAppMessages(appSnackbar, appScope)
 
     // Wrapped, not bare: ensureLoaded() is not suspend and reads JSON off
     // disk, so the off-main-thread guarantee rests entirely on the caller —
@@ -474,217 +480,218 @@ private fun AppRoot() {
     // The two animation bodies are the ones ui/PushPopContent shipped before it
     // was deleted, moved verbatim. Only the choice between them changed hands.
     Box(Modifier.fillMaxSize()) {
-        NavDisplay(
-            backStack = backStack,
-            onBack = { backStack.pop() },
-            transitionSpec = {
-                (slideInHorizontally { it } + fadeIn()) togetherWith
-                    (slideOutHorizontally { -it / 4 } + fadeOut())
-            },
-            popTransitionSpec = {
-                // What we are returning to eases in from the left while the screen
-                // being left slides off to the right, the way it came in.
-                (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
-                    (slideOutHorizontally { it } + fadeOut())
-            },
-            predictivePopTransitionSpec = {
-                (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
-                    (slideOutHorizontally { it } + fadeOut())
-            },
-            entryProvider = entryProvider {
-                entry<Destination.Map> {
-                    KeepScreenOn()
-                    PreferRefreshRate(MAP_REFRESH_RATE_HZ)
-                    MapScreen(
-                        onOpenHub = { backStack.push(Destination.Hub) },
-                        // The home sheet's two cards. Both destinations already
-                        // exist and are already reachable from the Hub; this is the
-                        // map handing them a second entry point, not a promotion.
-                        onOpenRoutes = { backStack.push(Destination.Routes) },
-                        onOpenSocial = { backStack.push(Destination.Social) },
-                        retained = retainedMap,
-                    )
-                }
-                entry<Destination.Hub> {
-                    HubScreen(
-                        onBack = { backStack.pop() },
-                        onOpenProfile = { backStack.push(Destination.Profile) },
-                        onOpenSocial = { backStack.push(Destination.Social) },
-                        onOpenSettings = { backStack.push(Destination.Settings) },
-                        onOpenHistory = { backStack.push(Destination.History) },
-                        onOpenRoutes = { backStack.push(Destination.Routes) },
-                        onOpenSavedPlaces = { backStack.push(Destination.SavedPlaces) },
-                        onOpenBadges = { backStack.push(Destination.Badges) },
-                    )
-                }
-                entry<Destination.History> {
-                    HistoryScreen(
-                        onBack = { backStack.pop() },
-                        onOpenTrip = { trip ->
-                            backStack.push(Destination.TripDetail(trip.startTimeMs))
-                        },
-                    )
-                }
-                entry<Destination.TripDetail> { key ->
-                    TripDetailEntry(
-                        startTimeMs = key.startTimeMs,
-                        onBack = { backStack.pop() },
-                        onOpenRoute = { id -> backStack.push(Destination.RouteEditor(id)) },
-                    )
-                }
-                entry<Destination.Badges> {
-                    BadgesScreen(
-                        onBack = { backStack.pop() },
-                        onOpenCoverageMap = { backStack.push(Destination.CoverageMap) },
-                    )
-                }
-                entry<Destination.CoverageMap> {
-                    CoverageMapScreen(onBack = { backStack.pop() })
-                }
-                entry<Destination.Social> {
-                    SocialScreen(
-                        onBack = { backStack.pop() },
-                        // Profile has no signed-out state — it offers a rider who
-                        // never signed in a "Sign out" button — so a guest goes to
-                        // Hub, which carries the sign-in card. Account.signedIn is
-                        // the refresh token and nothing else, which is what You
-                        // decides the same thing on; the handle is no substitute,
-                        // since Auth.carriedUsername leaves a signed-in rider blank
-                        // whenever the token's subject and the stored account scope
-                        // disagree. Social's avatar labels itself off this too.
-                        onOpenAccount = {
-                            backStack.push(
-                                if (Account.signedIn) Destination.Profile else Destination.Hub
-                            )
-                        },
-                        onOpenFriends = { backStack.push(Destination.Friends) },
-                        onOpenCircles = { backStack.push(Destination.Circles) },
-                    )
-                }
-                entry<Destination.Profile> {
-                    ProfileScreen(
-                        onBack = { backStack.pop() },
-                        onSignedOut = { backStack.returnToMap() },
-                    )
-                }
-                entry<Destination.Friends> {
-                    FriendsScreen(
-                        onBack = { backStack.pop() },
-                        onOpenServerSettings = { backStack.push(Destination.SettingsServersSync) },
-                    )
-                }
-                entry<Destination.Circles> {
-                    CirclesScreen(
-                        onBack = { backStack.pop() },
-                        onOpenCircle = { id -> backStack.push(Destination.CircleDetail(id)) },
-                    )
-                }
-                entry<Destination.CircleDetail> { key ->
-                    CircleDetailScreen(
-                        circleId = key.circleId,
-                        onBack = { backStack.pop() },
-                        // #294: go from a name to their position on the map.
-                        // Circles is up to three pushes deep, so this leaves
-                        // everything and returns to the map the way
-                        // RoutesScreen's onNavigate already does, rather than
-                        // popping once.
-                        onFocusRider = { riderId, displayName ->
-                            RiderFocusHolder.request(riderId, displayName)
-                            backStack.returnToMap()
-                        },
-                    )
-                }
-                entry<Destination.Settings> {
-                    SettingsScreen(
-                        onBack = { backStack.pop() },
-                        onOpenSpoke = { spoke -> backStack.push(spoke) },
-                    )
-                }
-                // One entry per spoke rather than one, because entryProvider dispatches on the
-                // concrete key type — a spoke with no entry here crashes the app when its
-                // hub row is tapped (Licences did). Each renders through the same SettingsSpokeScreen,
-                // whose `when` is exhaustive over Destination.SettingsSpoke.
-                entry<Destination.SettingsAppearanceMap> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
-                }
-                entry<Destination.SettingsTrackingVehicles> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
-                }
-                entry<Destination.SettingsNavigation> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
-                }
-                entry<Destination.SettingsFog> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
-                }
-                entry<Destination.SettingsDisplaysMedia> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
-                }
-                entry<Destination.SettingsServersSync> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
-                }
-                entry<Destination.SettingsObd2> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
-                }
-                entry<Destination.SettingsLicences> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
-                }
-                entry<Destination.SettingsProblemReport> { key ->
-                    SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
-                }
-                entry<Destination.SavedPlaces> { SavedPlacesScreen(onBack = { backStack.pop() }) }
-                entry<Destination.Routes> {
-                    RoutesScreen(
-                        onBack = { backStack.pop() },
-                        onCreateNew = { backStack.push(Destination.RouteEditor(null)) },
-                        onEdit = { route -> backStack.push(Destination.RouteEditor(route.id)) },
-                        // A push, not returnToMap(): riding a saved route used to
-                        // clear the stack, so a rider who tapped Ride to look at a
-                        // route could not get back to the list to pick another one.
-                        // Pushing keeps Routes underneath, so back returns to it.
-                        //
-                        // Map appearing twice in the stack is legitimate and
-                        // deliberate — NavActionsTest names this exact path. push()
-                        // ignores a push onto the same destination, so [Map, Map] is
-                        // unreachable, and NavDisplay only composes the top entry
-                        // (plus the one it is animating from), so the single
-                        // retained MapView is never asked for two parents at once.
-                        onNavigate = { backStack.push(Destination.Map) },
-                        onOpenPlannedRides = { backStack.push(Destination.PlannedRides) },
-                    )
-                }
-                entry<Destination.PlannedRides> {
-                    PlannedRidesScreen(
-                        onBack = { backStack.pop() },
-                        onOpenRide = { id -> backStack.push(Destination.PlannedRideDetail(id)) },
-                        onNewRide = { backStack.push(Destination.PlannedRideEditor(null)) },
-                    )
-                }
-                entry<Destination.PlannedRideDetail> { key ->
-                    PlannedRideDetailScreen(
-                        rideId = key.rideId,
-                        onBack = { backStack.pop() },
-                        onEdit = { backStack.push(Destination.PlannedRideEditor(key.rideId)) },
-                        // A push, like Routes' Ride: back returns to the ride.
-                        onRide = { backStack.push(Destination.Map) },
-                        onNotice = { notice -> appScope.launch { appSnackbar.showSnackbar(notice) } },
-                    )
-                }
-                entry<Destination.PlannedRideEditor> { key ->
-                    PlannedRideEditorScreen(
-                        rideId = key.rideId,
-                        onBack = { backStack.pop() },
-                        onFinish = { backStack.pop() },
-                    )
-                }
-                entry<Destination.RouteEditor> { key ->
-                    RouteEditorEntry(
-                        routeId = key.routeId,
-                        onBack = { backStack.pop() },
-                        onSaved = { backStack.pop() },
-                    )
-                }
-            },
-        )
+        CompositionLocalProvider(LocalAppMessages provides appMessages) {
+            NavDisplay(
+                backStack = backStack,
+                onBack = { backStack.pop() },
+                transitionSpec = {
+                    (slideInHorizontally { it } + fadeIn()) togetherWith
+                        (slideOutHorizontally { -it / 4 } + fadeOut())
+                },
+                popTransitionSpec = {
+                    // What we are returning to eases in from the left while the screen
+                    // being left slides off to the right, the way it came in.
+                    (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
+                        (slideOutHorizontally { it } + fadeOut())
+                },
+                predictivePopTransitionSpec = {
+                    (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
+                        (slideOutHorizontally { it } + fadeOut())
+                },
+                entryProvider = entryProvider {
+                    entry<Destination.Map> {
+                        KeepScreenOn()
+                        PreferRefreshRate(MAP_REFRESH_RATE_HZ)
+                        MapScreen(
+                            onOpenHub = { backStack.push(Destination.Hub) },
+                            // The home sheet's two cards. Both destinations already
+                            // exist and are already reachable from the Hub; this is the
+                            // map handing them a second entry point, not a promotion.
+                            onOpenRoutes = { backStack.push(Destination.Routes) },
+                            onOpenSocial = { backStack.push(Destination.Social) },
+                            retained = retainedMap,
+                        )
+                    }
+                    entry<Destination.Hub> {
+                        HubScreen(
+                            onBack = { backStack.pop() },
+                            onOpenProfile = { backStack.push(Destination.Profile) },
+                            onOpenSocial = { backStack.push(Destination.Social) },
+                            onOpenSettings = { backStack.push(Destination.Settings) },
+                            onOpenHistory = { backStack.push(Destination.History) },
+                            onOpenRoutes = { backStack.push(Destination.Routes) },
+                            onOpenSavedPlaces = { backStack.push(Destination.SavedPlaces) },
+                            onOpenBadges = { backStack.push(Destination.Badges) },
+                        )
+                    }
+                    entry<Destination.History> {
+                        HistoryScreen(
+                            onBack = { backStack.pop() },
+                            onOpenTrip = { trip ->
+                                backStack.push(Destination.TripDetail(trip.startTimeMs))
+                            },
+                        )
+                    }
+                    entry<Destination.TripDetail> { key ->
+                        TripDetailEntry(
+                            startTimeMs = key.startTimeMs,
+                            onBack = { backStack.pop() },
+                            onOpenRoute = { id -> backStack.push(Destination.RouteEditor(id)) },
+                        )
+                    }
+                    entry<Destination.Badges> {
+                        BadgesScreen(
+                            onBack = { backStack.pop() },
+                            onOpenCoverageMap = { backStack.push(Destination.CoverageMap) },
+                        )
+                    }
+                    entry<Destination.CoverageMap> {
+                        CoverageMapScreen(onBack = { backStack.pop() })
+                    }
+                    entry<Destination.Social> {
+                        SocialScreen(
+                            onBack = { backStack.pop() },
+                            // Profile has no signed-out state — it offers a rider who
+                            // never signed in a "Sign out" button — so a guest goes to
+                            // Hub, which carries the sign-in card. Account.signedIn is
+                            // the refresh token and nothing else, which is what You
+                            // decides the same thing on; the handle is no substitute,
+                            // since Auth.carriedUsername leaves a signed-in rider blank
+                            // whenever the token's subject and the stored account scope
+                            // disagree. Social's avatar labels itself off this too.
+                            onOpenAccount = {
+                                backStack.push(
+                                    if (Account.signedIn) Destination.Profile else Destination.Hub
+                                )
+                            },
+                            onOpenFriends = { backStack.push(Destination.Friends) },
+                            onOpenCircles = { backStack.push(Destination.Circles) },
+                        )
+                    }
+                    entry<Destination.Profile> {
+                        ProfileScreen(
+                            onBack = { backStack.pop() },
+                            onSignedOut = { backStack.returnToMap() },
+                        )
+                    }
+                    entry<Destination.Friends> {
+                        FriendsScreen(
+                            onBack = { backStack.pop() },
+                            onOpenServerSettings = { backStack.push(Destination.SettingsServersSync) },
+                        )
+                    }
+                    entry<Destination.Circles> {
+                        CirclesScreen(
+                            onBack = { backStack.pop() },
+                            onOpenCircle = { id -> backStack.push(Destination.CircleDetail(id)) },
+                        )
+                    }
+                    entry<Destination.CircleDetail> { key ->
+                        CircleDetailScreen(
+                            circleId = key.circleId,
+                            onBack = { backStack.pop() },
+                            // #294: go from a name to their position on the map.
+                            // Circles is up to three pushes deep, so this leaves
+                            // everything and returns to the map the way
+                            // RoutesScreen's onNavigate already does, rather than
+                            // popping once.
+                            onFocusRider = { riderId, displayName ->
+                                RiderFocusHolder.request(riderId, displayName)
+                                backStack.returnToMap()
+                            },
+                        )
+                    }
+                    entry<Destination.Settings> {
+                        SettingsScreen(
+                            onBack = { backStack.pop() },
+                            onOpenSpoke = { spoke -> backStack.push(spoke) },
+                        )
+                    }
+                    // One entry per spoke rather than one, because entryProvider dispatches on the
+                    // concrete key type — a spoke with no entry here crashes the app when its
+                    // hub row is tapped (Licences did). Each renders through the same SettingsSpokeScreen,
+                    // whose `when` is exhaustive over Destination.SettingsSpoke.
+                    entry<Destination.SettingsAppearanceMap> { key ->
+                        SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                    }
+                    entry<Destination.SettingsTrackingVehicles> { key ->
+                        SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                    }
+                    entry<Destination.SettingsNavigation> { key ->
+                        SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                    }
+                    entry<Destination.SettingsFog> { key ->
+                        SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                    }
+                    entry<Destination.SettingsDisplaysMedia> { key ->
+                        SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                    }
+                    entry<Destination.SettingsServersSync> { key ->
+                        SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                    }
+                    entry<Destination.SettingsObd2> { key ->
+                        SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                    }
+                    entry<Destination.SettingsLicences> { key ->
+                        SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                    }
+                    entry<Destination.SettingsProblemReport> { key ->
+                        SettingsSpokeScreen(key, onBack = { backStack.pop() }, onNavigate = { backStack.push(it) })
+                    }
+                    entry<Destination.SavedPlaces> { SavedPlacesScreen(onBack = { backStack.pop() }) }
+                    entry<Destination.Routes> {
+                        RoutesScreen(
+                            onBack = { backStack.pop() },
+                            onCreateNew = { backStack.push(Destination.RouteEditor(null)) },
+                            onEdit = { route -> backStack.push(Destination.RouteEditor(route.id)) },
+                            // A push, not returnToMap(): riding a saved route used to
+                            // clear the stack, so a rider who tapped Ride to look at a
+                            // route could not get back to the list to pick another one.
+                            // Pushing keeps Routes underneath, so back returns to it.
+                            //
+                            // Map appearing twice in the stack is legitimate and
+                            // deliberate — NavActionsTest names this exact path. push()
+                            // ignores a push onto the same destination, so [Map, Map] is
+                            // unreachable, and NavDisplay only composes the top entry
+                            // (plus the one it is animating from), so the single
+                            // retained MapView is never asked for two parents at once.
+                            onNavigate = { backStack.push(Destination.Map) },
+                            onOpenPlannedRides = { backStack.push(Destination.PlannedRides) },
+                        )
+                    }
+                    entry<Destination.PlannedRides> {
+                        PlannedRidesScreen(
+                            onBack = { backStack.pop() },
+                            onOpenRide = { id -> backStack.push(Destination.PlannedRideDetail(id)) },
+                            onNewRide = { backStack.push(Destination.PlannedRideEditor(null)) },
+                        )
+                    }
+                    entry<Destination.PlannedRideDetail> { key ->
+                        PlannedRideDetailScreen(
+                            rideId = key.rideId,
+                            onBack = { backStack.pop() },
+                            onEdit = { backStack.push(Destination.PlannedRideEditor(key.rideId)) },
+                            // A push, like Routes' Ride: back returns to the ride.
+                            onRide = { backStack.push(Destination.Map) },
+                        )
+                    }
+                    entry<Destination.PlannedRideEditor> { key ->
+                        PlannedRideEditorScreen(
+                            rideId = key.rideId,
+                            onBack = { backStack.pop() },
+                            onFinish = { backStack.pop() },
+                        )
+                    }
+                    entry<Destination.RouteEditor> { key ->
+                        RouteEditorEntry(
+                            routeId = key.routeId,
+                            onBack = { backStack.pop() },
+                            onSaved = { backStack.pop() },
+                        )
+                    }
+                },
+            )
+        }
 
         SnackbarHost(
             hostState = appSnackbar,

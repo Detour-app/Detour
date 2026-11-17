@@ -67,6 +67,35 @@ type already has a watcher, and costs a new `iosMain` subclass if it does not.
 Check `FlowWatcher.kt` before introducing a new flow element type, and prefer
 reusing one that already has a watcher.
 
+### 5.4 Surfacing errors
+
+Every failure a rider should hear about goes to exactly one of four places,
+picked by what failed — not by where the code happened to have a `Text`:
+
+| What failed | Where it shows | How |
+| --- | --- | --- |
+| **Validation** — the input is wrong | inline, under the field | the field's `supportingText` / `isError` |
+| **An action** — a tap that ran and failed | the app snackbar | `LocalAppMessages.current.showError(message, retry)`; Retry only where re-running the same call is safe (a load, a sync, a send — never a delete) |
+| **A load** — the content never arrived | in place of the content | `ErrorState(message, onRetry)`, not a blank list or an endless spinner |
+| **The app is not in front** | a system notification | the existing `notif/` channels |
+
+Success with news ("Synced", "Not asked: …") is `showNotice`, never `showError`.
+`LocalAppMessages` is `AppRoot`'s host on `AppRoot`'s scope, so a message sent
+as its screen pops still shows; a `retry` runs on that scope too, after the
+screen may be gone — it must not launch on the screen's own scope.
+
+Three exceptions stay inline, each marked `// inline: <reason>` at the site:
+
+- **Inside a `Dialog`/`AlertDialog`** — a snackbar draws under the dialog window.
+- **Ambient state** — convoy live status is state, not an event; it has no
+  moment to announce.
+- **A map sheet already mirrored to the map snackbar** (`MapPermissions.kt`'s
+  `LaunchedEffect(s.error)`) may keep its in-sheet copy for when the sheet is open.
+
+**Never render an exception's own text.** `e.message` is written for a log, in
+whatever words a parser or socket chose; the rider gets a sentence (`data/Http.kt`'s
+`networkFailure` / `failureReason`, `presentation/ServersSyncState.kt`'s `failureText` & co.).
+
 ## 6. Dependency wiring (there is no DI container)
 
 Composition is by direct reference to `object` singletons, with three seams:
