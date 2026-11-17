@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
@@ -65,6 +66,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
@@ -160,7 +162,11 @@ fun SearchIsland(
     var results by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
     var recents by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
+    // A failed lookup (§5.4 bucket 3: in place of the results) and an empty
+    // one are different things: "nothing matched" is an answer, not an error,
+    // so it is its own flag and is not drawn in the error colour.
     var error by remember { mutableStateOf<String?>(null) }
+    var noResults by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val recentNames = remember(recents) { recents.map { it.name }.toSet() }
 
@@ -179,6 +185,7 @@ fun SearchIsland(
         if (!open) {
             query = ""
             error = null
+            noResults = false
             return@LaunchedEffect
         }
         recents = withContext(Dispatchers.IO) { RecentSearchStore.load() }
@@ -205,6 +212,7 @@ fun SearchIsland(
     LaunchedEffect(query, recents) {
         val q = query.trim()
         error = null
+        noResults = false
         if (q.length < 2) {
             results = if (q.isEmpty()) recents
                 else recents.filter { it.name.contains(q, ignoreCase = true) }
@@ -221,14 +229,14 @@ fun SearchIsland(
             val merged = ArrayList(recentMatches)
             for (hit in hits) if (seen.add(hit.name)) merged.add(hit)
             results = merged
-            error = if (merged.isEmpty()) "No results" else null
+            noResults = merged.isEmpty()
         } catch (e: Exception) {
             error = failureText("Search", e)
         }
         searching = false
     }
 
-    val showResults = open && (results.isNotEmpty() || error != null)
+    val showResults = open && (results.isNotEmpty() || error != null || noResults)
     // Glass, not the default opaque ListCard surface: the bar this hangs off
     // is frosted and so is the map chrome across from it, and an opaque slab
     // between them reads as a different app.
@@ -251,6 +259,14 @@ fun SearchIsland(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                     )
                     if (results.isNotEmpty()) CardDivider()
+                }
+                if (noResults) {
+                    Text(
+                        stringResource(R.string.search_no_results),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    )
                 }
                 results.forEachIndexed { index, r ->
                     Row(

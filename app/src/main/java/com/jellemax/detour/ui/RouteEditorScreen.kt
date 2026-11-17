@@ -118,8 +118,8 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     var searchResults by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     // Why the result list is empty, in the rider's words — "No results" when
-    // the geocoder had nothing, something else when it was never asked. Same
-    // one-slot shape SearchIsland uses. Null while there is nothing to say.
+    // the geocoder had nothing, something else when it was never asked.
+    // Null while there is nothing to say.
     var searchStatus by remember { mutableStateOf<String?>(null) }
     val keyboardController = LocalSoftwareKeyboardController.current
 

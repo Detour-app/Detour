@@ -104,6 +104,9 @@
     <string name="nav_curvy_comparing">Vergelijken met de snelste route…</string>
     <string name="nav_curvy_unsupported">Bochtige routes: je routeserver kan dit nog niet</string>
 
+    <!-- SearchIsland.kt -->
+    <string name="search_no_results">Geen resultaten</string>
+
     <!-- RouteEditorScreen.kt, RouteFillControls.kt -->
     <string name="route_editor_new">Nieuwe route</string>
     <string name="route_editor_edit">Route bewerken</string>
