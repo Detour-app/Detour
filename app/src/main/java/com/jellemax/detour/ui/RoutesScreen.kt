@@ -39,6 +39,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -252,10 +253,13 @@ fun RoutesScreen(
         }
     }
 
-    // A loop's "routing…" is news while the rider waits; its failure is an
-    // error. No Retry on either: a re-run would launch on this screen's scope.
+    // A loop's "routing…" is progress, not news: an inline bar over the list
+    // while the rider waits, gone once the map opens or routing fails — a
+    // snackbar couldn't be retracted and would linger over the map. Its failure
+    // is an error, without Retry: a re-run would launch on this screen's scope.
+    var routingLoop by remember { mutableStateOf(false) }
     val loopRide = rememberSavedLoopRide(
-        onStatus = { it?.let(messages::showNotice) },
+        onStatus = { routingLoop = it != null },
         onRide = onNavigate,
         onError = messages::showError,
     )
@@ -385,6 +389,7 @@ fun RoutesScreen(
             }
         } else {
             Column(Modifier.fillMaxSize().padding(padding)) {
+                if (routingLoop) LinearProgressIndicator(Modifier.fillMaxWidth())
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
