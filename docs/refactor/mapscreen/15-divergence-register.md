@@ -3031,6 +3031,36 @@ out to be nearly the same number expressed against different frame budgets.
 **If this list grows past six, the register has stopped working.** A register where everything
 needs a human is a register nobody reads.
 
+## 38. Search results with the same name: Android merges by place, iOS still keys rows by name
+
+**New with `#1004`** — recorded because iOS is parked (owner decision 2026-10-27) and the rule is
+written for both.
+
+**What.** Two branches of one chain in one city share a label ("Colruyt, Gent, België"). Android
+treats two results as one place only when `GeocodeResult.isSamePlaceAs` says so — same primary
+name within `SAME_PLACE_RADIUS_METERS` — in `Geocoder`'s dedupe, in `RecentSearchStore`, and in
+the phone's recents-plus-hits merge, so both branches stay listed.
+
+**Copies.** The rule is not duplicated: it is in `shared/…/data/Geocoder.kt`, and the store half
+is shared, so iOS gets it too. iOS's `MapScreen.swift` still lists rows with
+`ForEach(results, id: \.name)`, so two same-named results give SwiftUI duplicate IDs and a row can
+be dropped or drawn wrongly.
+
+**Verdict: bug on iOS.** Not a product question: key the rows by name plus coordinates (or by
+index), as #1004 asks.
+
+**Fence.**
+
+```sh
+# Entry 38 — same-name results. A changed count means iOS stopped keying by name or Android lost the rule.
+check 'Android merges by isSamePlaceAs' 1 \
+    "$(grep -c 'isSamePlaceAs(' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt)"
+check 'iOS still keys search rows by name' 1 \
+    "$(grep -c 'ForEach(results, id: \\.name)' iosApp/Detour/MapScreen.swift)"
+```
+
+---
+
 ## §D — Keeping this register current
 
 This file is stale the moment anyone edits a copy it cites, and it cites 40-odd line numbers

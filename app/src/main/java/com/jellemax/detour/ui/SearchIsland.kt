@@ -225,9 +225,9 @@ fun SearchIsland(
         searching = true
         try {
             val hits = withContext(Dispatchers.IO) { Geocoder.search(q, near) }
-            val seen = HashSet(recentMatches.map { it.name })
+            // Same place, not same name: two branches of one chain share a label (#1004).
             val merged = ArrayList(recentMatches)
-            for (hit in hits) if (seen.add(hit.name)) merged.add(hit)
+            for (hit in hits) if (merged.none { it.isSamePlaceAs(hit) }) merged.add(hit)
             results = merged
             noResults = merged.isEmpty()
         } catch (e: Exception) {
