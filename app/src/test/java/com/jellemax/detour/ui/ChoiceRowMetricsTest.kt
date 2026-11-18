@@ -4,7 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.roundToInt
 
 /**
  * Pins `choiceRowMetrics`, the sizing rule behind [ChoiceRow].
@@ -151,6 +153,7 @@ class ChoiceRowMetricsTest {
         // This row used to scroll and cut "North-east" at the edge (#1029).
         val m = choiceRowMetrics(rowWidthDp = 304f, widestLabelDp = 69f, count = 9)
         assertTrue(m.wraps)
+        assertEquals(3, m.perLine)
         assertEquals((304f - 16f) / 3f, m.itemWidthDp, eps)
         assertEquals(1f, m.fontScale, eps)
     }
@@ -165,6 +168,39 @@ class ChoiceRowMetricsTest {
         assertTrue(m.wraps)
         assertEquals((304f - 8f) / 2f, m.itemWidthDp, eps)
         assertEquals(1f, m.fontScale, eps)
+    }
+
+    @Test
+    fun `a wrapped line of whole-pixel segments fits its row at 2_625x`() {
+        // The review's case: the 304dp spin-sheet row at 2.625x is 798px,
+        // the 8dp gap 21px. 148dp segments are 388.5px, which Modifier.width
+        // rounds to 389: two plus the gap made 799px and FlowRow pushed the
+        // second segment onto its own line, so 2x2 drew as 4x1.
+        val m = choiceRowMetrics(rowWidthDp = 304f, widestLabelDp = 82f, count = 4)
+        assertEquals(2, m.perLine)
+        val px = wrappedSegmentPx(rowWidthPx = 798, gapPx = 21, perLine = m.perLine, metricsPx = 389)
+        assertEquals(388, px)
+    }
+
+    @Test
+    fun `wrapped segments never overrun the row in pixels at any shipped density`() {
+        val densities = listOf(1f, 1.5f, 2f, 2.625f, 2.75f, 3f, 3.5f, 4f)
+        val rows = listOf(120f, 200f, 296f, 304f, 360f)
+        val labels = listOf(46.4f, 65.7f, 69f, 82f, 100f)
+        val cases = densities.flatMap { d -> rows.flatMap { row -> labels.map { Triple(d, row, it) } } }
+            .flatMap { c -> (4..9).map { c to it } }
+        cases.forEach { (c, count) ->
+            val (d, row, label) = c
+            val m = choiceRowMetrics(row, label, count)
+            if (!m.wraps || m.perLine <= 1) return@forEach
+            val rowPx = floor(row * d).toInt()
+            val gapPx = (8f * d).roundToInt()
+            val px = wrappedSegmentPx(rowPx, gapPx, m.perLine, ceil(m.itemWidthDp * d).toInt())
+            assertTrue(
+                "d=$d row=$row label=$label count=$count",
+                px * m.perLine + gapPx * (m.perLine - 1) <= rowPx,
+            )
+        }
     }
 
     @Test

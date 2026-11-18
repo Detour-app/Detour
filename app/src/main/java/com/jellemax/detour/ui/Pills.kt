@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -65,12 +66,14 @@ private const val MAX_NON_SCROLLING = 3
 
 /** How [ChoiceRow] resolves one row: every segment [itemWidthDp] wide, its
  *  label drawn at [fontScale] of labelLarge inside [paddingDp] of horizontal
- *  padding, with the segments wrapping onto more lines only when [wraps]. */
+ *  padding, with the segments wrapping onto more lines only when [wraps],
+ *  [perLine] to a line. */
 internal data class ChoiceRowMetrics(
     val itemWidthDp: Float,
     val paddingDp: Float,
     val fontScale: Float,
     val wraps: Boolean,
+    val perLine: Int,
 )
 
 /** The degradation order from the widest label that has to fit, in the order
@@ -100,15 +103,15 @@ internal fun choiceRowMetrics(
     // infinite maxWidth; dividing that into slots would hand Modifier.width an
     // infinite Dp and crash the layout pass.
     if (!rowWidthDp.isFinite() || count <= 0) {
-        return ChoiceRowMetrics(widestLabelDp + 2 * PAD_WIDE_DP, PAD_WIDE_DP, 1f, false)
+        return ChoiceRowMetrics(widestLabelDp + 2 * PAD_WIDE_DP, PAD_WIDE_DP, 1f, false, count)
     }
 
     val slot = (rowWidthDp - GAP_DP * (count - 1)) / count
     if (widestLabelDp + 2 * PAD_WIDE_DP <= slot) {
-        return ChoiceRowMetrics(slot, PAD_WIDE_DP, 1f, false)
+        return ChoiceRowMetrics(slot, PAD_WIDE_DP, 1f, false, count)
     }
     if (widestLabelDp + 2 * PAD_TIGHT_DP <= slot) {
-        return ChoiceRowMetrics(slot, PAD_TIGHT_DP, 1f, false)
+        return ChoiceRowMetrics(slot, PAD_TIGHT_DP, 1f, false, count)
     }
     // Roboto's advances scale linearly with the font size, so the fraction of
     // the label that fits is the fraction of the size that does.
@@ -116,7 +119,7 @@ internal fun choiceRowMetrics(
     // A short row keeps shrinking past the floor rather than wrap, but not
     // past MIN_SCALE: clamping there drew the label wider than its segment.
     if (scale >= SHRINK_FLOOR || (count <= MAX_NON_SCROLLING && scale >= MIN_SCALE)) {
-        return ChoiceRowMetrics(slot, PAD_TIGHT_DP, scale.coerceAtMost(1f), false)
+        return ChoiceRowMetrics(slot, PAD_TIGHT_DP, scale.coerceAtMost(1f), false, count)
     }
     return wrapped(rowWidthDp, widestLabelDp, count)
 }
@@ -132,8 +135,18 @@ private fun wrapped(rowWidthDp: Float, widestLabelDp: Float, count: Int): Choice
     val lines = (count + fits - 1) / fits
     val perLine = (count + lines - 1) / lines
     val width = (rowWidthDp - GAP_DP * (perLine - 1)) / perLine
-    return ChoiceRowMetrics(maxOf(width, content), PAD_TIGHT_DP, 1f, true)
+    return ChoiceRowMetrics(maxOf(width, content), PAD_TIGHT_DP, 1f, true, perLine)
 }
+
+/** A wrapped segment's width in whole pixels: the row's pixels, less the
+ *  gaps, split [perLine] ways and rounded down. `Modifier.width` rounds a
+ *  fractional dp to the nearest pixel, so [ChoiceRowMetrics.itemWidthDp]
+ *  could come out half a pixel wide per segment; a line of them then ran a
+ *  pixel past the row and FlowRow pushed its last segment onto the next line
+ *  (304dp at 2.625x: 388.5dp-px segments, two plus a gap 799px in 798). A
+ *  one-to-a-line row keeps its metrics width - there is no sibling to push. */
+internal fun wrappedSegmentPx(rowWidthPx: Int, gapPx: Int, perLine: Int, metricsPx: Int): Int =
+    if (perLine <= 1) metricsPx else minOf(metricsPx, (rowWidthPx - gapPx * (perLine - 1)) / perLine)
 
 /** One segment of a [ChoiceRow]: rounded, filled with the primary colour when
  *  selected, and exactly
@@ -146,6 +159,7 @@ private fun ChoiceItem(
     label: String,
     selected: Boolean,
     metrics: ChoiceRowMetrics,
+    width: Dp,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -158,7 +172,7 @@ private fun ChoiceItem(
             // SearchIsland.kt:341-347 documents: outside it, the fixed size
             // clamps the target back to the pill.
             .minimumInteractiveComponentSize()
-            .width(metrics.itemWidthDp.dp)
+            .width(width)
             // Clip before selectable so the ripple stays inside the pill.
             .clip(CircleShape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
@@ -222,9 +236,17 @@ internal fun ChoiceRow(
         val metrics = remember(widest, maxWidth, options.size) {
             choiceRowMetrics(maxWidth.value, widest, options.size)
         }
+        val width = with(density) {
+            if (!metrics.wraps) metrics.itemWidthDp.dp else wrappedSegmentPx(
+                rowWidthPx = constraints.maxWidth,
+                gapPx = GAP_DP.dp.roundToPx(),
+                perLine = metrics.perLine,
+                metricsPx = ceil(metrics.itemWidthDp * density.density).toInt(),
+            ).toDp()
+        }
         val items = @Composable {
             options.forEachIndexed { i, label ->
-                ChoiceItem(label, i == selectedIndex, metrics, { onSelect(i) })
+                ChoiceItem(label, i == selectedIndex, metrics, width, { onSelect(i) })
             }
         }
         if (metrics.wraps) {
@@ -233,6 +255,9 @@ internal fun ChoiceRow(
             FlowRow(
                 Modifier.fillMaxWidth().selectableGroup(),
                 horizontalArrangement = Arrangement.spacedBy(GAP_DP.dp),
+                // The balanced count, as a guard: the width above already
+                // fits exactly this many, so one more never squeezes in.
+                maxItemsInEachRow = metrics.perLine,
             ) { items() }
         } else {
             Row(
