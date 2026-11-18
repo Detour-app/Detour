@@ -91,8 +91,8 @@ internal fun CurvyRouteControl(
 }
 
 /**
- * Stateless: the three-stop slider with its labels and the cost line, or the
- * one-line reason the server can't do it, or nothing on a car route.
+ * Stateless: the three-stop slider with its labels and the cost line, or
+ * nothing on a car route or a server that can't route curvy.
  */
 @Composable
 private fun CurvyRouteRow(
@@ -101,11 +101,6 @@ private fun CurvyRouteRow(
 ) {
     when (state.control) {
         CurvyControl.HIDDEN -> Unit
-        CurvyControl.UNSUPPORTED -> Text(
-            stringResource(R.string.nav_curvy_unsupported),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         CurvyControl.SLIDER -> Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(stringResource(R.string.nav_curvy), style = MaterialTheme.typography.labelLarge)
             val labels = listOf(

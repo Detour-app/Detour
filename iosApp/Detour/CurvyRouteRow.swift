@@ -15,12 +15,7 @@ struct CurvyRouteRow: View {
     private static let labels = ["Fast", "Balanced", "Twisty"]
 
     var body: some View {
-        if state.control == .unsupported {
-            Text("Curvy routes: your routing server can't do this yet")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if state.control == .slider {
+        if state.control == .slider {
             slider
         }
     }
