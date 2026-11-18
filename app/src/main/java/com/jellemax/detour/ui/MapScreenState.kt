@@ -64,13 +64,20 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     private var destinationState: LatLon? by mutableStateOf(seed.destination)
 
     /** Any other destination drops [vias]: they were the stops on the way to
-     *  this one, and a dozen writers set it without knowing they exist. */
+     *  this one, and a dozen writers set it without knowing they exist.
+     *
+     *  It drops [error] too (#1022): a failed spin, then a picked place, put
+     *  the spin's failure under the Navigate panel the rider had just opened.
+     *  Every writer that reports about the new destination sets [error] after
+     *  setting it. A denied location stays: that is still true, and its
+     *  snackbar carries the Allow action. */
     var destination: LatLon?
         get() = destinationState
         set(value) {
             if (value != destinationState) {
                 vias = emptyList()
                 viaRide = null
+                if (error != LOCATION_DENIED_ERROR) error = null
             }
             destinationState = value
         }
@@ -195,6 +202,7 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
 
     /** Every failure the screen reports, from a denied permission to a spin
      *  that found nothing. A dozen writers and, before the snackbar, one
-     *  reader inside a sheet that is collapsed by default. */
+     *  reader inside a sheet that is collapsed by default. A new
+     *  [destination] clears it. */
     var error: String? by mutableStateOf(null)
 }

@@ -48,6 +48,33 @@ class MapScreenStateTest {
         assertTrue(s.camAuthority.following)
     }
 
+    /** #1022: a failed spin's message showed up in the Navigate panel of the
+     *  place picked after it. */
+    @Test
+    fun aNewDestinationDropsAnEarlierError() {
+        val s = MapScreenState(SpinResult(), null)
+        s.error = "Not enough roads for a round trip"
+
+        s.destination = LatLon(52.0, 5.1)
+        assertNull(s.error)
+
+        s.error = "Navigation failed"
+        s.destination = LatLon(52.0, 5.1)
+        assertEquals("re-picking the same place keeps its own error", "Navigation failed", s.error)
+
+        s.destination = null
+        assertNull("the dock's clear drops it too", s.error)
+    }
+
+    @Test
+    fun aNewDestinationKeepsADeniedLocation() {
+        val s = MapScreenState(SpinResult(), null)
+        s.error = LOCATION_DENIED_ERROR
+
+        s.destination = LatLon(52.0, 5.1)
+        assertEquals(LOCATION_DENIED_ERROR, s.error)
+    }
+
     private val store = LatLon(52.0, 5.1)
     private val bakery = LatLon(52.0, 5.2)
     private val work = LatLon(52.0, 5.3)
