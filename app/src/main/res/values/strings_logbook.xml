@@ -186,7 +186,7 @@
     <string name="routes_loop_via_start">Ride to the start first</string>
     <string name="routes_loop_nearest">Join at the nearest point</string>
     <string name="routes_loop_routing">Routing the loop…</string>
-    <string name="routes_exported">Exported %1$s</string>
+    <string name="routes_exported">Saved %1$s as GPX</string>
     <string name="routes_imported">Imported %1$s</string>
     <string name="routes_import_unreadable">That file isn\'t a route Detour can read</string>
     <string name="routes_share_route">Share route</string>
@@ -204,10 +204,11 @@
     <string name="routes_delete">Delete</string>
     <string name="routes_sent">Sent \"%1$s\" to %2$s</string>
     <string name="routes_more_for">More for %1$s</string>
+    <string name="routes_more">More options</string>
     <string name="routes_rename">Rename</string>
     <string name="routes_edit">Edit</string>
-    <string name="routes_share_file">Share as file</string>
-    <string name="routes_export">Export…</string>
+    <string name="routes_share_file">Share GPX file…</string>
+    <string name="routes_export">Save GPX to device…</string>
     <string name="routes_send_friend">Send to a friend</string>
     <string name="routes_rename_title">Rename route</string>
     <string name="routes_save">Save</string>
