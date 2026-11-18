@@ -3093,6 +3093,32 @@ check 'iOS still keys search rows by name' 1 \
 
 ---
 
+## 41. Routes screen: Android labels its top-bar actions and shows an unmeasured length, iOS doesn't
+
+**New with `#1025`** — recorded because iOS is parked (owner decision 2026-10-27). Numbered 41
+because open PR #1036 adds entry 40.
+
+**What.** Android's Routes top bar puts Planned rides / Pull shared routes / Import route in one
+labelled overflow menu, and a route card with no routed distance shows its line's length as
+"~120 km" (`routeSubtitle`'s `approxMeters`, shared). iOS's `RoutesScreen.swift` still has bare
+icon buttons (accessibility labels only) and shows a distance only when `distanceMeters` is set.
+iOS has no save-a-spin, so the "Loop · ~120 km" name has no iOS half.
+
+**Verdict: polish gap on iOS, not a product question.** Use the shared `routeSubtitle` for the
+card line and label the toolbar actions when iOS is unparked.
+
+**Fence.**
+
+```sh
+# Entry 41 — Routes top bar and unmeasured length. Counts measured against this entry's commit.
+check 'Android routes top bar is one overflow' 1 \
+    "$(grep -c 'R.string.routes_more)' app/src/main/java/com/jellemax/detour/ui/RoutesScreen.kt)"
+check 'iOS still shows only a measured distance' 1 \
+    "$(grep -c 'route.distanceMeters?.doubleValue' iosApp/Detour/RoutesScreen.swift)"
+```
+
+---
+
 ## §D — Keeping this register current
 
 This file is stale the moment anyone edits a copy it cites, and it cites 40-odd line numbers

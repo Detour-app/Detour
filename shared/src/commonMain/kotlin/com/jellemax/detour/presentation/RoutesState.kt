@@ -1,6 +1,7 @@
 package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.SavedSpins
 import com.jellemax.detour.data.TravelMode
@@ -54,16 +55,24 @@ data class RoutesState(
  * [sharedBy] follows the same discipline — blank (the common case, a route
  * the rider made themselves) drops the fact entirely rather than rendering
  * "shared by ".
+ *
+ * [approxMeters] stands in for a missing [distanceMeters], marked "~": the
+ * length of the route's own line when no router measured it (#1025) — an
+ * approximate spin loop's sketch through its stops, or an imported track.
  */
 fun routeSubtitle(
     distanceMeters: Double?,
     stopCount: Int,
     timeMs: Long? = null,
     sharedBy: String = "",
+    approxMeters: Double? = null,
 ): String {
     val stops = "$stopCount ${if (stopCount == 1) "stop" else "stops"}"
     val parts = buildList {
-        distanceMeters?.let { add(routeDistanceLabel(it)) }
+        when {
+            distanceMeters != null -> add(routeDistanceLabel(distanceMeters))
+            approxMeters != null -> add("~" + routeDistanceLabel(approxMeters))
+        }
         add(stops)
         timeMs?.let { add(formatDurationHistory(it)) }
         if (sharedBy.isNotBlank()) add("shared by $sharedBy")
@@ -140,7 +149,10 @@ fun routesStateFrom(routes: List<SavedRoute>, serverUsable: Boolean = true): Lis
     RouteCard(
         id = r.id,
         name = r.name,
-        subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy),
+        subtitle = routeSubtitle(
+            r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy,
+            approxMeters = r.polyline.takeIf { r.distanceMeters == null && it.size >= 2 }?.let(NavEngine::lengthMeters),
+        ),
         polyline = r.polyline,
         opensExternally = routeOpensExternally(r, serverUsable),
     )
