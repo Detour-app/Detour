@@ -1,13 +1,12 @@
 package com.jellemax.detour.ui
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -27,6 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.ceil
+import kotlin.math.floor
 
 /** Gap between segments, and the two horizontal paddings a row degrades
  *  through before it is allowed to shrink the label. */
@@ -35,18 +35,18 @@ private const val PAD_WIDE_DP = 14f
 private const val PAD_TIGHT_DP = 8f
 
 /** labelMedium (12sp) over labelLarge (14sp): the floor the label may shrink
- *  to before scrolling is the only remaining option. */
+ *  to before wrapping is the only remaining option. */
 private const val SHRINK_FLOOR = 12f / 14f
 
 /** A row this narrow has no readable answer left, so stop shrinking: below
- *  this even a two- or three-item row scrolls, because the alternative is a
+ *  this even a two- or three-item row wraps, because the alternative is a
  *  label drawn wider than its segment and cut by the clip. Reachable — a
  *  320dp screen at font scale 2 puts the trip card's "Standard" here. */
 private const val MIN_SCALE = 0.5f
 
-/** Up to this many segments the row never scrolls: Mode (2, in the spin
+/** Up to this many segments the row stays on one line: Mode (2, in the spin
  *  sheet) and the decimal separator (3, in Settings) are switchers small
- *  enough that being able to flick one sideways would read as breakage rather
+ *  enough that breaking one over two lines would read as breakage rather
  *  than as a control. Both have width to spare - the decimal row's widest
  *  label, "System" at 49dp, sits in a 93dp share and still fits with the wide
  *  padding at fontScale 1.3.
@@ -55,29 +55,35 @@ private const val MIN_SCALE = 0.5f
  *  this rule, and at 296dp - a 360dp screen less the scaffold's 16dp
  *  (SettingsScreen.kt:159) and the section card's 16dp
  *  (SettingsScreen.kt:1259), both sides - its 68dp share takes "System" on the
- *  tighter padding at fontScale 1 with 2.6dp to spare, and scrolls from about
- *  fontScale 1.23 up. Accepted rather than papered over: raising this to 4
+ *  tighter padding at fontScale 1 with 2.6dp to spare, and wraps to two rows
+ *  of two from about fontScale 1.23 up. Accepted rather than papered over: raising this to 4
  *  would sweep in the destination-type row, where "Food & drink" has a 70dp
  *  share and would have to shrink past the floor - the clipping this component
- *  exists to prevent. A scrolling row of four equal segments is the intended
- *  last rung; a clipped label is the bug. */
+ *  exists to prevent. A wrapped grid of equal segments is the intended last
+ *  rung; a clipped label is the bug. */
 private const val MAX_NON_SCROLLING = 3
 
 /** How [ChoiceRow] resolves one row: every segment [itemWidthDp] wide, its
  *  label drawn at [fontScale] of labelLarge inside [paddingDp] of horizontal
- *  padding, with the row scrolling only when [scrolls]. */
+ *  padding, with the segments wrapping onto more lines only when [wraps]. */
 internal data class ChoiceRowMetrics(
     val itemWidthDp: Float,
     val paddingDp: Float,
     val fontScale: Float,
-    val scrolls: Boolean,
+    val wraps: Boolean,
 )
 
 /** The degradation order from the widest label that has to fit, in the order
  *  the issue fixed: equal widths at full size while the set fits, then
  *  tighter padding, then a smaller label down to labelMedium, and only then
- *  scrolling — where the segments still share one width, so a nine-option row
- *  reads as one control rather than nine differently sized ones.
+ *  wrapping — where the segments still share one width, so a nine-option row
+ *  reads as one grid rather than nine differently sized pills.
+ *
+ *  Wrapping replaced horizontal scrolling (#1029): a scrolled row cut its last
+ *  visible label at the edge ("North-east") with nothing saying it scrolled.
+ *  The wrapped segments are balanced over the lines — four go two and two, not
+ *  three and one — and stretched to fill the row, so the grid has no ragged
+ *  right edge.
  *
  *  [widestLabelDp] is measured at the bold weight the selected segment draws
  *  in, which is the widest any label ever gets; sizing off the regular weight
@@ -90,11 +96,12 @@ internal fun choiceRowMetrics(
     widestLabelDp: Float,
     count: Int,
 ): ChoiceRowMetrics {
-    val contentSized = ChoiceRowMetrics(widestLabelDp + 2 * PAD_WIDE_DP, PAD_WIDE_DP, 1f, false)
     // An unbounded parent (a horizontally scrolling ancestor) reports an
     // infinite maxWidth; dividing that into slots would hand Modifier.width an
     // infinite Dp and crash the layout pass.
-    if (!rowWidthDp.isFinite() || count <= 0) return contentSized
+    if (!rowWidthDp.isFinite() || count <= 0) {
+        return ChoiceRowMetrics(widestLabelDp + 2 * PAD_WIDE_DP, PAD_WIDE_DP, 1f, false)
+    }
 
     val slot = (rowWidthDp - GAP_DP * (count - 1)) / count
     if (widestLabelDp + 2 * PAD_WIDE_DP <= slot) {
@@ -106,15 +113,30 @@ internal fun choiceRowMetrics(
     // Roboto's advances scale linearly with the font size, so the fraction of
     // the label that fits is the fraction of the size that does.
     val scale = (slot - 2 * PAD_TIGHT_DP) / widestLabelDp
-    // A short row keeps shrinking past the floor rather than scroll, but not
+    // A short row keeps shrinking past the floor rather than wrap, but not
     // past MIN_SCALE: clamping there drew the label wider than its segment.
     if (scale >= SHRINK_FLOOR || (count <= MAX_NON_SCROLLING && scale >= MIN_SCALE)) {
         return ChoiceRowMetrics(slot, PAD_TIGHT_DP, scale.coerceAtMost(1f), false)
     }
-    return contentSized.copy(scrolls = true)
+    return wrapped(rowWidthDp, widestLabelDp, count)
 }
 
-/** One segment of a [ChoiceRow]: rounded, filled when selected, and exactly
+/** The last rung of [choiceRowMetrics]: as many tight-padded segments per line
+ *  as fit, rebalanced so the lines hold near-equal counts, each segment
+ *  stretched to share its line's width. A label wider than the whole row (no
+ *  shipped one is) keeps its content width and overflows, as it would have
+ *  scrolled before. */
+private fun wrapped(rowWidthDp: Float, widestLabelDp: Float, count: Int): ChoiceRowMetrics {
+    val content = widestLabelDp + 2 * PAD_TIGHT_DP
+    val fits = floor((rowWidthDp + GAP_DP) / (content + GAP_DP)).toInt().coerceIn(1, count)
+    val lines = (count + fits - 1) / fits
+    val perLine = (count + lines - 1) / lines
+    val width = (rowWidthDp - GAP_DP * (perLine - 1)) / perLine
+    return ChoiceRowMetrics(maxOf(width, content), PAD_TIGHT_DP, 1f, true)
+}
+
+/** One segment of a [ChoiceRow]: rounded, filled with the primary colour when
+ *  selected, and exactly
  *  as wide as every one of its siblings. `softWrap = false` with
  *  `maxLines = 1` is what makes the no-wrap guarantee structural rather than
  *  a hope about widths — [choiceRowMetrics] then guarantees it never has to
@@ -141,7 +163,10 @@ private fun ChoiceItem(
             .clip(CircleShape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer
+        // Primary, not secondaryContainer: on the dark theme that sat a few
+        // shades off surfaceContainerHigh and the picked side was hard to
+        // tell from the other at a glance (#1029).
+        color = if (selected) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Text(
@@ -150,7 +175,7 @@ private fun ChoiceItem(
             style = style,
             fontSize = style.fontSize * metrics.fontScale,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+            color = if (selected) MaterialTheme.colorScheme.onPrimary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             maxLines = 1,
@@ -190,7 +215,6 @@ internal fun ChoiceRow(
     val measurer = rememberTextMeasurer()
     val boldLabel = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
     val density = LocalDensity.current
-    val scrollState = rememberScrollState()
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val widest = remember(options, boldLabel, density) {
             options.maxOfOrNull { ceil(measurer.measure(it, boldLabel).size.width / density.density) } ?: 0f
@@ -198,16 +222,23 @@ internal fun ChoiceRow(
         val metrics = remember(widest, maxWidth, options.size) {
             choiceRowMetrics(maxWidth.value, widest, options.size)
         }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .then(if (metrics.scrolls) Modifier.horizontalScroll(scrollState) else Modifier)
-                .selectableGroup(),
-            horizontalArrangement = Arrangement.spacedBy(GAP_DP.dp),
-        ) {
+        val items = @Composable {
             options.forEachIndexed { i, label ->
                 ChoiceItem(label, i == selectedIndex, metrics, { onSelect(i) })
             }
+        }
+        if (metrics.wraps) {
+            // No vertical gap: each pill already reserves a 48dp touch target
+            // around its ~36dp body, which spaces the lines on its own.
+            FlowRow(
+                Modifier.fillMaxWidth().selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(GAP_DP.dp),
+            ) { items() }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(GAP_DP.dp),
+            ) { items() }
         }
     }
 }
