@@ -183,7 +183,7 @@ object Logbook {
             val newPlaces = places[t.startTimeMs].orEmpty().count { it.isNew }
             val chip = when {
                 earlier == 0 -> "First ${t.mode.label.lowercase()} trip"
-                newPlaces > 0 -> if (newPlaces == 1) "1 new place" else "$newPlaces new places"
+                newPlaces > 0 -> if (newPlaces == 1) "1 new town" else "$newPlaces new towns"
                 earlier >= LONGEST_MIN_EARLIER && t.distanceMeters > longest -> "Longest yet"
                 t.startTimeMs in twistiestOfMonth -> "Twistiest this month"
                 else -> null
