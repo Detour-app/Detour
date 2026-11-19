@@ -13,7 +13,7 @@
 # target one: the output is plain files, the same for amd64 and arm64, so
 # building it under QEMU for arm64 would only cost minutes. Named `planner`, not
 # `web`: a stage with the build context's name would shadow it.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS planner
+FROM --platform=$BUILDPLATFORM node:26-alpine AS planner
 WORKDIR /web
 # Manifest first, so a source-only change keeps the npm ci layer.
 COPY --from=web package.json package-lock.json ./
