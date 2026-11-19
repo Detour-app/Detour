@@ -59,7 +59,7 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.15" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.15" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.5" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.15" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="11.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.15" />
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.15" />
   </ItemGroup>
