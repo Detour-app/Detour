@@ -53,6 +53,7 @@ import com.jellemax.detour.drive.cameraWarnerOptions
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.presentation.TrafficOnRoute
+import com.jellemax.detour.presentation.rerouteFailureText
 import com.jellemax.detour.presentation.routeAhead
 import com.jellemax.detour.presentation.trafficOnRoute
 import com.jellemax.detour.presentation.withTrafficDelay
@@ -138,7 +139,9 @@ class NavScreen(
     private var progress: NavEngine.Progress? = null
     private var currentSpeedKmh = 0.0
     private var rerouting = false
-    private var lastRerouteMs = 0L
+    /** [NavPolicy.RerouteAttempts]: backoff, "Rerouting" once per episode,
+     *  and the trip card's "Can't reroute" (#1010). */
+    private var rerouteAttempts = NavPolicy.RerouteAttempts()
     /** [NavPolicy.trackOffRoute]'s run of off-route fixes (#1008). */
     private var offRoute: NavPolicy.OffRouteStreak? = null
     /** [NavPolicy.offRouteConfirmed] at the newest fix: what the trip card's
@@ -309,6 +312,7 @@ class NavScreen(
         val now = clock.nowMs()
         offRoute = NavPolicy.trackOffRoute(offRoute, p.offRouteMeters, accuracyMeters, fixElapsedMs, now)
         offRouteShown = NavPolicy.offRouteConfirmed(offRoute, now)
+        rerouteAttempts = rerouteAttempts.afterFix(offRoute)
 
         renderer.follow(
             pos, bearingDeg, speedMps,
@@ -358,7 +362,7 @@ class NavScreen(
             stopsAhead = false, // the car doesn't ride via stops (#736)
             offRoute = offRoute,
             rerouting = rerouting,
-            lastRerouteMs = lastRerouteMs,
+            attempts = rerouteAttempts,
             nowMs = now,
         )) {
             NavPolicy.Decision.Arrived -> if (!arrived) {
@@ -367,8 +371,10 @@ class NavScreen(
             }
             NavPolicy.Decision.Reroute -> {
                 rerouting = true
-                lastRerouteMs = now
-                speak(announcer.rerouting())
+                // Spoken once per off-route episode: offline, every retry
+                // saying it was the bug (#1010). The trip card says why instead.
+                if (rerouteAttempts.announce) speak(announcer.rerouting())
+                rerouteAttempts = rerouteAttempts.started(now)
                 // Continue in the direction of travel: the fresh line does not
                 // open with a U-turn, and the penalty scales with speed so a
                 // 70/90 road never gets one. Skipped while parked or before GPS
@@ -381,6 +387,7 @@ class NavScreen(
                                 Settings.routePreferences(), heading)
                         }
                         route = fresh
+                        rerouteAttempts = rerouteAttempts.succeeded()
                         // The line on the map is only pushed when it changes, so a
                         // reroute is the one moment it has to be pushed again.
                         renderer.setRoute(fresh.polyline, destination)
@@ -392,8 +399,10 @@ class NavScreen(
                         announcer.routeChanged()
                         templateKey = null
                     } catch (e: Exception) {
-                        // stay on the old line; retried after the cooldown
+                        // Stay on the old line; retried after a cooldown that
+                        // grows per failure (NavPolicy.rerouteCooldownMs).
                         Log.w(TAG, "reroute failed", e)
+                        rerouteAttempts = rerouteAttempts.failed(rerouteFailureText(e))
                     } finally {
                         rerouting = false
                     }
@@ -533,7 +542,7 @@ class NavScreen(
             // Part of the key, not just of the template: leaving the route has
             // to redraw even when nothing else moved, and a car stopped just
             // off the line moves none of the five values above.
-            append(offRouteShown)
+            append(offRouteText())
         }
         if (key == templateKey) return
         templateKey = key
@@ -633,7 +642,7 @@ class NavScreen(
             travelEstimate(
                 p.remainingMeters,
                 remainingSeconds(p.withTrafficDelay(traffic)),
-                offRoute = offRouteShown,
+                offRouteText = offRouteText(),
                 trafficText = trafficText(),
             ))
         return builder.build()
@@ -678,8 +687,14 @@ class NavScreen(
     private fun remainingSeconds(p: NavEngine.Progress): Long =
         ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
 
+    /** The trip card's off-route words: null on route, else why no new line
+     *  has come back (#1010) or plain "Off route" while one may still. */
+    private fun offRouteText(): String? =
+        if (!offRouteShown) null
+        else rerouteAttempts.failureText ?: carContext.getString(R.string.car_nav_off_route)
+
     /**
-     * [offRoute] defaults to false so [pushTrip]'s three call sites keep a
+     * [offRouteText] defaults to null so [pushTrip]'s three call sites keep a
      * zero-line diff: those estimates go to the instrument cluster through
      * [NavigationManager.updateTrip], which is a fourth drawing surface and not
      * part of this change. [trafficText] likewise: the cluster gets the delayed
@@ -688,13 +703,13 @@ class NavScreen(
     private fun travelEstimate(
         meters: Double,
         seconds: Long,
-        offRoute: Boolean = false,
+        offRouteText: String? = null,
         trafficText: String? = null,
     ): TravelEstimate {
         val builder = TravelEstimate
             .Builder(carDistance(meters), ZonedDateTime.now().plusSeconds(seconds))
             .setRemainingTimeSeconds(seconds)
-        if (offRoute) {
+        if (offRouteText != null) {
             // Two signals, because the words need a newer host than the colour
             // does: setTripText is @RequiresCarApi(5) while
             // AndroidManifest.xml:56-57 declares minCarApiLevel 1, so on an
@@ -708,7 +723,7 @@ class NavScreen(
             builder.setRemainingDistanceColor(CarColor.RED)
             builder.setRemainingTimeColor(CarColor.RED)
             if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_5) {
-                builder.setTripText(CarText.create(carContext.getString(R.string.car_nav_off_route)))
+                builder.setTripText(CarText.create(offRouteText))
             }
         } else if (trafficText != null) {
             // Off route wins: the line the traffic was measured along is the
