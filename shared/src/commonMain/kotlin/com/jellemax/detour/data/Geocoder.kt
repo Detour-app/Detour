@@ -5,7 +5,28 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import okio.IOException
 
-data class GeocodeResult(val name: String, val location: LatLon)
+data class GeocodeResult(val name: String, val location: LatLon) {
+
+    /**
+     * Whether [other] is this same place: the same primary name (the part before the first comma)
+     * within [SAME_PLACE_RADIUS_METERS]. A name alone is not enough — two branches of one chain in
+     * one city share a label, "Colruyt, Gent, België" — so every merge of results (Photon's own
+     * duplicates, recents against live hits, the recents store) asks this, never `name ==` (#1004).
+     */
+    fun isSamePlaceAs(other: GeocodeResult): Boolean =
+        primaryName() == other.primaryName() &&
+            RoadRoulette.distanceMeters(location, other.location) <= SAME_PLACE_RADIUS_METERS
+
+    // The same place comes back as "Kortrijk, België" and "Kortrijk, West-Vlaanderen, België"
+    // (city vs municipality tags); only the part before the first comma is the place's own name.
+    private fun primaryName() = name.substringBefore(",").trim()
+
+    companion object {
+        // Photon sometimes returns one place twice under slightly different OSM tags (a POI and
+        // the building it sits in, e.g.) a few metres apart; further than this is another place.
+        const val SAME_PLACE_RADIUS_METERS = 250.0
+    }
+}
 
 /**
  * Address/place search via Photon, an OSM-backed geocoder built for type-ahead.
@@ -128,27 +149,11 @@ object Geocoder {
         return results
     }
 
-    // Photon sometimes returns the same place twice under slightly different OSM
-    // tags (a POI and the building it sits in, e.g.) — same name, a few metres
-    // apart. Rather than guess at which tag is "the real one", just drop a later
-    // result that shares a name with, and sits within, this radius of an earlier
-    // one; the earlier (higher-ranked) result wins.
-    private const val DEDUPE_RADIUS_METERS = 250.0
-
+    // Rather than guess at which OSM tag is "the real one", drop a later result that is the same
+    // place as an earlier one; the earlier (higher-ranked) result wins.
     private fun dedupe(results: List<GeocodeResult>): List<GeocodeResult> {
-        // Compare the primary part of the label, not the whole thing: the same
-        // place comes back as "Kortrijk, België" and "Kortrijk, West-Vlaanderen,
-        // België" (city vs municipality tags), and only the part before the
-        // first comma is the place's own name.
-        fun primary(r: GeocodeResult) = r.name.substringBefore(",").trim()
         val kept = ArrayList<GeocodeResult>(results.size)
-        for (result in results) {
-            val isDuplicate = kept.any { seen ->
-                primary(seen) == primary(result) &&
-                    RoadRoulette.distanceMeters(seen.location, result.location) <= DEDUPE_RADIUS_METERS
-            }
-            if (!isDuplicate) kept.add(result)
-        }
+        for (result in results) if (kept.none { it.isSamePlaceAs(result) }) kept.add(result)
         return kept
     }
 

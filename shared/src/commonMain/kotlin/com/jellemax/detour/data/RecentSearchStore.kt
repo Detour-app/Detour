@@ -11,11 +11,8 @@ object RecentSearchStore {
     private const val MAX_ENTRIES = 8
 
     fun save(result: GeocodeResult) {
-        val entries = load().toMutableList()
-        entries.removeAll { it.name == result.name }
-        entries.add(0, result)
         val array = buildJsonArray {
-            for (r in entries.take(MAX_ENTRIES)) addJsonObject {
+            for (r in withPicked(load(), result)) addJsonObject {
                 put("name", r.name)
                 put("lat", r.location.lat)
                 put("lon", r.location.lon)
@@ -23,6 +20,13 @@ object RecentSearchStore {
         }
         deviceFile(FILE_NAME).writeText(array.string())
     }
+
+    /**
+     * [entries] with [picked] moved to the front: an earlier entry for the same place goes, a
+     * different place that shares its name stays (#1004). Capped at [MAX_ENTRIES].
+     */
+    internal fun withPicked(entries: List<GeocodeResult>, picked: GeocodeResult): List<GeocodeResult> =
+        (listOf(picked) + entries.filterNot { it.isSamePlaceAs(picked) }).take(MAX_ENTRIES)
 
     fun load(): List<GeocodeResult> {
         val f = deviceFile(FILE_NAME)
