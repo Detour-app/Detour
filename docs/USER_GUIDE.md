@@ -92,14 +92,15 @@ buttons at the top, and a sheet along the bottom.
 
 - **Where to?** — address and place search. See
   [Search and saved places](#search-and-saved-places).
-- **Avatar** (right of the search field) — opens **You**: history, routes, saved
+- **Avatar** (right of the search field) — opens **You**: logbook, saved
   places, badges and settings.
 - **Spin** — opens the spin sheet, described next. The chip carries the icon of
   the mode you last used.
 - **+** — adds a saved place as a chip on this row, so a place you go to often
   becomes one tap. With no saved places yet, the row is just Spin and +.
-- **Routes** and **Social** — the two hubs. Routes is your saved multi-stop
-  rides; Social is friends, the leaderboard, convoys and circles.
+- **Routes** and **Social** — Routes is your saved multi-stop rides and planned
+  rides; Social opens **Friends**: friends, the leaderboard, convoys and, one
+  row down, circles.
 
 Drag the sheet's handle down to get more map, or up for the full spin sheet.
 
@@ -314,8 +315,8 @@ next to **Spin**; one tap then makes it the current destination.
 ## Routes
 
 A spin gives you one destination. A **route** is the other way round: stops you
-chose, in the order you want them, kept for later. **You → Routes** lists them,
-each with its stop count, distance and time.
+chose, in the order you want them, kept for later. The home sheet's **Routes**
+card lists them, each with its stop count, distance and time.
 
 - **Build one** by tapping the map to append stops, or searching for them, then
   reorder or drop any of them and pick a mode. The routing server strings them
@@ -346,10 +347,11 @@ export the ones you want to keep before a reinstall.
 
 The avatar in the search field opens **You**. At the top: your name, a
 **Profile & account** link, and four lifetime totals — kilometres, rides,
-places (municipalities entered) and badges earned. Under them, everything else
-hangs off one list: **Logbook**, **Routes**, **Saved places**,
-**Badges & coverage** (with your count, e.g. `8 / 22`) and **Social**. Settings
-is the gear in the top right.
+places (municipalities entered) and badges earned. Tap rides, places or badges
+to open the Logbook, Saved places or Badges. Under them is one list:
+**Logbook**, **Saved places**, **Badges & coverage** (with your count, e.g.
+`8 / 22`) and **Settings**, which is also the gear in the top right. Routes and
+Social are not repeated here; they are the cards on the map's home sheet.
 
 **Logbook** tells your rides as a story, newest first. Each month is a
 chapter: the current one draws all its routes on one map with a one-line
@@ -378,10 +380,11 @@ Coverage — with progress shown on the ones you haven't earned yet. Coverage is
 how much of a municipality's road network you've actually driven, resolved from
 OSM `admin_level=8` boundaries; "Places" counts municipalities entered at all.
 
-**Social** is the hub for everything involving other riders, and all of it needs
-an account on a sync server. It holds two entries: **Friends** and **Circles**.
+**Social** on the home sheet opens **Friends**, the screen for everything
+involving other riders; all of it needs an account on a sync server.
 
-**Friends** carries the **Leaderboard** and **Convoys** on one screen. Once
+**Friends** carries the **Leaderboard**, **Convoys** and a **Circles** row on
+one screen. Once
 signed in you can add friends and compare totals, rides and badges. Friends
 never see your trips or your map — only totals and badges, plus your fog if you
 have opted into sharing it.

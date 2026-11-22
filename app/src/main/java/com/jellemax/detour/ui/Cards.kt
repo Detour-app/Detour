@@ -47,7 +47,8 @@ fun ListCard(
 /**
  * The divider between rows inside a [ListCard] — 0.35-alpha outlineVariant,
  * the one this repo drew by hand at five identical call sites (the Hub's
- * shortcut list, the Social row pair, Saved places). One definition now.
+ * shortcut list, the old Social screen's row pair, Saved places). One
+ * definition now.
  */
 @Composable
 fun CardDivider() {

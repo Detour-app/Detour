@@ -38,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -380,9 +381,14 @@ private fun YouStatsRow(
     }
 }
 
-/** A stat cell as a button: ripple clipped to a rounded cell, announced as one. */
+/**
+ * A stat cell as a button: ripple clipped to a rounded cell, announced as one,
+ * and at least 48dp tall — the value and label alone measure about 40dp.
+ */
 private fun Modifier.statLink(onClick: () -> Unit): Modifier =
-    clip(RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onClick)
+    minimumInteractiveComponentSize()
+        .clip(RoundedCornerShape(12.dp))
+        .clickable(role = Role.Button, onClick = onClick)
 
 @Composable
 internal fun StatCell(value: String, label: String, modifier: Modifier = Modifier) {

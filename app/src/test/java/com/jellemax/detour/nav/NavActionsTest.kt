@@ -222,19 +222,19 @@ class NavActionsTest {
     fun `a circle steps back to the circles list, not out of circles`() {
         // Was CirclesStore.selectedId plus a BackHandler in the screen's own top
         // bar that de-selected before allowing onBack() to leave.
-        val s = stack(Destination.Map, Destination.Hub, Destination.Circles)
+        val s = stack(Destination.Map, Destination.Friends, Destination.Circles)
         s.push(Destination.CircleDetail("c1"))
         s.pop()
-        assertEquals(listOf(Destination.Map, Destination.Hub, Destination.Circles), s)
+        assertEquals(listOf(Destination.Map, Destination.Friends, Destination.Circles), s)
     }
 
     @Test
-    fun `back out of the circles list reaches hub`() {
-        val s = stack(Destination.Map, Destination.Hub, Destination.Circles)
+    fun `back out of the circles list reaches friends`() {
+        val s = stack(Destination.Map, Destination.Friends, Destination.Circles)
         s.push(Destination.CircleDetail("c1"))
         s.pop()
         s.pop()
-        assertEquals(listOf(Destination.Map, Destination.Hub), s)
+        assertEquals(listOf(Destination.Map, Destination.Friends), s)
     }
 
     // ---- keys carry identity, so two subjects are two destinations ---------
@@ -317,7 +317,7 @@ class NavActionsTest {
         assertEquals(
             listOf(
                 Destination.Map,
-                Destination.Hub,
+                Destination.Friends,
                 Destination.Circles,
                 Destination.CircleDetail("c9"),
             ),
@@ -330,13 +330,13 @@ class NavActionsTest {
         val s = plannedRideNotificationStack("r1").toMutableList()
         assertEquals(Destination.PlannedRideDetail("r1"), s.last())
         s.pop()
-        assertEquals(listOf(Destination.Map, Destination.Hub, Destination.Routes, Destination.PlannedRides), s)
+        assertEquals(listOf(Destination.Map, Destination.Routes, Destination.PlannedRides), s)
     }
 
     @Test
     fun `a circle notification without an id lands on the circles list`() {
         assertEquals(
-            listOf(Destination.Map, Destination.Hub, Destination.Circles),
+            listOf(Destination.Map, Destination.Friends, Destination.Circles),
             circleNotificationStack(null),
         )
     }
@@ -352,10 +352,10 @@ class NavActionsTest {
     }
 
     @Test
-    fun `an invite link lands on friends, with back through the hub`() {
+    fun `an invite link lands on friends, with back to the map`() {
         val s = convoyInviteStack().toMutableList()
         assertEquals(Destination.Friends, s.last())
         s.pop()
-        assertEquals(listOf(Destination.Map, Destination.Hub), s)
+        assertEquals(listOf(Destination.Map), s)
     }
 }
