@@ -934,6 +934,16 @@ destination card now turns red and reads "Off route" while `p.offRouteMeters` ex
 `NavPolicy.OFF_ROUTE_METERS`. Two commits as decision 4 required, and the mechanical half was not
 one of them because it had already landed.
 
+**Superseded (#1008): the banners read the confirmed run, not the bound.** A reroute now needs
+`NavPolicy.offRouteConfirmed` — three fixes (or 4 s) each past `max(OFF_ROUTE_METERS, 1.5 ×
+accuracy)` — so one multipath jump no longer reroutes. A banner still comparing one fix against
+`OFF_ROUTE_METERS` would say "Off route" with no reroute behind it, the exact disagreement this
+entry exists to prevent. Both surfaces now show what `offRouteConfirmed` returned for the newest
+fix: the car's trip card from `NavScreen.offRouteShown`, the phone's bar from
+`MapScreenState.offRouteShown` passed to `navStateFrom(offRoute = …)`. That also retires the
+`60.0` default `navStateFrom` used to carry: `:shared` takes the verdict, not a threshold, so the
+bound is written once, in `NavPolicy`.
+
 **Blocks stage 3: no.** Stage 2 leftover. Fix it in stage 2's own follow-up, not in stage 3.
 
 ---

@@ -101,11 +101,25 @@ internal fun MapNavigationSession(
 
     // Follow the route while navigating: progress, arrival, reroute.
     LaunchedEffect(s.navigating, liveFix, s.route) {
-        if (!s.navigating) return@LaunchedEffect
+        if (!s.navigating) {
+            // A new session starts with no off-route run behind it.
+            s.offRoute = null
+            s.offRouteShown = false
+            return@LaunchedEffect
+        }
         val fix = liveFix ?: return@LaunchedEffect
         val r = s.route ?: return@LaunchedEffect
         val pos = LatLon(fix.lat, fix.lon)
         val progress = progressOn(s, r, pos) ?: return@LaunchedEffect
+        // The drive's clock, as in car/NavScreen.kt: the cooldown NavPolicy
+        // applies is per drive, not per wall second.
+        val now = clock.nowMs()
+        // Keyed on the fix, so this effect restarting for a new s.route on the
+        // same fix does not count it twice. Written with navProgress, so the
+        // bar's "Off route" is the same confirmation decide() reroutes on.
+        s.offRoute = NavPolicy.trackOffRoute(
+            s.offRoute, progress.offRouteMeters, fix.accuracyMeters.toDouble(), fix.elapsedRealtimeMs, now)
+        s.offRouteShown = NavPolicy.offRouteConfirmed(s.offRoute, now)
         s.navProgress = progress
         // No setDrivenFraction here: the marker's frame loop (MapCamera.kt) fades
         // the road behind you off its own eased position. A per-fix write would
@@ -120,13 +134,11 @@ internal fun MapNavigationSession(
 
         // Arrival and reroute are NavPolicy's call, shared with car/NavScreen.kt.
         val dest = s.destination
-        // The drive's clock, as in car/NavScreen.kt: the cooldown NavPolicy
-        // applies is per drive, not per wall second.
-        val now = clock.nowMs()
         when (NavPolicy.decide(
             progress = progress,
             hasDestination = dest != null,
             stopsAhead = s.vias.isNotEmpty(),
+            offRoute = s.offRoute,
             rerouting = s.rerouting,
             lastRerouteMs = s.lastRerouteMs,
             nowMs = now,
