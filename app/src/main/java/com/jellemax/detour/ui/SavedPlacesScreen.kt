@@ -353,13 +353,11 @@ private fun AddPlaceDialog(
                     )
                 } else {
                     results.take(5).forEach { r ->
-                        Text(
-                            r.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { picked = r; query = r.name }
-                                .padding(vertical = 10.dp),
+                        SearchResultRow(
+                            r,
+                            near = search.near,
+                            onClick = { picked = r; query = r.name },
+                            dense = true,
                         )
                     }
                 }

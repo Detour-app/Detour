@@ -26,8 +26,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Clear
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -213,23 +211,12 @@ fun SearchIsland(
                     )
                 }
                 results.forEachIndexed { index, r ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { pick(r) }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            if (recents.any { it.isSamePlaceAs(r) }) Icons.Rounded.History
-                                else Icons.Rounded.Place,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        Text(r.name, style = MaterialTheme.typography.bodyLarge)
-                    }
+                    SearchResultRow(
+                        r,
+                        near = search.near,
+                        onClick = { pick(r) },
+                        recent = recents.any { it.isSamePlaceAs(r) },
+                    )
                     if (index != results.lastIndex) CardDivider()
                 }
             }
