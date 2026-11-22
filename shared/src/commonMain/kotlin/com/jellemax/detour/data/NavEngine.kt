@@ -171,15 +171,45 @@ object NavEngine {
             distanceToTurnMeters = distToTurn,
             remainingMeters = remaining,
             routeMeters = total,
-            remainingTimeMs = route.timeMs?.let {
-                if (total > 0) (it * remaining / total).toLong() else null
-            },
+            remainingTimeMs = remainingTimeMs(route, cumAt, alongMeters)
+                ?: route.timeMs?.let {
+                    if (total > 0) (it * remaining / total).toLong() else null
+                },
             speedLimitKmh = route.speedLimits
                 .firstOrNull { index >= it.fromIndex && index < it.toIndex }
                 ?.kmh,
             nextNextInstruction = nextNext,
             distanceToNextNextMeters = distToNextNext,
         )
+    }
+
+    /**
+     * Time left from [alongMeters] to the end of [route], built from each
+     * instruction's own [NavInstruction.timeMs]: the share of an instruction's
+     * time still ahead is the share of its stretch still ahead, by distance,
+     * and instructions wholly behind count nothing. A town-then-motorway route
+     * then shows the motorway's time once the town is done, where the route's
+     * average speed spread over its length would not (#1013).
+     *
+     * Null when there are no instructions or any lacks a time, for the caller
+     * to fall back on the route's total.
+     */
+    private fun remainingTimeMs(route: RouteResult, cumAt: DoubleArray, alongMeters: Double): Long? {
+        if (route.instructions.isEmpty()) return null
+        val last = cumAt.size - 1
+        var ms = 0.0
+        for (ins in route.instructions) {
+            val time = ins.timeMs ?: return null
+            val start = cumAt[ins.startIndex.coerceIn(0, last)]
+            val end = cumAt[ins.endIndex.coerceIn(0, last)]
+            val span = end - start
+            ms += when {
+                alongMeters <= start -> time.toDouble()
+                alongMeters >= end || span <= 0.0 -> 0.0
+                else -> time * (end - alongMeters) / span
+            }
+        }
+        return ms.toLong()
     }
 
     /** Length of [line] in metres, measured along it with the same flat-earth
