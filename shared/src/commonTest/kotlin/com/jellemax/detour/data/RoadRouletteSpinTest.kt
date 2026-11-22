@@ -22,7 +22,9 @@ class RoadRouletteSpinTest {
     private val center = LatLon(51.05, 3.72)
 
     private fun spin(radiusMeters: Double, fetch: suspend (LatLon, Double) -> List<OverpassWay>) = runBlocking {
-        RoadRoulette.randomRoadPoint(center, radiusMeters, bearingDeg = null, explored = null, minRadiusMeters = 0.0, fetch)
+        RoadRoulette.randomRoadPoint(
+            center, radiusMeters, bearingDeg = null, explored = null, minRadiusMeters = 0.0, fetch,
+        )
     }
 
     @Test

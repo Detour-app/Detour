@@ -209,9 +209,9 @@ object RoadRoulette {
     /**
      * [fetchRoads], except a backend that can't be reached (or refuses) throws its
      * [IOException] instead of passing for an area with no roads — so `RoundTripPlanner` and
-     * [randomRoadPoint] can
-     * tell the rider the server is down rather than to try a larger radius (#1021, #1030). No
-     * backend configured, or an answer that won't parse, is still an empty list.
+     * [randomRoadPoint] can tell the rider the server is down rather than to try a larger
+     * radius (#1021, #1030). No backend configured, or an answer that won't parse, is still an
+     * empty list.
      */
     internal suspend fun fetchRoadsOrThrow(
         center: LatLon,
