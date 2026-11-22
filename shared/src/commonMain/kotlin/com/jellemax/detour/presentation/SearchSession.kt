@@ -3,6 +3,7 @@ package com.jellemax.detour.presentation
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.SavedPlace
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -25,25 +26,35 @@ import kotlinx.coroutines.flow.update
  * Neither is set while a lookup is pending or was superseded by the next keystroke.
  *
  * @property query the trimmed query these results answer.
- * @property results matching recents first, then live hits not already among them.
+ * @property results matching saved places first, then matching recents, then live hits, each
+ *   one not already listed (#1007).
  * @property recents every recent the session was given, so a row can tell it is one.
+ * @property saved every saved place the session was given, as results, so a row can tell it is one.
  * @property searching a lookup is in flight (after the debounce, not during it).
  */
 data class SearchState(
     val query: String = "",
     val results: List<GeocodeResult> = emptyList(),
     val recents: List<GeocodeResult> = emptyList(),
+    val saved: List<GeocodeResult> = emptyList(),
     val searching: Boolean = false,
     val failure: Throwable? = null,
     val noResults: Boolean = false,
-)
+) {
+    /**
+     * What an empty box offers: saved places, then recents not already among them. Derived from
+     * [saved] and [recents] rather than read from [results], which still holds the last query's
+     * hits for the moment between a cleared box and the session answering it.
+     */
+    val suggestions: List<GeocodeResult> get() = mergeSearchResults(saved, recents)
+}
 
 /**
  * One place search, the same on every surface (#1005): the map's search island, Android Auto,
  * the route editor and saved places used to carry their own copy, each with its own minimum
  * length, debounce and location bias. This owns all of it — the [MIN_QUERY_LENGTH] floor, the
  * [DEBOUNCE_MS] wait, cancelling a lookup the next keystroke made stale (#1003), failed vs
- * empty, the recents-then-live merge (#1004), and the bias.
+ * empty, the saved-then-recents-then-live merge (#1004, #1007), and the bias.
  *
  * **Bias.** Without a point to bias toward, Photon ranks by global importance and the famous
  * street abroad beats the one around the corner. The session biases toward the [setAnchor]
@@ -63,12 +74,21 @@ class SearchSession(
     val state: StateFlow<SearchState> = _state.asStateFlow()
 
     private val recents = MutableStateFlow<List<GeocodeResult>>(emptyList())
+    private val saved = MutableStateFlow<List<GeocodeResult>>(emptyList())
     private val lastGoodFix = MutableStateFlow<LatLon?>(null)
     private val anchor = MutableStateFlow<LatLon?>(null)
 
     /** The rider's recent picks, shown for an empty query and merged above live hits. */
     fun setRecents(list: List<GeocodeResult>) {
         recents.value = list
+    }
+
+    /**
+     * The rider's saved places (Home, Work…), matched on name and listed above recents, so typing
+     * "home" finds the place already saved instead of asking the geocoder (#1007).
+     */
+    fun setSavedPlaces(list: List<SavedPlace>) {
+        saved.value = list.map { GeocodeResult(it.name, it.location) }
     }
 
     /** A position fix. Kept as the bias only if it is accurate to [MAX_BIAS_ACCURACY_METERS]. */
@@ -85,23 +105,24 @@ class SearchSession(
     internal fun bias(): LatLon? = anchor.value ?: lastGoodFix.value
 
     /**
-     * Answers each query from [queries] until the caller's scope ends. A new query, or new
-     * recents, cancels whatever the previous one was still doing.
+     * Answers each query from [queries] until the caller's scope ends. A new query, new recents
+     * or new saved places cancel whatever the previous one was still doing.
      */
     suspend fun run(queries: Flow<String>) {
-        combine(queries.map { it.trim() }.distinctUntilChanged(), recents) { q, r -> q to r }
-            .collectLatest { (q, r) -> answer(q, r) }
+        combine(queries.map { it.trim() }.distinctUntilChanged(), recents, saved) { q, r, s -> Triple(q, r, s) }
+            .collectLatest { (q, r, s) -> answer(q, r, s) }
     }
 
-    private suspend fun answer(query: String, recentList: List<GeocodeResult>) {
-        val recentMatches =
-            if (query.isEmpty()) recentList else recentList.filter { it.name.contains(query, ignoreCase = true) }
-        _state.update { SearchState(query = query, results = recentMatches, recents = recentList) }
+    private suspend fun answer(query: String, recentList: List<GeocodeResult>, savedList: List<GeocodeResult>) {
+        fun List<GeocodeResult>.matching() =
+            if (query.isEmpty()) this else filter { it.name.contains(query, ignoreCase = true) }
+        val local = mergeSearchResults(savedList.matching(), recentList.matching())
+        _state.update { SearchState(query = query, results = local, recents = recentList, saved = savedList) }
         if (query.length < MIN_QUERY_LENGTH) return
         delay(DEBOUNCE_MS)
         _state.update { it.copy(searching = true) }
         try {
-            val merged = mergeSearchResults(recentMatches, search(query, bias()))
+            val merged = mergeSearchResults(local, search(query, bias()))
             _state.update { it.copy(results = merged, searching = false, noResults = merged.isEmpty()) }
         } catch (e: CancellationException) {
             // Superseded by the next query (#1003): not a failure, and the next answer
@@ -125,12 +146,12 @@ class SearchSession(
     }
 }
 
-/** [recentMatches] first, then each of [hits] that is not the same place as one already listed (#1004). */
+/** [first] as given, then each of [hits] that is not the same place as one already listed (#1004). */
 internal fun mergeSearchResults(
-    recentMatches: List<GeocodeResult>,
+    first: List<GeocodeResult>,
     hits: List<GeocodeResult>,
 ): List<GeocodeResult> {
-    val merged = ArrayList(recentMatches)
+    val merged = ArrayList(first)
     for (hit in hits) if (merged.none { it.isSamePlaceAs(hit) }) merged.add(hit)
     return merged
 }

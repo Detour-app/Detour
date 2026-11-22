@@ -3113,6 +3113,10 @@ session (`app/…/ui/SearchSessionHost.kt` builds it with the lookup on `Dispatc
 `Watcher` for `StateFlow<SearchState>` and a holder Swift can construct, on `TrafficKeyHolder`'s
 pattern — is not written.
 
+`#1007` added saved places to the session: matched by name and listed above recents, offered with
+recents on an empty query (`SearchState.suggestions`). Android's map island and Android Auto feed
+them; iOS's search has no saved places either way, so it follows with the rest of this entry.
+
 **Verdict: bug — iOS follows.** Not a product question: iOS should drive the same session, which
 also resolves entries 20 (bias), 38 and 39 there.
 

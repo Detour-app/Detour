@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Place
@@ -69,6 +70,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.RecentSearchStore
+import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.presentation.failureText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -146,10 +148,16 @@ fun SearchIsland(
     val search by session.state.collectAsStateWithLifecycle()
     val results = search.results
     val recents = search.recents
+    val saved = search.saved
     val error = search.failure?.let { failureText("Search", it) }
     val noResults = search.noResults
     val searching = search.searching
     val focusRequester = remember { FocusRequester() }
+
+    // Saved places rank above recents (#1007). MainActivity has already loaded the store, and
+    // the flow keeps the list current if one is added or renamed while the island is up.
+    val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
+    LaunchedEffect(session, savedPlaces) { session.setSavedPlaces(savedPlaces) }
 
     // Back dismisses the island before it reaches the map, where back leaves
     // the app.
@@ -175,7 +183,9 @@ fun SearchIsland(
         // Same fire-and-forget-off-thread reasoning as the load above: save()
         // re-reads the file before writing it, so it is just as blocking, and
         // nothing here waits on it.
-        scope.launch(Dispatchers.IO) { RecentSearchStore.save(r) }
+        // A saved place is already one tap away; filing it under recents too would only push
+        // a real recent off the end of the list.
+        if (saved.none { it.isSamePlaceAs(r) }) scope.launch(Dispatchers.IO) { RecentSearchStore.save(r) }
         onOpenChange(false)
         onPick(r)
     }
@@ -221,8 +231,11 @@ fun SearchIsland(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            if (recents.any { it.isSamePlaceAs(r) }) Icons.Rounded.History
-                                else Icons.Rounded.Place,
+                            when {
+                                saved.any { it.isSamePlaceAs(r) } -> Icons.Rounded.Bookmark
+                                recents.any { it.isSamePlaceAs(r) } -> Icons.Rounded.History
+                                else -> Icons.Rounded.Place
+                            },
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
