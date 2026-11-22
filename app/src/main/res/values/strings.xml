@@ -98,6 +98,8 @@
     <string name="circles_sign_in_first">Sign in under Friends first — circles share that same friends list.</string>
     <string name="circles_setting_up">Setting up your account — check back in a moment.</string>
     <string name="circles_title">Circles</string>
+    <!-- CirclesEntryCard.kt: the Circles row on Friends -->
+    <string name="circles_entry_sharing">%1$d sharing</string>
     <string name="circles_new">New circle</string>
     <string name="circles_circle">Circle</string>
     <string name="circles_invite">Invite</string>

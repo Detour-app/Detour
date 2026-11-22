@@ -94,6 +94,7 @@
     <string name="circles_sign_in_first">Meld je eerst aan bij Vrienden — kringen gebruiken diezelfde vriendenlijst.</string>
     <string name="circles_setting_up">Je account wordt ingesteld — kijk zo meteen opnieuw.</string>
     <string name="circles_title">Kringen</string>
+    <string name="circles_entry_sharing">%1$d gedeeld</string>
     <string name="circles_new">Nieuwe kring</string>
     <string name="circles_circle">Kring</string>
     <string name="circles_invite">Uitnodigen</string>

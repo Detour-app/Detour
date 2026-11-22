@@ -141,7 +141,6 @@
     <string name="hub_routes">Routes</string>
     <string name="hub_saved_places">Saved places</string>
     <string name="hub_badges_coverage">Badges &amp; coverage</string>
-    <string name="hub_social">Social</string>
     <string name="hub_profile_account">Profile &amp; account</string>
     <string name="hub_guest_title">Riding as guest</string>
     <string name="hub_guest_text">Trips and badges are saved on this phone. Sign in to ride with friends and back them up.</string>

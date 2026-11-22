@@ -89,7 +89,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit) {
+fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit, onOpenCircles: () -> Unit) {
     val username by Account.username.collectAsStateWithLifecycle()
     var addOpen by remember { mutableStateOf(false) }
 
@@ -156,6 +156,7 @@ fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit) {
                 }
                 else -> {
                     FriendsSection(username)
+                    CirclesEntryCard(onOpenCircles)
                     // Convoys: deliberately untouched. Out of scope for this
                     // whole redesign effort (spec §2/§5/§9) — it drives an
                     // Android-only WebSocket singleton (ConvoyLiveClient), a

@@ -20,8 +20,8 @@ import androidx.compose.ui.unit.sp
 
 /**
  * The prototype's list/section card: 20dp corners, a low-emphasis surface
- * container, a faint outline. Not specific to any one screen — You, Social,
- * and Profile each wrap a block of content in exactly this shell.
+ * container, a faint outline. Not specific to any one screen — You, Friends'
+ * Circles row and Profile each wrap a block of content in exactly this shell.
  */
 @Composable
 fun ListCard(
