@@ -399,6 +399,8 @@ class NavScreen(
                         announcer.routeChanged()
                         templateKey = null
                     } catch (e: Exception) {
+                        // inline: ambient nav state — the trip card already says
+                        // "Off route"; the car surface has no event to announce it with.
                         // Stay on the old line; retried after a cooldown that
                         // grows per failure (NavPolicy.rerouteCooldownMs).
                         Log.w(TAG, "reroute failed", e)

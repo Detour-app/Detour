@@ -179,6 +179,8 @@ internal fun MapNavigationSession(
                         // the new line's prompts from scratch.
                         announcer.routeChanged()
                     } catch (e: Exception) {
+                        // inline: ambient nav state — the route bar already says
+                        // "Off route"; a snackbar mid-ride has no moment to announce.
                         // Stay on the old line; retried after a cooldown that
                         // grows per failure (NavPolicy.rerouteCooldownMs).
                         s.rerouteAttempts = s.rerouteAttempts.failed(rerouteFailureText(e))
