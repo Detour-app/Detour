@@ -406,30 +406,39 @@ fun SearchIsland(
                         // size, so the 40 dp circle keeps its own ripple while
                         // the layout reserves the full 48 — outside it, the
                         // fixed size would clamp the target back to 40.
-                        else -> Box(
-                            Modifier
-                                .minimumInteractiveComponentSize()
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                                .clickable(onClick = onAvatarClick, role = Role.Button)
-                                // The initial alone told TalkBack nothing about
-                                // where the tap goes; this names the screen it
-                                // opens ("You", plus the Settings button on it).
-                                .semantics { contentDescription = "You and settings" },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        }
+                        else -> YouAvatar(username, onAvatarClick)
                     }
                 }
             }
         }
+    }
+}
+
+/** The rider's initial in a circle: the way to You and settings. Shared by the
+ *  search bar and the nav sheet's closed strip, so both name and size it alike. */
+@Composable
+internal fun YouAvatar(username: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    // minimumInteractiveComponentSize() comes before the size, so the 40 dp
+    // circle keeps its own ripple while the layout reserves the full 48 —
+    // outside it, the fixed size would clamp the target back to 40.
+    Box(
+        modifier
+            .minimumInteractiveComponentSize()
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary)
+            .clickable(onClick = onClick, role = Role.Button)
+            // The initial alone told TalkBack nothing about where the tap goes;
+            // this names the screen it opens ("You", plus the Settings button on it).
+            .semantics { contentDescription = "You and settings" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onPrimary,
+        )
     }
 }
 

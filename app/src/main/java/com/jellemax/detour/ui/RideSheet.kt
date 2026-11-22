@@ -80,6 +80,11 @@ internal data class WhereTo(
     val onPick: (GeocodeResult) -> Unit,
 )
 
+/** The You avatar on a closed ride strip: the way to You and settings
+ *  mid-trip. Grouped so [NavSheet] stays at seven parameters
+ *  (`docs/guidelines/boundaries.md` §8.4). */
+internal data class YouButton(val username: String, val onClick: () -> Unit)
+
 /** What `NavButton` needs to offer Go from the drive sheet, grouped for the
  *  same reason as [WhereTo]. */
 internal data class GoTarget(
@@ -200,6 +205,7 @@ internal fun NavSheet(
     stats: TripStats?,
     onEndNavigation: () -> Unit,
     onEndTrip: () -> Unit,
+    you: YouButton,
 ) {
     val expanded = toggle.expanded
     RideSheetCard(toggle) {
@@ -213,6 +219,7 @@ internal fun NavSheet(
             isError = state.offRoute,
             crossDescription = "End navigation",
             onCross = onEndNavigation,
+            you = you,
         )
         if (expanded) {
             destinationName?.let { name ->
@@ -292,6 +299,7 @@ private fun RideSheetHeader(
     isError: Boolean,
     crossDescription: String,
     onCross: () -> Unit,
+    you: YouButton? = null,
 ) {
     Row(
         Modifier
@@ -317,6 +325,7 @@ private fun RideSheetHeader(
                 maxLines = 2,
             )
         }
+        you?.let { YouAvatar(it.username, it.onClick) }
         OutlinedIconButton(
             onClick = onCross,
             modifier = Modifier
