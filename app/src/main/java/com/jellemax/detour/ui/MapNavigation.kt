@@ -12,6 +12,7 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
@@ -105,6 +106,7 @@ internal fun MapNavigationSession(
             // A new session starts with no off-route run behind it.
             s.offRoute = null
             s.offRouteShown = false
+            s.stoppedSinceMs = null
             return@LaunchedEffect
         }
         val fix = liveFix ?: return@LaunchedEffect
@@ -120,6 +122,7 @@ internal fun MapNavigationSession(
         s.offRoute = NavPolicy.trackOffRoute(
             s.offRoute, progress.offRouteMeters, fix.accuracyMeters.toDouble(), fix.elapsedRealtimeMs, now)
         s.offRouteShown = NavPolicy.offRouteConfirmed(s.offRoute, now)
+        s.stoppedSinceMs = NavPolicy.trackStopped(s.stoppedSinceMs, fix.speedMps, now)
         s.navProgress = progress
         // No setDrivenFraction here: the marker's frame loop (MapCamera.kt) fades
         // the road behind you off its own eased position. A per-fix write would
@@ -135,7 +138,9 @@ internal fun MapNavigationSession(
         val dest = s.destination
         when (NavPolicy.decide(
             progress = progress,
-            hasDestination = dest != null,
+            destination = dest?.let {
+                NavPolicy.ToDestination(RoadRoulette.distanceMeters(pos, it), s.stoppedSinceMs)
+            },
             stopsAhead = s.vias.isNotEmpty(),
             offRoute = s.offRoute,
             rerouting = s.rerouting,
