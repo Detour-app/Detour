@@ -1837,6 +1837,9 @@ needs a decision. The car's save-after-routing is arguably deliberate (a search 
 route is not a place you went) — that one half is **needs-a-human**, and it is small enough to
 resolve by asking whether recents mean "searched" or "went".
 
+**RESOLVED on Android — `#1005`.** The car now uses the phone's floor, debounce and bias through
+the shared search session (entry 41). Still open: iOS, and the car's save-after-routing.
+
 **Blocks stage 3: no.**
 
 ---
@@ -2760,10 +2763,9 @@ shared search session (`#1005`) would make this one copy.
 
 ```sh
 # Entry 38 — superseded search. A changed count means iOS dropped try? or an Android catch regressed.
-check 'map search rethrows cancellation' 1 \
-    "$(grep -c 'catch (e: CancellationException)' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt)"
-check 'car search rethrows cancellation' 1 \
-    "$(grep -c 'catch (e: CancellationException)' app/src/main/java/com/jellemax/detour/car/SearchScreen.kt)"
+# Since #1005 every Android surface searches through the shared session, so the one catch is there.
+check 'shared search session rethrows cancellation' 1 \
+    "$(grep -c 'catch (e: CancellationException)' shared/src/commonMain/kotlin/com/jellemax/detour/presentation/SearchSession.kt)"
 check 'iOS search still swallows errors with try?' 1 \
     "$(grep -c 'results = (try? await Geocoder.shared.search' iosApp/Detour/MapScreen.swift)"
 ```
@@ -3085,10 +3087,43 @@ index), as #1004 asks.
 # Entry 39 — same-name results. A changed count means iOS stopped keying by name or Android lost the rule.
 # Both counts measured against 6bd2ee3. The Android one anchors on the merge, not the bare call:
 # the history icon in the same file calls isSamePlaceAs too.
+# Since #1005 the merge lives in the shared search session.
 check 'Android merges by isSamePlaceAs' 1 \
-    "$(grep -c 'merged.none { it.isSamePlaceAs(' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt)"
+    "$(grep -c 'merged.none { it.isSamePlaceAs(' shared/src/commonMain/kotlin/com/jellemax/detour/presentation/SearchSession.kt)"
 check 'iOS still keys search rows by name' 1 \
     "$(grep -c 'ForEach(results, id: \\.name)' iosApp/Detour/MapScreen.swift)"
+```
+
+---
+
+## 41. Place search: one shared session on Android, iOS still has its own
+
+**New with `#1005`** — recorded because iOS is parked (owner decision 2026-10-27) and the session
+is written for every surface. Numbered 41 because `#1019` claims 40.
+
+**What.** Entry 20's search parameters, and entries 38-39's cancellation and merge rules, now live
+once in `shared/…/presentation/SearchSession.kt`: a 2-character floor (`MIN_QUERY_LENGTH`), a
+300 ms debounce (`DEBOUNCE_MS`), a superseded lookup that is neither a failure nor empty,
+recents-then-live merge by `isSamePlaceAs`, and a bias toward an anchor (the route editor's last
+stop) else the rider's last fix accurate to `MAX_BIAS_ACCURACY_METERS` (100 m), held sticky.
+
+**Copies.** Android's map island, Android Auto, the route editor and saved places all run the
+session (`app/…/ui/SearchSessionHost.kt` builds it with the lookup on `Dispatchers.IO`). iOS's
+`MapScreen.swift` still runs its own `.task(id: query)` with `near: nil`. Its `iosMain` half — a
+`Watcher` for `StateFlow<SearchState>` and a holder Swift can construct, on `TrafficKeyHolder`'s
+pattern — is not written.
+
+**Verdict: bug — iOS follows.** Not a product question: iOS should drive the same session, which
+also resolves entries 20 (bias), 38 and 39 there.
+
+**Fence.**
+
+```sh
+# Entry 41 — shared search session. A changed count means a surface went back to its own search or iOS adopted it.
+check 'Android surfaces on the shared search session' 4 \
+    "$(grep -lE 'rememberSearchSession|androidSearchSession\(\)' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt app/src/main/java/com/jellemax/detour/car/SearchScreen.kt app/src/main/java/com/jellemax/detour/ui/RouteEditorScreen.kt app/src/main/java/com/jellemax/detour/ui/SavedPlacesScreen.kt | wc -l)"
+check 'iOS still searches unbiased on its own' 1 \
+    "$(grep -c 'near: nil' iosApp/Detour/MapScreen.swift)"
 ```
 
 ---
