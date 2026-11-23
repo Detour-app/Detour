@@ -241,8 +241,7 @@ internal fun BoxScope.MapBottomSlot(
                         state = navState,
                         destinationName = destinationName,
                         stats = stats,
-                        onEndNavigation = onExitNavigation,
-                        onEndTrip = onEndTrip,
+                        exits = NavExits(onExitNavigation, onEndTrip),
                         you = YouButton(username, onOpenHub),
                     )
                     HomeBottomCard.DRIVE -> shownStats.value?.let { trip ->
