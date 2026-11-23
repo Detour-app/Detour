@@ -3175,7 +3175,7 @@ check 'iOS still searches unbiased on its own' 1 \
 ## 44. Placing the rider along the route: the car snaps forward on every line, the phone only on some, iOS never
 
 **New with `#1014`** — recorded because iOS is parked (owner decision 2026-10-27) and the snap is
-shared. Numbered 44 because open PRs claim 40-43.
+shared. Numbered 44 because open PRs claim 42-43 (40-41 are on `main`).
 
 **What.** `ViaStops.follow` (shared, #736) places the rider forward only along the line, so a route
 that rides a road twice is not matched to the leg already ridden. Android Auto (`car/NavScreen.kt`'s
@@ -3188,8 +3188,11 @@ always takes the nearest point on the whole route (`NavEngine.shared.progress(ro
 when each surface calls it. Off-route distance stays the global answer on both Android surfaces.
 
 **Verdict: catch-up on iOS; the phone's gate is a choice, not a bug.** The car has no planned stops,
-so the phone's gate would never fire there; forward-only on every line costs a turn-around on a
-plain line (progress holds at the furthest point until the reroute). iOS should call
+so the phone's gate would never fire there. Forward-only on every line costs a ride back over a
+plain line: `follow` keeps its `from` while the rider stays within 60 m of the line, and the global
+off-route distance is ~0 on the line, so no reroute fires — progress, distance left and prompts
+freeze at the furthest point until the rider leaves the line by more than 60 m or turns forward
+again. Accepted, as it has been on the phone's planned and closing lines since #736. iOS should call
 `ViaStops.follow` as the car does.
 
 **Fence.**
