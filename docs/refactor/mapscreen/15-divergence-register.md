@@ -934,6 +934,16 @@ destination card now turns red and reads "Off route" while `p.offRouteMeters` ex
 `NavPolicy.OFF_ROUTE_METERS`. Two commits as decision 4 required, and the mechanical half was not
 one of them because it had already landed.
 
+**Superseded (#1008): the banners read the confirmed run, not the bound.** A reroute now needs
+`NavPolicy.offRouteConfirmed` — three fixes (or 4 s) each past `max(OFF_ROUTE_METERS, 1.5 ×
+accuracy)` — so one multipath jump no longer reroutes. A banner still comparing one fix against
+`OFF_ROUTE_METERS` would say "Off route" with no reroute behind it, the exact disagreement this
+entry exists to prevent. Both surfaces now show what `offRouteConfirmed` returned for the newest
+fix: the car's trip card from `NavScreen.offRouteShown`, the phone's bar from
+`MapScreenState.offRouteShown` passed to `navStateFrom(offRoute = …)`. That also retires the
+`60.0` default `navStateFrom` used to carry: `:shared` takes the verdict, not a threshold, so the
+bound is written once, in `NavPolicy`.
+
 **Blocks stage 3: no.** Stage 2 leftover. Fix it in stage 2's own follow-up, not in stage 3.
 
 ---
@@ -1288,6 +1298,8 @@ inclusive boundaries and its `voice.stop()`-on-mute, both applied to iOS.** The 
 (`800/300/80`, `spokenDistance`, the phase latch) is written twice and identical, so it is a clean
 `shared/` candidate under the *"a policy earns the core when it is written more than once"* rule —
 with delivery per platform, per the `CircleEvents.kt` shape.
+
+**Since #1012** the 800/300/80 m ladder is iOS's only; Android times the prompts by speed — entry 40.
 
 **RESOLVED — `c95b19d` (policy), `c9547ee` (car), `fb59b8e` (iOS), `e7cb39f` + `31b2ba5` +
 `d682603` (phone), in favour of decision 1's full parity.** The ladder, `spokenDistance` and the
@@ -1836,6 +1848,9 @@ and iOS (one argument).
 needs a decision. The car's save-after-routing is arguably deliberate (a search that failed to
 route is not a place you went) — that one half is **needs-a-human**, and it is small enough to
 resolve by asking whether recents mean "searched" or "went".
+
+**RESOLVED on Android — `#1005`.** The car now uses the phone's floor, debounce and bias through
+the shared search session (entry 41). Still open: iOS, and the car's save-after-routing.
 
 **Blocks stage 3: no.**
 
@@ -2760,10 +2775,9 @@ shared search session (`#1005`) would make this one copy.
 
 ```sh
 # Entry 38 — superseded search. A changed count means iOS dropped try? or an Android catch regressed.
-check 'map search rethrows cancellation' 1 \
-    "$(grep -c 'catch (e: CancellationException)' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt)"
-check 'car search rethrows cancellation' 1 \
-    "$(grep -c 'catch (e: CancellationException)' app/src/main/java/com/jellemax/detour/car/SearchScreen.kt)"
+# Since #1005 every Android surface searches through the shared session, so the one catch is there.
+check 'shared search session rethrows cancellation' 1 \
+    "$(grep -c 'catch (e: CancellationException)' shared/src/commonMain/kotlin/com/jellemax/detour/presentation/SearchSession.kt)"
 check 'iOS search still swallows errors with try?' 1 \
     "$(grep -c 'results = (try? await Geocoder.shared.search' iosApp/Detour/MapScreen.swift)"
 ```
@@ -3085,15 +3099,80 @@ index), as #1004 asks.
 # Entry 39 — same-name results. A changed count means iOS stopped keying by name or Android lost the rule.
 # Both counts measured against 6bd2ee3. The Android one anchors on the merge, not the bare call:
 # the history icon in the same file calls isSamePlaceAs too.
+# Since #1005 the merge lives in the shared search session.
 check 'Android merges by isSamePlaceAs' 1 \
-    "$(grep -c 'merged.none { it.isSamePlaceAs(' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt)"
+    "$(grep -c 'merged.none { it.isSamePlaceAs(' shared/src/commonMain/kotlin/com/jellemax/detour/presentation/SearchSession.kt)"
 check 'iOS still keys search rows by name' 1 \
     "$(grep -c 'ForEach(results, id: \\.name)' iosApp/Detour/MapScreen.swift)"
 ```
 
 ---
 
-## 40. Logbook month header: Android says "new towns", iOS still says "new places"
+## 40. Voice prompt timing: Android times prompts by speed and chains close turns, iOS keeps 800/300/80 m
+
+**New with `#1012`** — recorded because iOS is parked (owner decision 2026-10-27) and the rule is
+written for both.
+
+**What.** `NavAnnouncer.onProgress(progress, speedMps)` places the three prompts 25/10/3 s before
+the turn at the current speed (floors 400/150/30 m, far capped at 2 km, plus 1.5 s of speech lead),
+and adds ", then <cue>" to the near and now prompts when the following maneuver is within
+`max(8 s, 150 m)`. The phone (`ui/MapNavigation.kt`) and the head unit (`car/NavScreen.kt`) call it.
+
+**Copies.** The rule is not duplicated: both ladders are in `shared/…/data/NavAnnouncer.kt`. iOS's
+`NavScreen.swift` still calls the speed-less overload `onProgress(instruction:distanceMeters:)`,
+which keeps the fixed 800/300/80 m ladder and never chains.
+
+**Verdict: catch-up on iOS.** Not a product question: call `onProgress(progress, speedMps)` with the fix speed,
+then delete the speed-less overload and `FIXED_LADDER`.
+
+**Fence.**
+
+```sh
+# Entry 40 — voice timing. Measured against the #1012 branch. A changed count means a surface
+# moved to the other overload.
+check 'Android surfaces pass speed to the announcer' 2 \
+    "$(grep -c 'announcer.onProgress(p, speedMps)\|announcer.onProgress(progress, fix.speedMps)' \
+        app/src/main/java/com/jellemax/detour/car/NavScreen.kt app/src/main/java/com/jellemax/detour/ui/MapNavigation.kt \
+        | awk -F: '{s+=$2} END {print s}')"
+check 'iOS still uses the speed-less overload' 1 \
+    "$(grep -c 'instruction: p.nextInstruction, distanceMeters: p.distanceToTurnMeters' iosApp/Detour/NavScreen.swift)"
+```
+
+---
+
+## 41. Place search: one shared session on Android, iOS still has its own
+
+**New with `#1005`** — recorded because iOS is parked (owner decision 2026-10-27) and the session
+is written for every surface. Numbered 41 because `#1019` claims 40.
+
+**What.** Entry 20's search parameters, and entries 38-39's cancellation and merge rules, now live
+once in `shared/…/presentation/SearchSession.kt`: a 2-character floor (`MIN_QUERY_LENGTH`), a
+300 ms debounce (`DEBOUNCE_MS`), a superseded lookup that is neither a failure nor empty,
+recents-then-live merge by `isSamePlaceAs`, and a bias toward an anchor (the route editor's last
+stop) else the rider's last fix accurate to `MAX_BIAS_ACCURACY_METERS` (100 m), held sticky.
+
+**Copies.** Android's map island, Android Auto, the route editor and saved places all run the
+session (`app/…/ui/SearchSessionHost.kt` builds it with the lookup on `Dispatchers.IO`). iOS's
+`MapScreen.swift` still runs its own `.task(id: query)` with `near: nil`. Its `iosMain` half — a
+`Watcher` for `StateFlow<SearchState>` and a holder Swift can construct, on `TrafficKeyHolder`'s
+pattern — is not written.
+
+**Verdict: bug — iOS follows.** Not a product question: iOS should drive the same session, which
+also resolves entries 20 (bias), 38 and 39 there.
+
+**Fence.**
+
+```sh
+# Entry 41 — shared search session. A changed count means a surface went back to its own search or iOS adopted it.
+check 'Android surfaces on the shared search session' 4 \
+    "$(grep -lE 'rememberSearchSession|androidSearchSession\(\)' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt app/src/main/java/com/jellemax/detour/car/SearchScreen.kt app/src/main/java/com/jellemax/detour/ui/RouteEditorScreen.kt app/src/main/java/com/jellemax/detour/ui/SavedPlacesScreen.kt | wc -l)"
+check 'iOS still searches unbiased on its own' 1 \
+    "$(grep -c 'near: nil' iosApp/Detour/MapScreen.swift)"
+```
+
+---
+
+## 42. Logbook month header: Android says "new towns", iOS still says "new places"
 
 **New with `#1026`** — recorded because iOS is parked (owner decision 2026-10-27).
 
@@ -3114,7 +3193,7 @@ should say "new town(s)".
 **Fence.**
 
 ```sh
-# Entry 40 — month summary wording. A changed count means iOS switched to towns or Android lost it.
+# Entry 42 — month summary wording. A changed count means iOS switched to towns or Android lost it.
 check 'Android month summary says towns' 1 \
     "$(grep -c 'R.plurals.history_new_towns' app/src/main/java/com/jellemax/detour/ui/HistoryScreen.kt)"
 check 'iOS month summary still says places' 1 \

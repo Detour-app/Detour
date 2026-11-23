@@ -84,8 +84,8 @@
     <string name="nav_navigate_to">Navigeren naar</string>
     <string name="nav_save_pin">Pin opslaan</string>
     <string name="nav_clear_destination">Bestemming wissen</string>
-    <string name="nav_loop_via">Lus via hier</string>
-    <string name="nav_loop_via_building">Lus maken…</string>
+    <string name="nav_loop_via">Rondrit via hier</string>
+    <string name="nav_loop_via_building">Rondrit maken…</string>
     <string name="nav_loop_via_overlap">%1$d%% van de terugweg herhaalt de heenweg: er zijn weinig andere wegen naar deze pin.</string>
     <string name="nav_destination">Bestemming</string>
     <string name="nav_mode">Modus</string>
@@ -102,7 +102,6 @@
     <string name="nav_curvy_twisty">Bochtig</string>
     <string name="nav_curvy_cost">+%1$d min · +%2$s</string>
     <string name="nav_curvy_comparing">Vergelijken met de snelste route…</string>
-    <string name="nav_curvy_unsupported">Bochtige routes: je routeserver kan dit nog niet</string>
 
     <!-- SearchIsland.kt -->
     <string name="search_no_results">Geen resultaten</string>
