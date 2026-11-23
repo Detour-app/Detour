@@ -120,10 +120,9 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                     .fillMaxWidth()
                     .height(44.dp),
                 shape = RoundedCornerShape(22.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
-                ),
+                // Neutral, not error red: signing out is reversible, and red is
+                // kept for "Delete account" below so the two don't read alike (#1029).
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             ) {
                 Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, Modifier.size(18.dp))
                 Text(

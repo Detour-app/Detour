@@ -50,16 +50,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
-import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SavedPlaceKind
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.presentation.PlaceRow
 import com.jellemax.detour.presentation.PlacesPresenter
+import com.jellemax.detour.presentation.SearchState
 import com.jellemax.detour.presentation.placesStateFrom
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /** Manage shortcut locations: add by searching an address, rename, delete. */
@@ -282,6 +280,13 @@ private fun kindIcon(kind: SavedPlaceKind) = when (kind) {
     SavedPlaceKind.NONE -> Icons.Rounded.Place
 }
 
+/** Why a finished place search listed nothing, or null when it has nothing to say. */
+private fun placeSearchStatus(search: SearchState): Int? = when {
+    search.failure != null -> R.string.places_search_failed
+    search.noResults -> R.string.places_no_results
+    else -> null
+}
+
 /** Search an address, name it, save it. */
 @Composable
 private fun AddPlaceDialog(
@@ -290,52 +295,26 @@ private fun AddPlaceDialog(
 ) {
     var name by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
     var picked by remember { mutableStateOf<GeocodeResult?>(null) }
-    var searching by remember { mutableStateOf(false) }
-    // Why the list below is empty, in the rider's words. Null while there is
-    // nothing to say; same one-slot shape SearchIsland uses.
-    var searchStatus by remember { mutableStateOf<Int?>(null) }
 
-    // Debounced live search, same shape as the map's search dialog. Picking a
-    // result sets `query = picked.name`, which re-keys this effect — only
-    // clear `picked` when the query no longer matches what was picked, so
-    // that self-triggered restart doesn't null out the just-made selection.
+    // Picking a result writes its name into the box. Only clear `picked` once
+    // the box no longer reads what was picked, or the pick undoes itself.
     LaunchedEffect(query) {
         if (query != picked?.name) picked = null
-        // Every early exit below has to drop the spinner: a restart cancels
-        // whatever call was in flight, and the catch further down rethrows
-        // that cancellation instead of falling through to `searching = false`.
-        // Picking a suggestion mid-search re-keys this effect through the line
-        // below, so that one leaks the spinner just as readily as a deleted
-        // character does.
-        if (query == picked?.name) {
-            searching = false
-            return@LaunchedEffect
-        }
-        if (query.length < 3) {
-            results = emptyList()
-            searching = false
-            searchStatus = null
-            return@LaunchedEffect
-        }
-        delay(400)
-        searching = true
-        try {
-            val hits = withContext(Dispatchers.IO) { Geocoder.search(query, null) }
-            results = hits
-            searchStatus = if (hits.isEmpty()) R.string.places_no_results else null
-        } catch (e: CancellationException) {
-            // The next keystroke cancelled us; a superseded search must not
-            // report itself as an empty one.
-            throw e
-        } catch (e: Exception) {
-            // Not "your address does not exist" — the geocoder was never asked.
-            results = emptyList()
-            searchStatus = R.string.places_search_failed
-        }
-        searching = false
     }
+
+    // The shared search session (#1005). While the box holds a pick, it is asked
+    // nothing: a blank query also cancels a lookup still in flight.
+    val asked = if (picked != null && query == picked?.name) "" else query
+    val session = rememberSearchSession(asked)
+    val search by session.state.collectAsStateWithLifecycle()
+    // Only what answers the box as it reads now, not the previous query's answer.
+    val current = search.query == asked.trim()
+    val searching = current && search.searching
+    val results = if (current) search.results else emptyList()
+    // Why the list below is empty, in the rider's words. Null while there is
+    // nothing to say.
+    val searchStatus = if (current) placeSearchStatus(search) else null
 
     AlertDialog(
         onDismissRequest = onDismiss,

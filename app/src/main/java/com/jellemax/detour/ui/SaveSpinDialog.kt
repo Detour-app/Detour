@@ -19,6 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RouteStore
@@ -87,11 +88,20 @@ internal fun spinCandidateDraft(context: Context, c: RouteCandidate, mode: Trave
 }
 
 /** A [SaveSpinDialog] draft for a loop on the map, named by its length until
- *  the rider names it. Null for an empty line, which has no start. */
+ *  the rider names it. Null for an empty line, which has no start.
+ *
+ *  A loop the router never measured (the approximate one a spin falls back to
+ *  without a server) is named by its own line's length with a "~": a sketch
+ *  through its stops, shorter than the roads it rides, but still a name —
+ *  "Loop found" was the spin's status message, not one (#1025). */
 internal fun spinLoopDraft(context: Context, route: RouteResult, mode: TravelMode): SavedRoute? {
     val start = route.polyline.firstOrNull() ?: return null
-    val name = route.distanceMeters?.let { context.getString(R.string.save_spin_loop_name, formatDistanceKm(it)) }
-        ?: context.getString(R.string.spin_loop_found)
+    val measured = route.distanceMeters
+    val name = if (measured != null) {
+        context.getString(R.string.save_spin_loop_name, formatDistanceKm(measured))
+    } else {
+        context.getString(R.string.save_spin_loop_name_approx, formatDistanceKm(NavEngine.lengthMeters(route.polyline)))
+    }
     return SavedSpins.fromSpin(
         id = System.currentTimeMillis(),
         name = name,
