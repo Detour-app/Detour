@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -420,17 +419,15 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                     )
                 } else {
                     searchResults.take(5).forEach { result ->
-                        Text(
-                            result.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    stops = stops + RouteStop(result.location, result.name)
-                                    searchQuery = ""
-                                    keyboardController?.hide()
-                                }
-                                .padding(vertical = 10.dp),
+                        SearchResultRow(
+                            result,
+                            near = search.near,
+                            onClick = {
+                                stops = stops + RouteStop(result.location, result.name)
+                                searchQuery = ""
+                                keyboardController?.hide()
+                            },
+                            dense = true,
                         )
                     }
                 }

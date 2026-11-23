@@ -69,16 +69,12 @@ sealed interface Destination : NavKey {
     @Serializable
     data object CoverageMap : Destination
 
-    /** The social hub: Friends and Circles. Reached from You and from the map's
-     *  home sheet — which is why its own avatar cannot be a second back arrow. */
-    @Serializable
-    data object Social : Destination
-
-    /** The rider's account: name, avatar, sign out. Reached from the You card
-     *  and from Social's avatar. */
+    /** The rider's account: name, avatar, sign out. Reached from the You card. */
     @Serializable
     data object Profile : Destination
 
+    /** Friends, with Circles as a row inside. The home sheet's Social card opens
+     *  it directly (#1024 dropped the two-row Social screen in between). */
     @Serializable
     data object Friends : Destination
 

@@ -24,11 +24,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Diversity3
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.MilitaryTech
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Route
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -40,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
@@ -54,6 +53,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -75,18 +75,17 @@ import kotlinx.coroutines.withContext
  *
  * Body is driven entirely by [YouPresenter]/[YouState] (built in an earlier
  * task): profile-or-guest card, a 4-cell stats row, and the RIDES list.
- * Friends and Circles moved to [SocialScreen]; Settings moved from a list row
- * to the top-bar button.
+ * Friends and Circles hang off the map's home sheet, and so does Routes, so
+ * none of them repeats here (#1024). Settings is both a list row and the
+ * top-bar gear: the gear alone was the only way in, and nothing named it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HubScreen(
     onBack: () -> Unit,
     onOpenProfile: () -> Unit,
-    onOpenSocial: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHistory: () -> Unit,
-    onOpenRoutes: () -> Unit,
     onOpenSavedPlaces: () -> Unit,
     onOpenBadges: () -> Unit,
 ) {
@@ -141,7 +140,12 @@ fun HubScreen(
                 YouGuestCard()
             }
 
-            YouStatsRow(state)
+            YouStatsRow(
+                state,
+                onOpenHistory = onOpenHistory,
+                onOpenSavedPlaces = onOpenSavedPlaces,
+                onOpenBadges = onOpenBadges,
+            )
 
             SectionLabel(stringResource(R.string.hub_rides_section))
 
@@ -150,13 +154,6 @@ fun HubScreen(
                     icon = Icons.Rounded.MenuBook,
                     title = stringResource(R.string.hub_logbook),
                     onClick = onOpenHistory,
-                    paintCard = false,
-                )
-                CardDivider()
-                HubRow(
-                    icon = Icons.Rounded.Route,
-                    title = stringResource(R.string.hub_routes),
-                    onClick = onOpenRoutes,
                     paintCard = false,
                 )
                 CardDivider()
@@ -176,15 +173,11 @@ fun HubScreen(
                 )
             }
 
-            // TEMP: remove when home screen (batch 5) owns the Social entry.
-            // The prototype's own entry point to Social lives on the map screen,
-            // which that later batch rebuilds; until then this bridge row is the
-            // only way to reach it from You.
             ListCard {
                 HubRow(
-                    icon = Icons.Rounded.Diversity3,
-                    title = stringResource(R.string.hub_social),
-                    onClick = onOpenSocial,
+                    icon = Icons.Rounded.Settings,
+                    title = stringResource(R.string.hub_settings),
+                    onClick = onOpenSettings,
                     paintCard = false,
                 )
             }
@@ -343,7 +336,12 @@ private fun YouGuestCard() {
 /** 4-cell stats row — km / rides / saved places / badges — split by vertical
  *  dividers, value bold in [MaterialTheme.colorScheme.primary]. */
 @Composable
-private fun YouStatsRow(state: YouState) {
+private fun YouStatsRow(
+    state: YouState,
+    onOpenHistory: () -> Unit,
+    onOpenSavedPlaces: () -> Unit,
+    onOpenBadges: () -> Unit,
+) {
     ListCard {
         Row(
             Modifier
@@ -357,20 +355,40 @@ private fun YouStatsRow(state: YouState) {
                 Modifier.fillMaxHeight(),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
             )
-            StatCell("${state.rides}", stringResource(R.string.hub_stat_rides), Modifier.weight(1f))
+            // Each count opens the list it counts (#1024): they looked tappable and
+            // weren't. km has no list of its own; it stays a plain figure.
+            StatCell(
+                "${state.rides}", stringResource(R.string.hub_stat_rides),
+                Modifier.weight(1f).statLink(onOpenHistory),
+            )
             VerticalDivider(
                 Modifier.fillMaxHeight(),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
             )
-            StatCell("${state.places}", stringResource(R.string.hub_stat_places), Modifier.weight(1f))
+            StatCell(
+                "${state.places}", stringResource(R.string.hub_stat_places),
+                Modifier.weight(1f).statLink(onOpenSavedPlaces),
+            )
             VerticalDivider(
                 Modifier.fillMaxHeight(),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
             )
-            StatCell("${state.badgesEarned}", stringResource(R.string.hub_stat_badges), Modifier.weight(1f))
+            StatCell(
+                "${state.badgesEarned}", stringResource(R.string.hub_stat_badges),
+                Modifier.weight(1f).statLink(onOpenBadges),
+            )
         }
     }
 }
+
+/**
+ * A stat cell as a button: ripple clipped to a rounded cell, announced as one,
+ * and at least 48dp tall — the value and label alone measure about 40dp.
+ */
+private fun Modifier.statLink(onClick: () -> Unit): Modifier =
+    minimumInteractiveComponentSize()
+        .clip(RoundedCornerShape(12.dp))
+        .clickable(role = Role.Button, onClick = onClick)
 
 @Composable
 internal fun StatCell(value: String, label: String, modifier: Modifier = Modifier) {
@@ -397,8 +415,8 @@ internal fun StatCell(value: String, label: String, modifier: Modifier = Modifie
  * [paintCard] defaults to true — every existing call site (Hub, Settings)
  * gets its own rounded [Card] exactly as before. Pass false to render just
  * the row content with no card of its own, for a caller that groups several
- * rows inside one shared [Card] with dividers between them (Social's Friends
- * + Circles list, and You's Rides list) — the prototype's list-card pattern,
+ * rows inside one shared [Card] with dividers between them (You's Rides
+ * list) — the prototype's list-card pattern,
  * which a `HubRow` that always paints its own card can't produce.
  */
 @Composable
