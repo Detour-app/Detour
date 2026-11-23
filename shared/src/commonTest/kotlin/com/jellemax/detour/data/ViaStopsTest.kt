@@ -164,6 +164,27 @@ class ViaStopsTest {
         assertTrue(global.remainingMeters > 6000.0, "the global snap's answer, the bug: ${global.remainingMeters}")
     }
 
+    /** #1014, Android Auto's case: no planned stops and a line that does not
+     *  close — out east, back west on the other carriageway 11 m north, then
+     *  off north — yet the forward ride still places the rider on the way
+     *  back, where the global snap takes fixes drifting south for the
+     *  outbound leg. */
+    @Test fun aLineRidingARoadTwiceWithNoStopsIsFollowedForward() {
+        val north = (1..10).map { LatLon(52.0 + it * 0.003, 5.02) }
+        val backLeg = road(5.1, 5.02).drop(1).map { LatLon(52.0001, it.lon) }
+        val line = road(5.0, 5.1) + backLeg + north
+        val route = RouteResult(polyline = line, waypoints = emptyList(), distanceMeters = null)
+        assertFalse(ViaStops.closes(line))
+        val out = (0..40).map { LatLon(52.0, 5.0 + it * 0.0025) }
+        val back = (1..30).map { LatLon(52.0, 5.1 - it * 0.0025) } // 5.025, before the turn north
+        val ride = rideTo(line, emptyList(), *(out + back).toTypedArray())
+
+        val forward = NavEngine.progressAlong(route, ride.along, offRouteMeters = 0.0)!!
+        val global = NavEngine.progress(route, back.last())!!
+        assertTrue(forward.remainingMeters < 4000.0, "remaining ${forward.remainingMeters} m on the way back")
+        assertTrue(global.remainingMeters > 9000.0, "the global snap's answer, the bug: ${global.remainingMeters}")
+    }
+
     /** #921: an out-and-back from the rider ends where it starts, and so does
      *  a round loop; a line to somewhere else does not. */
     @Test

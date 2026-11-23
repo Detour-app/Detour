@@ -44,6 +44,7 @@ import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.ViaStops
 import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
@@ -136,6 +137,11 @@ class NavScreen(
 
     private var route = initialRoute
     private var progress: NavEngine.Progress? = null
+    /** Where the rider is along [route], moved forward only (#1014): the phone's
+     *  #736 snap, so a route that rides a road twice is not placed on the leg
+     *  already ridden. Tied to the line it was made on, so a reroute's fresh
+     *  line starts over from its first point. */
+    private var ride: ViaStops.Ride? = null
     private var currentSpeedKmh = 0.0
     private var rerouting = false
     private var lastRerouteMs = 0L
@@ -301,7 +307,7 @@ class NavScreen(
         fixElapsedMs: Long,
     ) {
         currentSpeedKmh = speedMps * 3.6
-        val p = NavEngine.progress(route, pos) ?: return
+        val p = progressOn(pos) ?: return
         progress = p
         // Drive clock: the reroute cooldown bounds how often a *drive* may
         // reroute, so a 5x replay must not get five times the reroutes. Read
@@ -401,6 +407,20 @@ class NavScreen(
             }
             NavPolicy.Decision.Continue -> {}
         }
+    }
+
+    /**
+     * Where the rider at [pos] is along [route]: placed by [ride], forward only,
+     * rather than at the nearest point on the whole route, which on a line that
+     * uses the same road twice can be the other leg (#1014). How far off the
+     * line they are stays the global answer, as on the phone's `progressOn` in
+     * ui/MapNavigation.kt. The car rides no planned stops, so no vias.
+     */
+    private fun progressOn(pos: LatLon): NavEngine.Progress? {
+        val global = NavEngine.progress(route, pos) ?: return null
+        val next = ViaStops.follow(ride, route.polyline, emptyList(), pos, NavPolicy.OFF_ROUTE_METERS)
+        ride = next
+        return NavEngine.progressAlong(route, next.along, global.offRouteMeters) ?: global
     }
 
     // ---- traffic ----------------------------------------------------------
