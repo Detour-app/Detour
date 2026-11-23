@@ -143,7 +143,7 @@ class LogbookTest {
         assertNull(chips[t2.startTimeMs]) // too few earlier rides for "longest"
         assertEquals("Twistiest this month", chips[t4.startTimeMs])
         assertEquals("Longest yet", chips[t5.startTimeMs])
-        assertEquals("1 new place", chips[t6.startTimeMs])
+        assertEquals("1 new town", chips[t6.startTimeMs])
     }
 
     @Test

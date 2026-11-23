@@ -166,9 +166,26 @@ object RoadRoulette {
      * is nothing to survive a restart for (issue #382's own reasoning). An empty answer is
      * returned as-is: the bbox genuinely having no matching road is a real result, and every
      * caller here already handles an empty list by widening the search or trying the next
-     * sector.
+     * sector. A backend that can't be reached is an empty list here too; [fetchRoadsOrThrow]
+     * is the variant that tells the two apart.
      */
     suspend fun fetchRoads(
+        center: LatLon,
+        radiusMeters: Double,
+        highwayRegex: String,
+    ): List<OverpassWay> = try {
+        fetchRoadsOrThrow(center, radiusMeters, highwayRegex)
+    } catch (e: IOException) {
+        emptyList()
+    }
+
+    /**
+     * [fetchRoads], except a backend that can't be reached (or refuses) throws its
+     * [IOException] instead of passing for an area with no roads — so `RoundTripPlanner` can
+     * tell the rider the server is down rather than to try a larger radius (#1021). No
+     * backend configured, or an answer that won't parse, is still an empty list.
+     */
+    internal suspend fun fetchRoadsOrThrow(
         center: LatLon,
         radiusMeters: Double,
         highwayRegex: String,
@@ -177,8 +194,6 @@ object RoadRoulette {
         if (backendBase.isBlank()) return emptyList()
         return try {
             fetchRoadsViaBackend(backendBase, center, radiusMeters, highwayRegex)
-        } catch (e: IOException) {
-            emptyList()
         } catch (e: SerializationException) {
             emptyList()
         } catch (e: IllegalArgumentException) {
