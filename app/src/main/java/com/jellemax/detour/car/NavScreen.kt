@@ -414,7 +414,8 @@ class NavScreen(
      * rather than at the nearest point on the whole route, which on a line that
      * uses the same road twice can be the other leg (#1014). How far off the
      * line they are stays the global answer, as on the phone's `progressOn` in
-     * ui/MapNavigation.kt. The car rides no planned stops, so no vias.
+     * ui/MapNavigation.kt. The car rides no planned stops, so no vias; unlike the
+ * phone it snaps on every line (divergence register entry 44).
      */
     private fun progressOn(pos: LatLon): NavEngine.Progress? {
         val global = NavEngine.progress(route, pos) ?: return null
