@@ -121,9 +121,10 @@ internal fun NavigationDock(
             }
 
             // The router only reports distance/time once a route is back —
-            // startNavigation()'s fetch, or a route seeded from RoutesScreen
-            // or a convoy. Until then the callout is just the name; the pin
-            // and the orange border still say "this is where you're headed".
+            // the preview MapRoutePreview asks for on a pick (#1027), or a
+            // route seeded from RoutesScreen or a convoy. Until then the
+            // callout is just the name; the pin and the orange border still
+            // say "this is where you're headed".
             // formatDurationHistory ("25 min" / "1 h 12 min") is the wording a
             // route ETA takes elsewhere — the routes list, the nav sheet's
             // "… min left" — not the M:SS clock the live trip card uses.
