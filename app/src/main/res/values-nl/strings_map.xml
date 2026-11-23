@@ -135,10 +135,8 @@
     <string name="hub_settings">Instellingen</string>
     <string name="hub_rides_section">RITTEN</string>
     <string name="hub_logbook">Logboek</string>
-    <string name="hub_routes">Routes</string>
     <string name="hub_saved_places">Opgeslagen plekken</string>
     <string name="hub_badges_coverage">Badges &amp; dekking</string>
-    <string name="hub_social">Sociaal</string>
     <string name="hub_profile_account">Profiel &amp; account</string>
     <string name="hub_guest_title">Je rijdt als gast</string>
     <string name="hub_guest_text">Ritten en badges worden op deze telefoon bewaard. Meld je aan om met vrienden te rijden en er een back-up van te maken.</string>

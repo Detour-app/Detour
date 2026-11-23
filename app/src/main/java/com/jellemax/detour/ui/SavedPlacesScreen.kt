@@ -191,7 +191,7 @@ private fun NoPlacesYet(modifier: Modifier = Modifier) {
 /**
  * One saved place: icon, name, coordinate subtitle, and an overflow menu for
  * rename/delete — reused inside [ListCard] with a divider between rows, the
- * same shell [SocialScreen] uses for its two rows.
+ * same shell You's Rides list uses for its rows.
  *
  * The leading glyph and the overflow menu reflect the place's
  * [com.jellemax.detour.data.SavedPlaceKind]: Home, Work and Favourite each get
