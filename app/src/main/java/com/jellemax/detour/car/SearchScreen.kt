@@ -55,6 +55,9 @@ class SearchScreen(
      *  that screen, not duplicated here, since it already holds the location,
      *  radius and preview state a spin needs. */
     private val onSpin: () -> Unit,
+    /** A `geo:` URI the head unit handed us ("Navigate to X"): coordinates
+     *  start routing straight away, a `q=` text runs as a search. */
+    private val geoUri: Uri? = null,
 ) : Screen(carContext) {
 
     private val session = androidSearchSession()
@@ -79,6 +82,7 @@ class SearchScreen(
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 fetchLocation()
+                takeGeoUri()
                 lifecycleScope.launch {
                     session.setRecents(withContext(Dispatchers.IO) { RecentSearchStore.load() })
                 }
@@ -174,7 +178,10 @@ class SearchScreen(
                 if (route.instructions.isEmpty()) {
                     // No turn data to drive our own nav screen with — hand off
                     // the same way SpinScreen does.
-                    handOff(result.location)
+                    // Not from a navigate intent: handing that back would land
+                    // in our own session again and loop.
+                    if (geoUri == null) handOff(result.location)
+                    else { routeError = carContext.getString(R.string.car_search_nothing_found); invalidate() }
                 } else {
                     screenManager.push(
                         NavScreen(carContext, renderer, from, result.location, route, config, result.name),
@@ -201,7 +208,28 @@ class SearchScreen(
                 if (loc != null) {
                     myLocation = LatLon(loc.latitude, loc.longitude)
                     session.onFix(LatLon(loc.latitude, loc.longitude), loc.accuracy)
+                    pendingDestination?.let { pendingDestination = null; navigateTo(it) }
                 }
             }
+    }
+
+    private var pendingDestination: GeocodeResult? = null
+    private var geoTaken = false
+
+    private fun takeGeoUri() {
+        val uri = geoUri ?: return
+        if (geoTaken) return
+        geoTaken = true
+        val coords = uri.schemeSpecificPart.substringBefore('?').split(',')
+        val lat = coords.getOrNull(0)?.toDoubleOrNull()
+        val lon = coords.getOrNull(1)?.toDoubleOrNull()
+        if (lat != null && lon != null && (lat != 0.0 || lon != 0.0)) {
+            val name = uri.getQueryParameter("q")?.takeIf { it.isNotBlank() && it.toDoubleOrNull() == null && !it.contains(',') }
+                ?: carContext.getString(R.string.car_nav_destination)
+            val dest = GeocodeResult(name, LatLon(lat, lon))
+            if (myLocation != null) navigateTo(dest) else { pendingDestination = dest; fetchLocation() }
+        } else {
+            uri.getQueryParameter("q")?.takeIf { it.isNotBlank() }?.let { onQuery(it) }
+        }
     }
 }

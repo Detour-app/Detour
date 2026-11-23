@@ -77,6 +77,9 @@ private const val TAG = "DetourNav"
  *  no travel time, ~50 km/h. Only feeds the cluster's step ETA. */
 private const val FALLBACK_MPS = 14.0
 
+/** Test-drive pace, ~50 km/h. */
+private const val SIM_SPEED_MPS = 14.0
+
 /**
  * The actual turn-by-turn screen, pushed from [SpinScreen] once a candidate
  * has real turn data. Runs its own independent nav loop against
@@ -263,6 +266,7 @@ class NavScreen(
         lifecycleScope.launch {
             TripTrackingService.lastFix.collect { fix ->
                 fix ?: return@collect
+                if (simulating) return@collect
                 // One bad fix must not take the app with it. Everything below
                 // runs against live network and host state — a reroute, an
                 // Overpass call, a template the host rejects — and an exception
@@ -290,6 +294,40 @@ class NavScreen(
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 Settings.hereTrafficKey.collectLatest { key -> runTraffic(key) }
             }
+        }
+    }
+
+    private var simulating = false
+    private var simJob: Job? = null
+
+    /** Test drive: walks the route at ~50 km/h through the same [onFix] real
+     *  GPS feeds, so reviewers (and anyone at a desk) see turn cards, voice
+     *  and arrival without moving. Toggled from the action strip. */
+    private fun toggleSimulation() {
+        if (simulating) {
+            simJob?.cancel(); simulating = false; invalidate(); return
+        }
+        simulating = true
+        invalidate()
+        simJob = lifecycleScope.launch {
+            val pts = route.polyline
+            var i = 0
+            var carry = 0.0
+            while (simulating && i < pts.size - 1) {
+                val a = pts[i]; val b = pts[i + 1]
+                val seg = com.jellemax.detour.data.RoadRoulette.distanceMeters(a, b)
+                val stepM = SIM_SPEED_MPS
+                if (seg <= 0.0) { i++; continue }
+                val pos = if (carry >= seg) { carry -= seg; i++; continue } else
+                    LatLon(a.lat + (b.lat - a.lat) * carry / seg, a.lon + (b.lon - a.lon) * carry / seg)
+                val bearing = com.jellemax.detour.data.RoadRoulette.bearingDeg(a, b).toFloat()
+                runCatching { onFix(pos, bearing, SIM_SPEED_MPS, 5.0, android.os.SystemClock.elapsedRealtime()) }
+                    .onFailure { Log.w(TAG, "sim fix failed", it) }
+                carry += stepM
+                delay(1000)
+            }
+            simulating = false
+            invalidate()
         }
     }
 
@@ -660,6 +698,16 @@ class NavScreen(
                     }
                     .build(),
             )
+            // The strip caps at four actions; the convoy Break button would be a fifth.
+            .apply {
+                if (CarBreakRegroup.breakAction(carContext) == null) addAction(
+                    Action.Builder()
+                        .setIcon(CarIcon.Builder(IconCompat.createWithResource(carContext,
+                            if (simulating) R.drawable.ic_car_sim_stop else R.drawable.ic_car_sim_start)).build())
+                        .setOnClickListener { toggleSimulation() }
+                        .build(),
+                )
+            }
             // The strip allows a single action with a custom title, and that
             // one is Exit; anything else added here has to be an icon.
             .addAction(

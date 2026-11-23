@@ -7,6 +7,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.car.app.connection.CarConnection
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Observer
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -173,7 +181,12 @@ class MainActivity : ComponentActivity() {
             // The Graphite identity — a fixed amber-on-graphite scheme so the app
             // (and the watch) share one look, instead of the wallpaper's colours.
             MaterialTheme(colorScheme = if (dark) GraphiteDark else GraphiteLight) {
-                Surface { AppRoot() }
+                Surface {
+                    // Android Auto guideline: no phone interaction while the
+                    // car is projecting. The car screens carry the whole drive.
+                    val projecting = rememberProjecting()
+                    if (projecting) PhoneDrivingLock() else AppRoot()
+                }
             }
         }
     }
@@ -297,6 +310,27 @@ private fun PreferRefreshRate(hz: Float) {
 
 /** What the map entry asks for through [PreferRefreshRate] (#892 owner decision 1A). */
 private const val MAP_REFRESH_RATE_HZ = 60f
+
+@Composable
+private fun rememberProjecting(): Boolean {
+    val ctx = LocalContext.current
+    var projecting by remember { mutableStateOf(false) }
+    DisposableEffect(ctx) {
+        val live = CarConnection(ctx).type
+        val obs = Observer<Int> { projecting = it == CarConnection.CONNECTION_TYPE_PROJECTION }
+        live.observeForever(obs)
+        onDispose { live.removeObserver(obs) }
+    }
+    return projecting
+}
+
+@Composable
+private fun PhoneDrivingLock() {
+    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Text(stringResource(R.string.phone_driving_lock), textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.titleMedium)
+    }
+}
 
 @Composable
 private fun AppRoot() {

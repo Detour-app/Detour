@@ -1,10 +1,13 @@
 package com.jellemax.detour.car
 
 import android.content.Intent
+import android.content.res.Configuration
+import androidx.car.app.CarContext
 import android.util.Log
 import androidx.car.app.AppManager
 import androidx.car.app.CarToast
 import androidx.car.app.Screen
+import androidx.car.app.ScreenManager
 import androidx.car.app.Session
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
@@ -47,8 +50,31 @@ class DetourCarSession : Session() {
         })
         toastConvoyGapAlerts()
         CarBreakRegroup.announce(this, carContext)
-        return SpinScreen(carContext, map)
+        val home = SpinScreen(carContext, map)
+        // Cold start from "Navigate to X": the home screen goes first so Back
+        // from the search lands somewhere.
+        if (intent.isNavigate()) {
+            carContext.getCarService(ScreenManager::class.java).push(searchFor(intent, map))
+        }
+        return home
     }
+
+    /** "Navigate to X" while the session is already running. */
+    override fun onNewIntent(intent: Intent) {
+        val map = renderer ?: return
+        if (intent.isNavigate()) carContext.getCarService(ScreenManager::class.java).push(searchFor(intent, map))
+    }
+
+    /** Head unit flipped day/night: the map style has to follow (the host
+     *  only re-themes its own templates). */
+    override fun onCarConfigurationChanged(newConfiguration: Configuration) {
+        renderer?.setDarkTheme(carContext.isDarkMode)
+    }
+
+    private fun Intent.isNavigate() = action == CarContext.ACTION_NAVIGATE && data != null
+
+    private fun searchFor(intent: Intent, map: CarMapRenderer) =
+        SearchScreen(carContext, map, onSpin = {}, geoUri = intent.data)
 
     /**
      * Shows each new convoy gap alert (#655) as a toast, on whichever car
