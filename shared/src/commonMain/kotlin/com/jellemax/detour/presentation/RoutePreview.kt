@@ -1,4 +1,4 @@
-package com.jellemax.detour.map
+package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteResult
@@ -16,8 +16,11 @@ import com.jellemax.detour.data.RouteResult
  * - a destination and **no route yet** — a picked spin candidate or a seeded
  *   route already has its line, and a preview that landed is a route too, so
  *   this does not ask twice;
- * - **not navigating, and Start not fetching** — Start's own request is the
- *   one guidance follows, and a preview landing over it would replace the
+ * - the destination is **not the one guidance just ran to** ([guidedTo]) —
+ *   arrival and Exit drop the route but keep the pin, and a preview there
+ *   would re-park the camera on a line from where the rider now stands;
+ * - **not [guidanceBusy]** (navigating, or Start fetching) — Start's own
+ *   request is the one guidance follows, and a preview landing over it would replace the
  *   line from where the rider is with one from where they were;
  * - a **usable routing server** — without one the dock hands off to an
  *   external app, which routes for itself;
@@ -25,22 +28,22 @@ import com.jellemax.detour.data.RouteResult
  */
 fun routePreviewWanted(
     destination: LatLon?,
+    guidedTo: LatLon?,
     route: RouteResult?,
-    navigating: Boolean,
-    startFetching: Boolean,
+    guidanceBusy: Boolean,
     serverUsable: Boolean,
     hasOrigin: Boolean,
-): Boolean = destination != null && route == null && !navigating && !startFetching && serverUsable && hasOrigin
+): Boolean = destination != null && destination != guidedTo && route == null &&
+    !guidanceBusy && serverUsable && hasOrigin
 
 /**
  * Whether a preview asked for [asked] may still be written when it lands:
  * the rider has not ✕'d or re-picked, nothing else drew a route meanwhile,
- * and Start has not taken over.
+ * and Start has not taken over ([guidanceBusy], as in [routePreviewWanted]).
  */
 fun routePreviewStillCurrent(
     asked: LatLon,
     destination: LatLon?,
     route: RouteResult?,
-    navigating: Boolean,
-    startFetching: Boolean,
-): Boolean = destination == asked && route == null && !navigating && !startFetching
+    guidanceBusy: Boolean,
+): Boolean = destination == asked && route == null && !guidanceBusy

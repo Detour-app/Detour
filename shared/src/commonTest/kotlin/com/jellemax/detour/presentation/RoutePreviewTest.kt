@@ -1,10 +1,10 @@
-package com.jellemax.detour.map
+package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteResult
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /** When the navigation dock asks for a route before Start, and when a landed one may be kept (#1027). */
 class RoutePreviewTest {
@@ -18,12 +18,12 @@ class RoutePreviewTest {
 
     private fun wanted(
         destination: LatLon? = dest,
+        guidedTo: LatLon? = null,
         route: RouteResult? = null,
-        navigating: Boolean = false,
-        startFetching: Boolean = false,
+        guidanceBusy: Boolean = false,
         serverUsable: Boolean = true,
         hasOrigin: Boolean = true,
-    ) = routePreviewWanted(destination, route, navigating, startFetching, serverUsable, hasOrigin)
+    ) = routePreviewWanted(destination, guidedTo, route, guidanceBusy, serverUsable, hasOrigin)
 
     @Test
     fun aFreshDestinationAsksForAPreview() = assertTrue(wanted())
@@ -35,10 +35,13 @@ class RoutePreviewTest {
     fun aRouteAlreadyDrawnIsNotAskedForAgain() = assertFalse(wanted(route = route))
 
     @Test
-    fun startOwnsTheRequestOnceTapped() {
-        assertFalse(wanted(startFetching = true))
-        assertFalse(wanted(navigating = true))
+    fun theDestinationGuidanceJustRanToIsNotPreviewedAgain() {
+        assertFalse(wanted(guidedTo = dest))
+        assertTrue(wanted(guidedTo = LatLon(50.0, 4.0)))
     }
+
+    @Test
+    fun startOwnsTheRequestOnceTapped() = assertFalse(wanted(guidanceBusy = true))
 
     @Test
     fun noServerOrNoPositionNoPreview() {
@@ -48,11 +51,10 @@ class RoutePreviewTest {
 
     @Test
     fun aLandedPreviewIsKeptOnlyForTheSameUntouchedDestination() {
-        assertTrue(routePreviewStillCurrent(dest, dest, null, navigating = false, startFetching = false))
-        assertFalse(routePreviewStillCurrent(dest, null, null, navigating = false, startFetching = false))
-        assertFalse(routePreviewStillCurrent(dest, LatLon(50.0, 4.0), null, navigating = false, startFetching = false))
-        assertFalse(routePreviewStillCurrent(dest, dest, route, navigating = false, startFetching = false))
-        assertFalse(routePreviewStillCurrent(dest, dest, null, navigating = false, startFetching = true))
-        assertFalse(routePreviewStillCurrent(dest, dest, null, navigating = true, startFetching = false))
+        assertTrue(routePreviewStillCurrent(dest, dest, null, guidanceBusy = false))
+        assertFalse(routePreviewStillCurrent(dest, null, null, guidanceBusy = false))
+        assertFalse(routePreviewStillCurrent(dest, LatLon(50.0, 4.0), null, guidanceBusy = false))
+        assertFalse(routePreviewStillCurrent(dest, dest, route, guidanceBusy = false))
+        assertFalse(routePreviewStillCurrent(dest, dest, null, guidanceBusy = true))
     }
 }

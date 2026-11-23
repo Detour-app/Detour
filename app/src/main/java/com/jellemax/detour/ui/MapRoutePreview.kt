@@ -16,9 +16,9 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.fetchStartRoute
-import com.jellemax.detour.map.routePreviewStillCurrent
-import com.jellemax.detour.map.routePreviewWanted
 import com.jellemax.detour.presentation.failureText
+import com.jellemax.detour.presentation.routePreviewStillCurrent
+import com.jellemax.detour.presentation.routePreviewWanted
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -58,9 +58,9 @@ internal fun MapRoutePreview(
 
     val wanted = routePreviewWanted(
         destination = s.destination,
+        guidedTo = s.guidedTo,
         route = s.route,
-        navigating = s.navigating,
-        startFetching = s.rerouting,
+        guidanceBusy = s.navigating || s.rerouting,
         serverUsable = serverUsable,
         hasOrigin = s.myLocation != null,
     )
@@ -107,7 +107,7 @@ private suspend fun askPreview(
     val framed = s.camAuthority
     return try {
         val route = fetchStartRoute(serverConfig, from, to, mode, s.vias)
-        if (!routePreviewStillCurrent(to, s.destination, s.route, s.navigating, s.rerouting)) return null
+        if (!routePreviewStillCurrent(to, s.destination, s.route, s.navigating || s.rerouting)) return null
         val fit = s.camAuthority == framed && route.polyline.size >= 2
         if (fit) {
             s.camAuthority = CameraAuthority.reduce(

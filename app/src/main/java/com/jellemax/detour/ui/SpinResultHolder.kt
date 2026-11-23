@@ -57,6 +57,12 @@ internal data class SpinResult(
      * keeps the pin marked on the loop it shaped.
      */
     val turnaround: LatLon? = null,
+    /**
+     * The [destination] guidance last ran to (#1027); null once another one is
+     * set. Here so a return to the map after arrival does not route-preview
+     * the pin it just arrived at.
+     */
+    val guidedTo: LatLon? = null,
 )
 
 internal object SpinResultHolder {
