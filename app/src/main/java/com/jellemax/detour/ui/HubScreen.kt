@@ -340,7 +340,7 @@ private fun YouGuestCard() {
     }
 }
 
-/** 4-cell stats row — km / rides / places / badges — split by vertical
+/** 4-cell stats row — km / rides / saved places / badges — split by vertical
  *  dividers, value bold in [MaterialTheme.colorScheme.primary]. */
 @Composable
 private fun YouStatsRow(state: YouState) {

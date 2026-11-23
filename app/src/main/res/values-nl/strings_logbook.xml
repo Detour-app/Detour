@@ -47,13 +47,13 @@
         <item quantity="one">%1$d rit</item>
         <item quantity="other">%1$d ritten</item>
     </plurals>
-    <plurals name="history_new_places">
-        <item quantity="one">%1$d nieuwe plaats</item>
-        <item quantity="other">%1$d nieuwe plaatsen</item>
+    <plurals name="history_new_towns">
+        <item quantity="one">%1$d nieuwe gemeente</item>
+        <item quantity="other">%1$d nieuwe gemeenten</item>
     </plurals>
 
     <!-- MonthWrapped.kt -->
-    <string name="history_month_wrapped">Maandoverzicht</string>
+    <string name="history_month_wrapped_action">Overzicht</string>
     <string name="wrapped_title">Maandoverzicht</string>
     <string name="wrapped_share">Maandoverzicht delen</string>
     <string name="wrapped_footer">Gereden met Detour</string>

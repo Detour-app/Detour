@@ -3172,6 +3172,36 @@ check 'iOS still searches unbiased on its own' 1 \
 
 ---
 
+## 42. Logbook month header: Android says "new towns", iOS still says "new places"
+
+**New with `#1026`** — recorded because iOS is parked (owner decision 2026-10-27).
+
+**What.** "places" meant two things: the You screen's saved-places count and the Logbook's newly
+visited municipalities. Android now says "towns" for municipalities everywhere in the Logbook (the
+month summary, the year strip, the ride sticker) and labels the You tile "saved". The month
+summary is plain text, the newest chapter starts open (the current month, or the last one ridden
+in), and the recap action reads "Wrapped".
+
+**Copies.** The ride sticker text is shared (`Logbook.chips` in `shared/…/data/Logbook.kt`), so iOS
+gets "new town" there. The month summary is not: Android's is `R.plurals.history_new_towns` in
+`app/…/ui/HistoryScreen.kt`, iOS builds its own "new place(s)" string in `MonthHeader` in
+`iosApp/Detour/HistoryScreen.swift`.
+
+**Verdict: survive — and iOS follows.** Not a product question: iOS's `MonthHeader.summary`
+should say "new town(s)".
+
+**Fence.**
+
+```sh
+# Entry 42 — month summary wording. A changed count means iOS switched to towns or Android lost it.
+check 'Android month summary says towns' 1 \
+    "$(grep -c 'R.plurals.history_new_towns' app/src/main/java/com/jellemax/detour/ui/HistoryScreen.kt)"
+check 'iOS month summary still says places' 1 \
+    "$(grep -c '"1 new place"' iosApp/Detour/HistoryScreen.swift)"
+```
+
+---
+
 ## §D — Keeping this register current
 
 This file is stale the moment anyone edits a copy it cites, and it cites 40-odd line numbers
