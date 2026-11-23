@@ -5,7 +5,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "2.4.21" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.21" apply false
     // Applied by :app only when a google-services.json is present (see app/build.gradle.kts).
-    id("com.google.gms.google-services") version "4.5.0" apply false
+    id("com.google.gms.google-services") version "4.6.0" apply false
     // 1.23.7 rather than the 2.0 alpha because io.nlopez.compose.rules:detekt
     // 0.4.22 is compiled against detekt-core 1.23.7 (checked in its POM), and a
     // ruleset built against a different detekt major does not load.
