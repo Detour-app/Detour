@@ -32,6 +32,18 @@ class NavPolicyTest {
         speedLimitKmh = null,
     )
 
+    /** The streak a caller holds after this fix, given it was already
+     *  [NavPolicy.OFF_ROUTE_CONFIRM_FIXES] fixes off route: the rules below are
+     *  about the bound and the cooldown, not about confirming (#1008), so they
+     *  see a confirmed run whenever this fix is itself off route. */
+    private fun streakAfter(offRouteMeters: Double, nowMs: Long) = NavPolicy.trackOffRoute(
+        prev = NavPolicy.OffRouteStreak(NavPolicy.OFF_ROUTE_CONFIRM_FIXES, sinceMs = nowMs, lastFixKey = 0L),
+        offRouteMeters = offRouteMeters,
+        accuracyMeters = 5.0,
+        fixKey = 1L,
+        nowMs = nowMs,
+    )
+
     private fun decide(
         remainingMeters: Double,
         offRouteMeters: Double,
@@ -43,6 +55,7 @@ class NavPolicyTest {
         progress = progress(remainingMeters, offRouteMeters),
         hasDestination = hasDestination,
         stopsAhead = false,
+        offRoute = streakAfter(offRouteMeters, nowMs),
         rerouting = rerouting,
         lastRerouteMs = lastRerouteMs,
         nowMs = nowMs,
@@ -69,6 +82,7 @@ class NavPolicyTest {
         progress = progress(remainingMeters, offRouteMeters),
         hasDestination = true,
         stopsAhead = true,
+        offRoute = streakAfter(offRouteMeters, 1_000_000L),
         rerouting = false,
         lastRerouteMs = 0L,
         nowMs = 1_000_000L,
@@ -247,5 +261,80 @@ class NavPolicyTest {
         assertEquals(HeadingHint(45.0, 1200), NavPolicy.startHeadingHint(45f, 30.0, fixAgeMs = bound))
         assertNull(NavPolicy.startHeadingHint(45f, 30.0, fixAgeMs = bound + 1))
         assertNull(NavPolicy.startHeadingHint(45f, 0.5, fixAgeMs = 500))
+    }
+
+    // ---- #1008: one inaccurate fix must not reroute ------------------------
+
+    /** Runs fixes one second apart through [NavPolicy.trackOffRoute] and
+     *  [NavPolicy.decide] as a caller does, and returns each decision. */
+    private fun ride(vararg fixes: Pair<Double, Double>, stepMs: Long = 1_000L): List<NavPolicy.Decision> {
+        var streak: NavPolicy.OffRouteStreak? = null
+        return fixes.mapIndexed { i, (offRouteMeters, accuracyMeters) ->
+            val now = 1_000_000L + i * stepMs
+            streak = NavPolicy.trackOffRoute(streak, offRouteMeters, accuracyMeters, fixKey = i.toLong(), nowMs = now)
+            NavPolicy.decide(
+                progress = progress(2_000.0, offRouteMeters),
+                hasDestination = true,
+                stopsAhead = false,
+                offRoute = streak,
+                rerouting = false,
+                lastRerouteMs = 0L,
+                nowMs = now,
+            )
+        }
+    }
+
+    /** The issue's case: a straight road, one 90 m multipath jump. */
+    @Test
+    fun oneOutlierOnAStraightRoadDoesNotReroute() {
+        val decisions = ride(3.0 to 5.0, 4.0 to 5.0, 90.0 to 10.0, 3.0 to 5.0, 5.0 to 5.0, 2.0 to 5.0)
+        assertTrue(decisions.all { it == NavPolicy.Decision.Continue })
+    }
+
+    /** Two outliers in a row are still short of the three-fix bar. */
+    @Test
+    fun twoOffFixesInARowDoNotReroute() {
+        val decisions = ride(90.0 to 10.0, 95.0 to 10.0, 3.0 to 5.0)
+        assertTrue(decisions.all { it == NavPolicy.Decision.Continue })
+    }
+
+    @Test
+    fun theThirdConsecutiveOffFixReroutes() {
+        assertEquals(
+            listOf(NavPolicy.Decision.Continue, NavPolicy.Decision.Continue, NavPolicy.Decision.Reroute),
+            ride(90.0 to 10.0, 120.0 to 10.0, 150.0 to 10.0),
+        )
+    }
+
+    /** A sparse fix stream: two fixes [NavPolicy.OFF_ROUTE_CONFIRM_MS] apart
+     *  confirm it on time rather than on count. */
+    @Test
+    fun fourSecondsOffRouteRerouteOnFewerFixes() {
+        assertEquals(
+            listOf(NavPolicy.Decision.Continue, NavPolicy.Decision.Reroute),
+            ride(90.0 to 10.0, 120.0 to 10.0, stepMs = NavPolicy.OFF_ROUTE_CONFIRM_MS),
+        )
+    }
+
+    /** A fix 80 m off that itself claims ±80 m is inside its own error. */
+    @Test
+    fun aFixWithinItsOwnAccuracyIsNotOffRoute() {
+        fun first(offRouteMeters: Double, accuracyMeters: Double) =
+            NavPolicy.trackOffRoute(null, offRouteMeters, accuracyMeters, fixKey = 1L, nowMs = 0L)
+        assertNull(first(offRouteMeters = 80.0, accuracyMeters = 80.0))
+        assertNull(first(offRouteMeters = 120.0, accuracyMeters = 80.0))
+        assertEquals(1, first(offRouteMeters = 121.0, accuracyMeters = 80.0)?.fixes)
+        // Accurate fixes keep the fixed bound.
+        assertNull(first(NavPolicy.OFF_ROUTE_METERS, accuracyMeters = 3.0))
+    }
+
+    /** The phone's effect also restarts on a new route with the same fix; that
+     *  must not count as a second fix. */
+    @Test
+    fun theSameFixSeenTwiceCountsOnce() {
+        val first = NavPolicy.trackOffRoute(null, 90.0, 10.0, fixKey = 7L, nowMs = 0L)
+        val again = NavPolicy.trackOffRoute(first, 90.0, 10.0, fixKey = 7L, nowMs = 10L)
+        assertEquals(first, again)
+        assertFalse(NavPolicy.offRouteConfirmed(NavPolicy.trackOffRoute(again, 90.0, 10.0, 8L, 20L), 20L))
     }
 }

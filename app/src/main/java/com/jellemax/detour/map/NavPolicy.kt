@@ -28,6 +28,19 @@ internal object NavPolicy {
      *  this bound, a reroute outside it. */
     const val OFF_ROUTE_METERS = 60.0
 
+    /** A fix counts as off route only past this many times its own reported
+     *  accuracy (when that is more than [OFF_ROUTE_METERS]): a 70 m fix claiming
+     *  ±80 m says nothing about which road the rider is on. */
+    const val OFF_ROUTE_ACCURACY_FACTOR = 1.5
+
+    /** Consecutive off-route fixes that confirm the rider has left the line
+     *  (#1008). One multipath jump in a built-up area is one fix. */
+    const val OFF_ROUTE_CONFIRM_FIXES = 3
+
+    /** ...or this long off route on the drive clock, whichever comes first, so
+     *  a sparse fix stream still reroutes in bounded time. */
+    const val OFF_ROUTE_CONFIRM_MS = 4_000L
+
     /** Minimum gap between reroute requests. Both call sites stamp on request
      *  rather than on success, so a failed reroute is retried after the cooldown
      *  rather than immediately. */
@@ -113,12 +126,54 @@ internal object NavPolicy {
     fun snapToRoute(offRouteMeters: Double, wasSnapped: Boolean): Boolean =
         if (wasSnapped) offRouteMeters <= OFF_ROUTE_METERS else offRouteMeters <= ARRIVE_METERS
 
+    /**
+     * The run of off-route fixes the caller is in, held by the caller between
+     * fixes the way [snapToRoute]'s `wasSnapped` is; null while on route.
+     *
+     * [fixes] counts distinct fixes, [sinceMs] is the drive clock at the first,
+     * [lastFixKey] identifies the newest so a caller that re-evaluates the same
+     * fix (the phone's effect restarts on a route change too, not only on a new
+     * fix) does not count it twice.
+     */
+    data class OffRouteStreak(val fixes: Int, val sinceMs: Long, val lastFixKey: Long)
+
+    /**
+     * The next [OffRouteStreak] after a fix [offRouteMeters] from the line with
+     * reported [accuracyMeters]: null once a fix is back on route, else [prev]
+     * extended by this fix. Off route means past [OFF_ROUTE_METERS] and past
+     * [OFF_ROUTE_ACCURACY_FACTOR] times the fix's accuracy (#1008).
+     *
+     * [fixKey] is anything unique per fix (its elapsed-realtime stamp); [nowMs]
+     * is the same drive clock [decide] gets.
+     */
+    fun trackOffRoute(
+        prev: OffRouteStreak?,
+        offRouteMeters: Double,
+        accuracyMeters: Double,
+        fixKey: Long,
+        nowMs: Long,
+    ): OffRouteStreak? {
+        val bound = maxOf(OFF_ROUTE_METERS, OFF_ROUTE_ACCURACY_FACTOR * accuracyMeters)
+        return when {
+            offRouteMeters <= bound -> null
+            prev == null -> OffRouteStreak(fixes = 1, sinceMs = nowMs, lastFixKey = fixKey)
+            prev.lastFixKey == fixKey -> prev
+            else -> prev.copy(fixes = prev.fixes + 1, lastFixKey = fixKey)
+        }
+    }
+
+    /** Whether [streak] has lasted long enough to act on: [OFF_ROUTE_CONFIRM_FIXES]
+     *  fixes, or [OFF_ROUTE_CONFIRM_MS] on the drive clock. */
+    fun offRouteConfirmed(streak: OffRouteStreak?, nowMs: Long): Boolean =
+        streak != null &&
+            (streak.fixes >= OFF_ROUTE_CONFIRM_FIXES || nowMs - streak.sinceMs >= OFF_ROUTE_CONFIRM_MS)
+
     sealed interface Decision {
         /** Keep following the line that is already drawn. */
         data object Continue : Decision
         /** Arrived: end the session. */
         data object Arrived : Decision
-        /** Off route and out of cooldown: fetch a fresh route to the destination. */
+        /** Confirmed off route and out of cooldown: fetch a fresh route to the destination. */
         data object Reroute : Decision
     }
 
@@ -135,17 +190,29 @@ internal object NavPolicy {
      * land on the way back, and remaining distance alone would then arrive
      * before the stop. The car doesn't ride via stops and passes false.
      *
-     * [nowMs] and [lastRerouteMs] are wall-clock millis - the caller owns the
+     * [offRoute] is the caller's [trackOffRoute] result *for this same fix*: a
+     * reroute needs it confirmed ([offRouteConfirmed]), not one fix past the
+     * bound (#1008).
+     *
+     * [nowMs] and [lastRerouteMs] are drive-clock millis - the caller owns the
      * clock, which is what keeps this testable.
      *
      * Arrival is tested first, matching both call sites. The order cannot change
      * an outcome: the two branches are mutually exclusive on [NavEngine.Progress.offRouteMeters],
-     * arrival needing it under [OFF_ROUTE_METERS] and a reroute needing it over.
+     * arrival needing it under [OFF_ROUTE_METERS] and a reroute needing a streak
+     * whose newest fix (this one) is past it.
+     *
+     * Seven parameters, one over detekt's bound: each is an independent input
+     * the caller already holds, and bundling [offRoute], [rerouting] and
+     * [lastRerouteMs] into a holder would only rename the coupling (§8.4). The
+     * state stays with the caller so this stays pure, as [snapToRoute] does.
      */
+    @Suppress("LongParameterList")
     fun decide(
         progress: NavEngine.Progress,
         hasDestination: Boolean,
         stopsAhead: Boolean,
+        offRoute: OffRouteStreak?,
         rerouting: Boolean,
         lastRerouteMs: Long,
         nowMs: Long,
@@ -157,7 +224,7 @@ internal object NavPolicy {
         ) {
             return Decision.Arrived
         }
-        if (progress.offRouteMeters > OFF_ROUTE_METERS &&
+        if (offRouteConfirmed(offRoute, nowMs) &&
             !rerouting &&
             nowMs - lastRerouteMs > REROUTE_COOLDOWN_MS
         ) {

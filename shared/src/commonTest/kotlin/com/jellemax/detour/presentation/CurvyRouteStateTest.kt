@@ -33,8 +33,8 @@ class CurvyRouteStateTest {
     }
 
     @Test
-    fun anUnsupportedMotoRouteSaysWhy() {
-        assertEquals(CurvyControl.UNSUPPORTED, curvyControl(TravelMode.MOTO, supported = false))
+    fun anUnsupportedServerHidesTheControlInsteadOfExplainingItEveryTime() {
+        assertEquals(CurvyControl.HIDDEN, curvyControl(TravelMode.MOTO, supported = false))
     }
 
     @Test
@@ -64,7 +64,6 @@ class CurvyRouteStateTest {
     fun onlyACurvyPresetOnTheSliderAsksForAPreview() {
         assertTrue(state(CurvyPreset.BALANCED).wantsPreview)
         assertFalse(state(CurvyPreset.FAST).wantsPreview)
-        assertFalse(state(CurvyPreset.TWISTY, control = CurvyControl.UNSUPPORTED).wantsPreview)
         assertFalse(state(CurvyPreset.TWISTY, control = CurvyControl.HIDDEN).wantsPreview)
     }
 }

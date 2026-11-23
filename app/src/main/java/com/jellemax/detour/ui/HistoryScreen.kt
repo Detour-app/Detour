@@ -71,10 +71,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -215,10 +211,11 @@ private fun LogbookList(
     modifier: Modifier = Modifier,
 ) {
     var filter by rememberSaveable { mutableStateOf(LogbookFilter.ALL) }
-    // Chapters the rider opened by hand; the current month is always open.
+    // Chapters the rider opened by hand. The newest chapter is always open:
+    // the current month, or the last one ridden in when this month has no
+    // rides yet, so the latest ride is never behind a chevron (#1026).
     val openMonths = remember { mutableStateListOf<Int>() }
     val now = remember { System.currentTimeMillis() }
-    val thisMonth = remember { Logbook.monthOf(now) }
     val months = remember(loaded, filter) {
         Logbook.build(loaded.trips, filter, loaded.places, loaded.titles, loaded.milestones)
     }
@@ -252,14 +249,14 @@ private fun LogbookList(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (months.isNotEmpty()) item(key = "year") { YearStrip(year) }
-            for (month in months) {
+            for ((index, month) in months.withIndex()) {
                 val ym = month.year * 100 + month.month
-                val current = ym == thisMonth
-                val open = current || ym in openMonths
+                val latest = index == 0
+                val open = latest || ym in openMonths
                 item(key = "m$ym") {
                     MonthHeader(
-                        month, open, current,
-                        overlay = if (!current) null
+                        month, open, latest,
+                        overlay = if (!latest) null
                         else Logbook.mapFocus(month.rides.mapNotNull { loaded.thumbnails[it.trip.startTimeMs] }),
                         onToggle = { if (!openMonths.remove(ym)) openMonths.add(ym) },
                         onShowWrap = { wrappedYm = ym },
@@ -359,15 +356,15 @@ private fun YearStrip(year: LogbookYear) {
     }
 }
 
-/** "September 2026" and its summary as pills, the month's distance held up
- *  against a trip from Gent (#517). The current month also draws all its
- *  routes on one canvas; older months collapse to the pills alone. */
-@OptIn(ExperimentalLayoutApi::class)
+/** "September 2026" over a plain-text summary and the month's distance held
+ *  up against a trip from Gent (#517). Plain text, not pills: nothing in it is
+ *  tappable (#1026). The newest month ([latest]) is always open and also draws
+ *  all its routes on one canvas; older months collapse to the summary alone. */
 @Composable
 private fun MonthHeader(
     month: LogbookMonth,
     open: Boolean,
-    current: Boolean,
+    latest: Boolean,
     overlay: List<List<LatLon>>?,
     onToggle: () -> Unit,
     onShowWrap: () -> Unit,
@@ -376,14 +373,14 @@ private fun MonthHeader(
     val summary = listOfNotNull(
         pluralStringResource(R.plurals.history_rides, rides, rides),
         formatDistanceKm(month.meters),
-        month.newPlaces.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.history_new_places, it, it) },
-    )
+        month.newPlaces.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.history_new_towns, it, it) },
+    ).joinToString(" · ")
     val comparison = Logbook.distanceComparison(month.meters)
     Column(
         Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
-            .clickable(enabled = !current, onClick = onToggle)
+            .clickable(enabled = !latest, onClick = onToggle)
             .padding(top = 8.dp, bottom = 2.dp, start = 4.dp, end = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -394,20 +391,28 @@ private fun MonthHeader(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                FlowRow(
-                    Modifier.padding(top = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    val colors = MaterialTheme.colorScheme
-                    for (s in summary) MonthPill(s, colors.surfaceContainerHigh, colors.onSurfaceVariant)
-                    comparison?.let { MonthPill(it, colors.secondaryContainer, colors.onSecondaryContainer) }
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                comparison?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
                 }
             }
-            IconButton(onClick = onShowWrap) {
-                Icon(Icons.Outlined.AutoAwesome, contentDescription = stringResource(R.string.history_month_wrapped))
+            // Labelled, not a bare sparkle: an unlabelled icon doesn't say it
+            // opens the month's recap (#1026).
+            TextButton(onClick = onShowWrap) {
+                Icon(Icons.Outlined.AutoAwesome, contentDescription = null, Modifier.size(18.dp))
+                Text(stringResource(R.string.history_month_wrapped_action), Modifier.padding(start = 6.dp))
             }
-            if (!current) {
+            if (!latest) {
                 Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
                     contentDescription = stringResource(
                         if (open) R.string.history_collapse_month else R.string.history_expand_month,
@@ -424,17 +429,6 @@ private fun MonthHeader(
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             )
         }
-    }
-}
-
-@Composable
-private fun MonthPill(text: String, color: Color, contentColor: Color) {
-    Surface(shape = CircleShape, color = color, contentColor = contentColor) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-        )
     }
 }
 
