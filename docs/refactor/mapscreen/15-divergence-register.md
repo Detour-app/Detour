@@ -3227,6 +3227,40 @@ check 'iOS still shows only a measured distance' 1 \
 
 ---
 
+## 44. Search rows: Android shows kind, second line and distance; iOS shows the title alone
+
+**New with `#1006`** — recorded because iOS is parked (owner decision 2026-10-27) and the data is
+shared. Renumbered 43 -> 44 on merge (main took 42-43 meanwhile).
+
+**What.** `Geocoder` now fills `GeocodeResult.secondary` (street + house number, district,
+postcode + city — only what the title does not already say) and `GeocodeResult.kind`
+(`PlaceKind`, from Photon's `osm_key`/`osm_value`/`type`), asks Photon for 12 hits and keeps 8
+after dedupe, and sends `lang` from the device locale when Photon indexes it (en/de/fr/it),
+retrying without it on an HTTP 400. `SearchState.near` is the bias the rows measure distance
+from. `RecentSearchStore` keeps both new fields and still reads the old `{name, lat, lon}` form.
+
+**Copies.** Android draws all three through `app/…/ui/SearchResultRow.kt`: the map island, the
+route editor and saved places with `SearchResultRow`, Android Auto with `searchResultDetail` as
+the row's text. iOS's `MapScreen.swift` gets the same fields (and the stored ones) but its rows
+are still `Button(result.name)`, and it calls the three-argument `Geocoder.search`, so no
+`lang`. It has no bias point to measure from either (entry 41).
+
+**Verdict: bug — iOS follows.** Not a product question: draw `kind`/`secondary` under the title,
+and the distance once iOS runs the shared session (entry 41).
+
+**Fence.**
+
+```sh
+# Entry 44 — search row detail. A changed count means a surface stopped drawing the shared row or iOS adopted it.
+# Measured against this entry's own commit.
+check 'Android surfaces drawing the shared search row' 4 \
+    "$(grep -lE 'SearchResultRow\(|searchResultDetail\(' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt app/src/main/java/com/jellemax/detour/car/SearchScreen.kt app/src/main/java/com/jellemax/detour/ui/RouteEditorScreen.kt app/src/main/java/com/jellemax/detour/ui/SavedPlacesScreen.kt | wc -l)"
+check 'iOS search rows still title-only' 1 \
+    "$(grep -c 'Button(result.name)' iosApp/Detour/MapScreen.swift)"
+```
+
+---
+
 ## §D — Keeping this register current
 
 This file is stale the moment anyone edits a copy it cites, and it cites 40-odd line numbers

@@ -16,6 +16,8 @@ object RecentSearchStore {
                 put("name", r.name)
                 put("lat", r.location.lat)
                 put("lon", r.location.lon)
+                if (r.secondary.isNotEmpty()) put("secondary", r.secondary)
+                put("kind", r.kind.name)
             }
         }
         deviceFile(FILE_NAME).writeText(array.string())
@@ -32,14 +34,23 @@ object RecentSearchStore {
         val f = deviceFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return try {
-            jsonArrayOf(f.readText()).objects().map { o ->
-                GeocodeResult(
-                    name = o.optString("name"),
-                    location = LatLon(o.optDouble("lat"), o.optDouble("lon")),
-                )
-            }
+            parse(f.readText())
         } catch (e: Exception) {
             emptyList()
         }
     }
+
+    /**
+     * The stored list. An entry written before #1006 is `{name, lat, lon}` only: it loads with no
+     * second line and [PlaceKind.PLACE], as does a kind this build does not know.
+     */
+    internal fun parse(json: String): List<GeocodeResult> =
+        jsonArrayOf(json).objects().map { o ->
+            GeocodeResult(
+                name = o.optString("name"),
+                location = LatLon(o.optDouble("lat"), o.optDouble("lon")),
+                secondary = o.optString("secondary"),
+                kind = PlaceKind.entries.firstOrNull { it.name == o.optString("kind") } ?: PlaceKind.PLACE,
+            )
+        }
 }

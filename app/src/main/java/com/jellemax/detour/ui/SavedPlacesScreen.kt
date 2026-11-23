@@ -1,7 +1,6 @@
 package com.jellemax.detour.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -353,13 +352,11 @@ private fun AddPlaceDialog(
                     )
                 } else {
                     results.take(5).forEach { r ->
-                        Text(
-                            r.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { picked = r; query = r.name }
-                                .padding(vertical = 10.dp),
+                        SearchResultRow(
+                            r,
+                            near = search.near,
+                            onClick = { picked = r; query = r.name },
+                            dense = true,
                         )
                     }
                 }

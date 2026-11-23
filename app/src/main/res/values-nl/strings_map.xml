@@ -179,4 +179,15 @@
     <string name="map_traffic_delay">+%1$d min file</string>
     <string name="map_traffic_delay_label">op de route vooruit</string>
     <string name="map_traffic_closed">Weg verderop afgesloten</string>
+    <!-- Search result kinds (#1006): one word under the row's title. -->
+    <string name="place_kind_address">Adres</string>
+    <string name="place_kind_street">Straat</string>
+    <string name="place_kind_town">Plaats</string>
+    <string name="place_kind_region">Regio</string>
+    <string name="place_kind_fuel">Tankstation</string>
+    <string name="place_kind_parking">Parking</string>
+    <string name="place_kind_food">Eten &amp; drinken</string>
+    <string name="place_kind_shop">Winkel</string>
+    <string name="place_kind_station">Station</string>
+    <string name="place_kind_place">Plek</string>
 </resources>

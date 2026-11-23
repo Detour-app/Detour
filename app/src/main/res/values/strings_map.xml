@@ -183,4 +183,15 @@
     <string name="map_traffic_delay">+%1$d min traffic</string>
     <string name="map_traffic_delay_label">on the route ahead</string>
     <string name="map_traffic_closed">Road closed ahead</string>
+    <!-- Search result kinds (#1006): one word under the row's title. -->
+    <string name="place_kind_address">Address</string>
+    <string name="place_kind_street">Street</string>
+    <string name="place_kind_town">Town</string>
+    <string name="place_kind_region">Region</string>
+    <string name="place_kind_fuel">Fuel station</string>
+    <string name="place_kind_parking">Parking</string>
+    <string name="place_kind_food">Food &amp; drink</string>
+    <string name="place_kind_shop">Shop</string>
+    <string name="place_kind_station">Station</string>
+    <string name="place_kind_place">Place</string>
 </resources>
