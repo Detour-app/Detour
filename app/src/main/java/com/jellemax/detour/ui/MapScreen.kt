@@ -122,7 +122,6 @@ import com.jellemax.detour.map.runSpin
 import com.jellemax.detour.map.loopViaPinKept
 import com.jellemax.detour.map.runTurnaroundLoop
 import com.jellemax.detour.map.turnaroundRequest
-import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.needsBackgroundDisclosure
 import com.jellemax.detour.map.requiredStartupPermissions
 import com.jellemax.detour.map.shouldRequestMic
@@ -973,10 +972,9 @@ fun MapScreen(
                 rerouting = s.rerouting,
                 ambientSpeedLimitKmh = retained.ambientSpeedLimitKmh,
                 nowMs = System.currentTimeMillis(),
-                // Named here rather than left to the mapper's own default:
-                // :shared cannot see NavPolicy, so that default is a second
-                // copy of the threshold and would drift without a word.
-                offRouteThresholdMeters = NavPolicy.OFF_ROUTE_METERS,
+                // NavPolicy's confirmed run, not one fix past the bound, so
+                // the bar cannot say "Off route" when no reroute follows (#1008).
+                offRoute = s.offRouteShown,
                 sep = Settings.decimalSeparatorChar(),
             )
         }

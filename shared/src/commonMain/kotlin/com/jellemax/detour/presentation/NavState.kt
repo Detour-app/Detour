@@ -68,8 +68,6 @@ data class NavState(
  *    (remaining/ETA text and the progress fraction);
  *  - `MapScreen.kt`'s inline speed-limit source switch
  *    (`if (navigating) navProgress?.speedLimitKmh else retained.ambientSpeedLimitKmh`);
- *  - `MapScreen.kt`'s inline off-route comparison
- *    (`(navProgress?.offRouteMeters ?: 0.0) > NavPolicy.OFF_ROUTE_METERS`).
  *
  * Does not own `NavEngine.progress()` itself, `NavPolicy.decide`, the reroute
  * network call, `NavVoice`/`NavAnnouncer`, `BleNavServer`, or the maneuver
@@ -78,14 +76,11 @@ data class NavState(
  * Those all stay exactly where they are; this only turns [progress] into the
  * strings/numbers the banner, pill and bottom bar render.
  *
- * [offRouteThresholdMeters] defaults to the same 60.0 the app's
- * `NavPolicy.OFF_ROUTE_METERS` holds. It is a separate literal, not a shared
- * reference, because `:shared` cannot depend on `:app` (the dependency runs
- * the other way) — the only second copy of the number. `NavPolicy` owns it,
- * and every other site references that constant rather than repeating it:
- * `car/NavScreen.kt` compares against it, and `MapScreen.kt` no longer
- * compares at all, it passes the constant in here as this argument, so the
- * default below is never the value the app runs on.
+ * [offRoute] is the caller's verdict, not a distance compared here: the app's
+ * `NavPolicy` confirms it over a run of fixes scaled by their accuracy (#1008),
+ * and `:shared` cannot see `NavPolicy` (the dependency runs the other way).
+ * Taking the verdict keeps the bar's "Off route" equal to what reroutes, with
+ * no second copy of the bound in this module.
  *
  * [nowMs] is the ETA's clock input — a plain argument, never read from a
  * clock here, so a caller passing a fixed instant gets a fixed string. The
@@ -100,11 +95,11 @@ fun navStateFrom(
     rerouting: Boolean,
     ambientSpeedLimitKmh: Double?,
     nowMs: Long,
-    offRouteThresholdMeters: Double = 60.0,
+    offRoute: Boolean = false,
     sep: Char = '.',
 ): NavState = navStateFrom(
     progress, navigating, rerouting, ambientSpeedLimitKmh, nowMs,
-    offRouteThresholdMeters, sep, TimeZone.currentSystemDefault(),
+    offRoute, sep, TimeZone.currentSystemDefault(),
 )
 
 /**
@@ -122,11 +117,10 @@ internal fun navStateFrom(
     rerouting: Boolean,
     ambientSpeedLimitKmh: Double?,
     nowMs: Long,
-    offRouteThresholdMeters: Double = 60.0,
+    offRoute: Boolean = false,
     sep: Char = '.',
     zone: TimeZone,
 ): NavState {
-    val offRoute = (progress?.offRouteMeters ?: 0.0) > offRouteThresholdMeters
     val headlineText = when {
         rerouting -> "Rerouting…"
         progress == null -> "Waiting for GPS…"
