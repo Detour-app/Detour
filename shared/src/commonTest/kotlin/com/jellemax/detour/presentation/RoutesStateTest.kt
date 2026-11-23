@@ -119,6 +119,29 @@ class RoutesStateTest {
         assertEquals("32 km · 2 stops · shared by mika", card.subtitle)
     }
 
+    @Test fun anApproximateLengthStandsInForAMissingRoutedOne() {
+        assertEquals("~120 km · 8 stops", routeSubtitle(distanceMeters = null, stopCount = 8, approxMeters = 120_300.0))
+    }
+
+    @Test fun aRoutedLengthWinsOverTheApproximateOne() {
+        assertEquals(
+            "95 km · 8 stops",
+            routeSubtitle(distanceMeters = 95_000.0, stopCount = 8, approxMeters = 120_000.0),
+        )
+    }
+
+    @Test fun anUnmeasuredRouteWithALineShowsItsLineLengthApproximately() {
+        // 0.1° of latitude is ~11 km along the line; no router distance (#1025).
+        val route = routeWith(stopCount = 3).copy(
+            polyline = listOf(LatLon(50.0, 5.0), LatLon(50.1, 5.0)),
+        )
+        assertEquals("~11 km · 3 stops", routesStateFrom(listOf(route)).single().subtitle)
+    }
+
+    @Test fun anUnmeasuredRouteWithNoLineShowsNoLength() {
+        assertEquals("3 stops", routesStateFrom(listOf(routeWith(stopCount = 3))).single().subtitle)
+    }
+
     private fun routeWith(stopCount: Int, origin: RouteOrigin = RouteOrigin.PLANNED): SavedRoute = SavedRoute(
         id = 1L,
         name = "Tour",
