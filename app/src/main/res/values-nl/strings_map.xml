@@ -142,7 +142,7 @@
     <string name="hub_guest_title">Je rijdt als gast</string>
     <string name="hub_guest_text">Ritten en badges worden op deze telefoon bewaard. Meld je aan om met vrienden te rijden en er een back-up van te maken.</string>
     <string name="hub_stat_rides">ritten</string>
-    <string name="hub_stat_places">plekken</string>
+    <string name="hub_stat_places">bewaard</string>
     <string name="hub_stat_badges">badges</string>
     <string name="map_permission_explainer_title">Voor je rijdt</string>
     <string name="map_permission_explainer_intro">Detour vraagt straks om een paar machtigingen. Je kunt ze allemaal weigeren.</string>
