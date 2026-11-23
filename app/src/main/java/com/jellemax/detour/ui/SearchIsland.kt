@@ -68,15 +68,9 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
-import com.jellemax.detour.data.Geocoder
-import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RecentSearchStore
 import com.jellemax.detour.presentation.failureText
-import com.jellemax.detour.tracking.TripTrackingService
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -111,10 +105,10 @@ private val SHEET_CONTENT_PADDING = 16.dp
  * landing. Inline, MapScreen is never disposed: [onPick] writes its state and
  * glides its live camera directly, the way this search always did.
  *
- * The search itself is unchanged: same 300 ms debounce, same two-character
- * floor, same recents-then-live-hits merge, same sticky proximity bias. That
- * behaviour is the reference the car and iOS surfaces are meant to converge
- * on, not a place to redesign.
+ * The search itself is [com.jellemax.detour.presentation.SearchSession], shared
+ * with the car, the route editor and saved places (#1005): its 300 ms debounce,
+ * two-character floor, recents-then-live-hits merge and sticky proximity bias
+ * were this island's, and are now everyone's.
  *
  * ## Growing upward
  *
@@ -145,30 +139,16 @@ fun SearchIsland(
 ) {
     val scope = rememberCoroutineScope()
 
-    // The geocoder's proximity bias, held sticky: the fix it derives from goes
-    // in and out of the 100 m accuracy gate as the sky opens and closes, and a
-    // search must keep biasing off the last good position rather than losing
-    // its ranking the moment one fix comes back wide.
-    //
-    // Read from the tracker rather than taking MapScreen's `myLocation`, which
-    // looks like the same value but is not: that one also accepts an ungated
-    // write from the fused-location fallback, and a 2 km-accurate fix is fine
-    // for centring a map and wrong for ranking street names.
-    val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
-    var near by remember { mutableStateOf<LatLon?>(null) }
-    LaunchedEffect(liveFix) {
-        liveFix?.takeIf { it.accuracyMeters <= 100f }?.let { near = LatLon(it.lat, it.lon) }
-    }
-
     var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
-    var recents by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
-    var searching by remember { mutableStateOf(false) }
-    // A failed lookup (§5.4 bucket 3: in place of the results) and an empty
-    // one are different things: "nothing matched" is an answer, not an error,
-    // so it is its own flag and is not drawn in the error colour.
-    var error by remember { mutableStateOf<String?>(null) }
-    var noResults by remember { mutableStateOf(false) }
+    // Min length, debounce, cancellation, failed vs empty, the recents merge and the
+    // proximity bias are all the shared session's (#1005); this only draws.
+    val session = rememberSearchSession(query)
+    val search by session.state.collectAsStateWithLifecycle()
+    val results = search.results
+    val recents = search.recents
+    val error = search.failure?.let { failureText("Search", it) }
+    val noResults = search.noResults
+    val searching = search.searching
     val focusRequester = remember { FocusRequester() }
 
     // Back dismisses the island before it reaches the map, where back leaves
@@ -185,11 +165,9 @@ fun SearchIsland(
     LaunchedEffect(open) {
         if (!open) {
             query = ""
-            error = null
-            noResults = false
             return@LaunchedEffect
         }
-        recents = withContext(Dispatchers.IO) { RecentSearchStore.load() }
+        session.setRecents(withContext(Dispatchers.IO) { RecentSearchStore.load() })
         focusRequester.requestFocus()
     }
 
@@ -200,47 +178,6 @@ fun SearchIsland(
         scope.launch(Dispatchers.IO) { RecentSearchStore.save(r) }
         onOpenChange(false)
         onPick(r)
-    }
-
-    // Live, debounced suggestions. Matching recents show instantly, then a
-    // single Photon lookup runs — it already blends the query match with
-    // proximity to the user, so nearby streets and POIs rank first while a
-    // famous far place still surfaces where it belongs. Recents are kept on
-    // top, then deduped against hits.
-    //
-    // Keyed on `recents` too: they load asynchronously (see above), so this has
-    // to re-run once they land to show them instead of nothing.
-    LaunchedEffect(query, recents) {
-        val q = query.trim()
-        error = null
-        noResults = false
-        if (q.length < 2) {
-            results = if (q.isEmpty()) recents
-                else recents.filter { it.name.contains(q, ignoreCase = true) }
-            searching = false
-            return@LaunchedEffect
-        }
-        val recentMatches = recents.filter { it.name.contains(q, ignoreCase = true) }
-        results = recentMatches
-        delay(300)
-        searching = true
-        try {
-            val hits = withContext(Dispatchers.IO) { Geocoder.search(q, near) }
-            // Same place, not same name: two branches of one chain share a label (#1004).
-            val merged = ArrayList(recentMatches)
-            for (hit in hits) if (merged.none { it.isSamePlaceAs(hit) }) merged.add(hit)
-            results = merged
-            noResults = merged.isEmpty()
-        } catch (e: CancellationException) {
-            // The next keystroke cancelled us (#1003). Falling into the catch
-            // below would show "Search failed" while the next lookup is still
-            // in its debounce.
-            throw e
-        } catch (e: Exception) {
-            ensureActive()
-            error = failureText("Search", e)
-        }
-        searching = false
     }
 
     val showResults = open && (results.isNotEmpty() || error != null || noResults)
