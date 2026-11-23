@@ -172,23 +172,24 @@ class NavStateTest {
         assertEquals("", state.arrivalText)
     }
 
-    // --- off-route, just under and just over the threshold --------------------
+    // --- off-route: the caller's verdict, not the distance (#1008) -----------
 
-    @Test fun exactlyAtTheThresholdIsNotOffRoute() {
+    @Test fun farFromTheLineButNotConfirmedIsNotOffRoute() {
+        // One outlier fix: NavPolicy has not confirmed it, so neither does the bar.
         val state = navStateFrom(
-            progress = progress(offRouteMeters = 60.0, remainingTimeMs = 8 * 60_000L),
+            progress = progress(offRouteMeters = 90.0, remainingTimeMs = 8 * 60_000L),
             navigating = true, rerouting = false,
-            ambientSpeedLimitKmh = null, nowMs = 0L, offRouteThresholdMeters = 60.0,
+            ambientSpeedLimitKmh = null, nowMs = 0L, offRoute = false,
             zone = TimeZone.UTC,
         )
         assertEquals(false, state.offRoute)
         assertEquals("Arrival 00:08", state.arrivalText)
     }
 
-    @Test fun justOverTheThresholdIsOffRoute() {
+    @Test fun confirmedOffRouteIsOffRoute() {
         val state = navStateFrom(
-            progress = progress(offRouteMeters = 60.01), navigating = true, rerouting = false,
-            ambientSpeedLimitKmh = null, nowMs = 0L, offRouteThresholdMeters = 60.0,
+            progress = progress(offRouteMeters = 90.0), navigating = true, rerouting = false,
+            ambientSpeedLimitKmh = null, nowMs = 0L, offRoute = true,
         )
         assertEquals(true, state.offRoute)
         assertEquals("Off route", state.arrivalText)
