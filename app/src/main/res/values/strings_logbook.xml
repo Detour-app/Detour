@@ -48,13 +48,13 @@
         <item quantity="one">%1$d ride</item>
         <item quantity="other">%1$d rides</item>
     </plurals>
-    <plurals name="history_new_places">
-        <item quantity="one">%1$d new place</item>
-        <item quantity="other">%1$d new places</item>
+    <plurals name="history_new_towns">
+        <item quantity="one">%1$d new town</item>
+        <item quantity="other">%1$d new towns</item>
     </plurals>
 
     <!-- MonthWrapped.kt -->
-    <string name="history_month_wrapped">Month wrapped</string>
+    <string name="history_month_wrapped_action">Wrapped</string>
     <string name="wrapped_title">Month wrapped</string>
     <string name="wrapped_share">Share month wrapped</string>
     <string name="wrapped_footer">Ridden with Detour</string>
