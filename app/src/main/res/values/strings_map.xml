@@ -157,6 +157,8 @@
     <string name="map_permission_notifications">Notifications</string>
     <string name="map_permission_notifications_why">The notification while a ride records, and alerts from your circles.</string>
     <string name="map_continue">Continue</string>
+    <!-- Map snackbar: the camera fetch failed and no markers are held (#1028: only once moving). -->
+    <string name="map_cameras_load_failed">Couldn\'t load speed cameras</string>
     <!-- Camera banner (#549): which camera the countdown beside it is for. -->
     <string name="map_camera_banner_speed">Speed camera</string>
     <string name="map_camera_banner_red_light">Red-light camera</string>
