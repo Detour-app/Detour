@@ -68,6 +68,13 @@ data class NavInstruction(
      * on the maneuver glyph so it points the way the exit actually leaves.
      */
     val roundaboutTurnDeg: Double? = null,
+    /**
+     * The router's travel time for this instruction's stretch of road
+     * ([startIndex]..[endIndex]); null when it didn't report one. Lets the
+     * remaining time follow the road ahead rather than the route's average
+     * speed (#1013).
+     */
+    val timeMs: Long? = null,
 )
 
 /**
@@ -489,6 +496,7 @@ object RoutingClient {
                         ?: endIndex
                     roundaboutTurnDeg(polyline, startIndex, exitIndex)
                 } else null,
+                timeMs = if (ins.has("time")) ins.optLong("time").coerceAtLeast(0L) else null,
             )
         }
 

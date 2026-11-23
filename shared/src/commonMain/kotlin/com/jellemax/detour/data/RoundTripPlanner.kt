@@ -200,37 +200,65 @@ object RoundTripPlanner {
         radiusMeters: Double,
         highwayRegex: String,
         bearingDeg: Double? = null,
+    ): List<LatLon> = plan(center, radiusMeters, highwayRegex, bearingDeg, RoadRoulette::fetchRoadsOrThrow)
+
+    /**
+     * [plan] with the road fetch passed in, so commonTest can stand in for the backend.
+     * [fetchRoads] returns the ways around a point, or throws when the server can't be
+     * reached.
+     *
+     * A sector the server answered with too few roads is skipped. When too few sectors
+     * survive, the sentence depends on why (#1021): if every sector failed on the way to the
+     * server, the last failure is rethrown as it came, so the rider reads a connection
+     * problem; otherwise it is a [SpinFailure] telling them to widen the radius.
+     */
+    internal suspend fun plan(
+        center: LatLon,
+        radiusMeters: Double,
+        highwayRegex: String,
+        bearingDeg: Double?,
+        fetchRoads: suspend (center: LatLon, radiusMeters: Double, highwayRegex: String) -> List<OverpassWay>,
     ): List<LatLon> =
         coroutineScope {
             // A loop covers all directions; a bearing just anchors where it starts.
             val startAngle = bearingDeg?.let { toRadians(it) }
                 ?: Random.nextDouble(2 * PI)
             val fetchLimit = Semaphore(2) // be polite to the backend
-            val waypoints = (0 until SECTORS).map { s ->
+            val sectors = (0 until SECTORS).map { s ->
                 async {
                     fetchLimit.withPermit {
                         // Any single-sector failure just skips that sector.
                         try {
-                            sectorWaypoint(center, radiusMeters,
-                                startAngle + s * 2 * PI / SECTORS, highwayRegex)
+                            Result.success(
+                                sectorWaypoint(center, radiusMeters,
+                                    startAngle + s * 2 * PI / SECTORS, highwayRegex, fetchRoads),
+                            )
                         } catch (e: Exception) {
                             if (e is CancellationException) throw e
-                            null
+                            Result.failure(e)
                         }
                     }
                 }
-            }.awaitAll().filterNotNull()
+            }.awaitAll()
+            val waypoints = sectors.mapNotNull { it.getOrNull() }
             if (waypoints.size < MIN_WAYPOINTS) {
+                // No sector got an answer at all: the server, not the area, is the problem.
+                if (sectors.all { it.isFailure }) sectors.last().exceptionOrNull()?.let { throw it }
                 throw SpinFailure("Not enough roads for a round trip — try a larger radius")
             }
             waypoints
         }
 
+    /**
+     * The waypoint for one sector, or null when the server answered and the sector has no
+     * usable road. Throws the last fetch failure when no fetch for the sector got an answer.
+     */
     private suspend fun sectorWaypoint(
         center: LatLon,
         radiusMeters: Double,
         sectorAngle: Double,
         highwayRegex: String,
+        fetchRoads: suspend (LatLon, Double, String) -> List<OverpassWay>,
     ): LatLon? {
         // Jitter within the sector; aim for a ring at 50–85% of the radius so
         // the loop stays inside the circle.
@@ -238,12 +266,16 @@ object RoundTripPlanner {
         val distance = radiusMeters * Random.nextDouble(0.5, 0.85)
         val sample = RoadRoulette.offset(center, distance, bearing)
 
+        var lastError: IOException? = null
+        var answered = false
         for (searchRadius in listOf(2_000.0, 5_000.0)) {
             val ways = try {
-                RoadRoulette.fetchRoads(sample, searchRadius, highwayRegex)
+                fetchRoads(sample, searchRadius, highwayRegex)
             } catch (e: IOException) {
+                lastError = e
                 continue
             }
+            answered = true
             if (ways.isEmpty()) continue
 
             val junctions = Curviness.junctionNodes(ways)
@@ -258,6 +290,7 @@ object RoundTripPlanner {
             }
             return chosen.points[chosen.points.size / 2]
         }
+        if (!answered) lastError?.let { throw it }
         return null
     }
 

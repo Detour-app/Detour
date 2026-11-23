@@ -87,8 +87,8 @@
     <string name="nav_navigate_to">Navigate to</string>
     <string name="nav_save_pin">Save pin</string>
     <string name="nav_clear_destination">Clear destination</string>
-    <string name="nav_loop_via">Loop via here</string>
-    <string name="nav_loop_via_building">Building loop…</string>
+    <string name="nav_loop_via">Round trip via here</string>
+    <string name="nav_loop_via_building">Building round trip…</string>
     <string name="nav_loop_via_overlap">%1$d%% of the way back repeats the way out: there are few other roads to this pin.</string>
     <string name="nav_destination">Destination</string>
     <string name="nav_mode">Mode</string>
@@ -105,7 +105,6 @@
     <string name="nav_curvy_twisty">Twisty</string>
     <string name="nav_curvy_cost">+%1$d min · +%2$s</string>
     <string name="nav_curvy_comparing">Comparing with the fastest route…</string>
-    <string name="nav_curvy_unsupported">Curvy routes: your routing server can\'t do this yet</string>
 
     <!-- SearchIsland.kt -->
     <string name="search_no_results">No results</string>
@@ -146,7 +145,7 @@
     <string name="hub_guest_title">Riding as guest</string>
     <string name="hub_guest_text">Trips and badges are saved on this phone. Sign in to ride with friends and back them up.</string>
     <string name="hub_stat_rides">rides</string>
-    <string name="hub_stat_places">places</string>
+    <string name="hub_stat_places">saved</string>
     <string name="hub_stat_badges">badges</string>
     <string name="map_permission_explainer_title">Before you ride</string>
     <string name="map_permission_explainer_intro">Detour will ask for a few permissions next. You can refuse any of them.</string>
