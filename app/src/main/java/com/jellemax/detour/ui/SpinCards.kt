@@ -1,3 +1,6 @@
+// Slider(track =), SliderState and SliderDefaults.Track, for SpinSliderTrack.
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.jellemax.detour.ui
 
 import androidx.compose.foundation.background
@@ -28,11 +31,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -417,12 +423,14 @@ internal fun SpinSheet(
                     // Whole 5-minute stops; `steps` counts the ones between the ends.
                     steps = ((LoopDuration.MAX_MINUTES - LoopDuration.MIN_MINUTES) /
                         LoopDuration.STEP_MINUTES).toInt() - 1,
+                    track = { SpinSliderTrack(it) },
                 )
             } else {
                 Slider(
                     value = radiusKm,
                     onValueChange = onRadiusChange,
                     valueRange = mode.minKm..mode.maxKm,
+                    track = { SpinSliderTrack(it) },
                 )
             }
 
@@ -451,6 +459,7 @@ internal fun SpinSheet(
                     value = minRadiusKm,
                     onValueChange = onMinRadiusChange,
                     valueRange = 0f..radiusKm,
+                    track = { SpinSliderTrack(it) },
                 )
             }
 
@@ -535,4 +544,12 @@ internal fun SpinSheet(
             )
         }
     }
+}
+
+/** Material's slider track without the stop indicator, the dot it draws at
+ *  the far end: next to the spin card's thumb it read as a second one (#1029).
+ *  The track's colours and its gap around the thumb stay the default's. */
+@Composable
+private fun SpinSliderTrack(state: SliderState) {
+    SliderDefaults.Track(sliderState = state, drawStopIndicator = null)
 }

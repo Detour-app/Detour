@@ -207,6 +207,55 @@ class NavEngineTest {
         assertNull(NavEngine.progress(degenerate, LatLon(50.0, 3.0)))
     }
 
+    /**
+     * The issue's own case (#1013): 10 km of town in 20 min, then 50 km of
+     * motorway in 30 min, as one straight 60 km line north with a vertex per km.
+     */
+    private fun townThenMotorway(townMs: Long? = 20 * 60_000L): RouteResult {
+        val kmDeg = 1_000.0 / 111_320.0 // a kilometre of latitude, exact for the engine
+        return RouteResult(
+            polyline = (0..60).map { LatLon(50.0 + it * kmDeg, 3.0) },
+            waypoints = emptyList(),
+            distanceMeters = 60_000.0,
+            instructions = listOf(
+                NavInstruction("Continue", 10_000.0, 0, startIndex = 0, endIndex = 10, timeMs = townMs),
+                NavInstruction("Keep right", 50_000.0, 7, startIndex = 10, endIndex = 60, timeMs = 30 * 60_000L),
+                NavInstruction("Arrive", 0.0, 4, startIndex = 60, endIndex = 60, timeMs = 0L),
+            ),
+            timeMs = 50 * 60_000L,
+        )
+    }
+
+    @Test
+    fun remainingTimeFollowsEachInstructionsOwnTime() {
+        val route = townThenMotorway()
+        val start = NavEngine.progress(route, route.polyline[0])!!
+        assertEquals(50.0, start.remainingTimeMs!! / 60_000.0, 0.01)
+        // Town done: the motorway's 30 min, not the average's 41.7.
+        val motorway = NavEngine.progress(route, route.polyline[10])!!
+        assertEquals(30.0, motorway.remainingTimeMs!! / 60_000.0, 0.01)
+        // Halfway through town: half its time plus all of the motorway's.
+        val town = NavEngine.progress(route, route.polyline[5])!!
+        assertEquals(40.0, town.remainingTimeMs!! / 60_000.0, 0.01)
+        // Halfway along the motorway, pro rata within that instruction.
+        val midway = NavEngine.progress(route, route.polyline[35])!!
+        assertEquals(15.0, midway.remainingTimeMs!! / 60_000.0, 0.01)
+        val end = NavEngine.progress(route, route.polyline.last())!!
+        assertEquals(0L, end.remainingTimeMs)
+    }
+
+    @Test
+    fun remainingTimeFallsBackToTheRouteAverageWhenAnInstructionHasNoTime() {
+        val route = townThenMotorway(townMs = null)
+        val motorway = NavEngine.progress(route, route.polyline[10])!!
+        assertEquals(50.0 * 50 / 60, motorway.remainingTimeMs!! / 60_000.0, 0.01)
+    }
+
+    @Test
+    fun remainingTimeIsUnknownWithoutAnyTime() {
+        assertNull(NavEngine.progress(route(), LatLon(50.0, 3.0))!!.remainingTimeMs)
+    }
+
     @Test
     fun cameraZoomStaysWithinTwoLevelsOfTheUsersChoice() {
         val base = 16.0
@@ -577,9 +626,9 @@ class RoundaboutParseTest {
         {"paths":[{
           "points":{"type":"LineString","coordinates":[$coords]},
           "instructions":[
-            {"text":"At roundabout, take exit 1 onto Test","distance":120,"sign":6,"exit_number":1,"interval":[2,7]},
+            {"text":"At roundabout, take exit 1 onto Test","distance":120,"sign":6,"exit_number":1,"interval":[2,7],"time":14000},
             {"text":"Turn left","distance":40,"sign":-2,"interval":[7,9]},
-            {"text":"Arrive","distance":0,"sign":4,"interval":[9,9]}
+            {"text":"Arrive","distance":0,"sign":4,"interval":[9,9],"time":0}
           ],
           "details":{"roundabout":[$roundaboutDetail]}
         }]}
@@ -599,6 +648,13 @@ class RoundaboutParseTest {
         val route = RoutingClient.parseRoute(json("[0,9,false]"))
         val turn = route.instructions.first { it.sign == 6 }.roundaboutTurnDeg!!
         assertTrue(turn < 30.0, "fallback reads the bend, not the exit: got $turn")
+    }
+
+    @Test
+    fun eachInstructionKeepsItsOwnTimeAndAMissingOneStaysUnknown() {
+        // #1013: the remaining time is built from these.
+        val route = RoutingClient.parseRoute(json("[0,9,false]"))
+        assertEquals(listOf(14_000L, null, 0L), route.instructions.map { it.timeMs })
     }
 
     @Test
