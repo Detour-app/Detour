@@ -64,7 +64,18 @@ object CameraPrefetch {
         /** Consecutive failed attempts. Reset by any answer at all, including an
          *  empty one — an area with no cameras is a success, not a blip. */
         val failures: Int = 0,
+        /** Whether the rider has been told about the current run of [failures].
+         *  Cleared by the next answer, so a later run is reported again. */
+        val failureReported: Boolean = false,
     )
+
+    /**
+     * Below this the rider isn't driving yet, so a failed fetch is retried
+     * quietly instead of reported. On a first launch at home the camera fetch
+     * fails before the rider has done anything, and its message landed on top of
+     * the first-run dialog (#1028). Same floor as [SpeedLimitTracker.MIN_MPS].
+     */
+    const val REPORT_MIN_MPS = SpeedLimitTracker.MIN_MPS
 
     /** How long to wait after [failures] consecutive failures. */
     fun retryDelayMs(failures: Int): Long = backoffDelayMs(FETCH_THROTTLE_MS, MAX_BACKOFF_MS, failures)
@@ -97,6 +108,22 @@ object CameraPrefetch {
         if (result == null) {
             state.copy(failures = state.failures + 1)
         } else {
-            state.copy(center = center, failures = 0)
+            state.copy(center = center, failures = 0, failureReported = false)
         }
+
+    /**
+     * Whether to tell the rider the cameras couldn't be loaded, on this fix.
+     * "Couldn't load" and "none around here" draw the same empty map, and that is
+     * the one thing the rider cannot work out alone — but only once per run of
+     * failures (the backoff retries, and repeating it every retry is noise), only
+     * while [holdsMarkers] is false (markers on screen are their own answer), and
+     * only once the rider is moving at [REPORT_MIN_MPS] or more: parked, the
+     * cameras don't matter yet and the retry may well succeed first (#1028).
+     * Call [failureReported] after showing it.
+     */
+    fun reportsFailure(state: State, holdsMarkers: Boolean, speedMps: Double): Boolean =
+        state.failures > 0 && !state.failureReported && !holdsMarkers && speedMps >= REPORT_MIN_MPS
+
+    /** Mark the current run of failures as told. */
+    fun failureReported(state: State): State = state.copy(failureReported = true)
 }
