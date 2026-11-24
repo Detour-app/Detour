@@ -3265,6 +3265,44 @@ check 'iOS search rows still title-only' 1 \
 
 ---
 
+## 45. Placing the rider along the route: the car snaps forward on every line, the phone only on some, iOS never
+
+**New with `#1014`** — recorded because iOS is parked (owner decision 2026-10-27) and the snap is
+shared. Renumbered 44 -> 45 on merge (main took 42-44 meanwhile).
+
+**What.** `ViaStops.follow` (shared, #736) places the rider forward only along the line, so a route
+that rides a road twice is not matched to the leg already ridden. Android Auto (`car/NavScreen.kt`'s
+`progressOn`) runs it on **every** line, with no vias. The phone (`ui/MapScreenState.kt`'s
+`followPlanned`) runs it only on a line with planned stops or one that ends where it starts, and
+falls back to the nearest point on the whole route otherwise. iOS's `NavScreen.swift` `update(with:)`
+always takes the nearest point on the whole route (`NavEngine.shared.progress(route:pos:)`).
+
+**Copies.** The snap itself is not duplicated: it is `shared/…/data/ViaStops.kt`. What differs is
+when each surface calls it. Off-route distance stays the global answer on both Android surfaces.
+
+**Verdict: catch-up on iOS; the phone's gate is a choice, not a bug.** The car has no planned stops,
+so the phone's gate would never fire there. Forward-only on every line costs a ride back over a
+plain line: `follow` keeps its `from` while the rider stays within 60 m of the line, and the global
+off-route distance is ~0 on the line, so no reroute fires — progress, distance left and prompts
+freeze at the furthest point until the rider leaves the line by more than 60 m or turns forward
+again. Accepted, as it has been on the phone's planned and closing lines since #736. iOS should call
+`ViaStops.follow` as the car does.
+
+**Fence.**
+
+```sh
+# Entry 45 — forward-only placement. Measured against the #1014 branch. A changed count means a
+# surface moved between the forward snap and the global nearest point.
+check 'the car snaps forward on every line' 1 \
+    "$(grep -c 'ViaStops.follow(ride, route.polyline, emptyList(), pos' app/src/main/java/com/jellemax/detour/car/NavScreen.kt)"
+check 'the phone snaps forward only on a planned or closing line' 1 \
+    "$(grep -c 'vias.isEmpty() && !ViaStops.closes(line)' app/src/main/java/com/jellemax/detour/ui/MapScreenState.kt)"
+check 'iOS still takes the nearest point on the whole route' 1 \
+    "$(grep -c 'NavEngine.shared.progress(route: route, pos: here)' iosApp/Detour/NavScreen.swift)"
+```
+
+---
+
 ## §D — Keeping this register current
 
 This file is stale the moment anyone edits a copy it cites, and it cites 40-odd line numbers
