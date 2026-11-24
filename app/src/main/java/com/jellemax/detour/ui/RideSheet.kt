@@ -80,6 +80,15 @@ internal data class WhereTo(
     val onPick: (GeocodeResult) -> Unit,
 )
 
+/** The You avatar on a closed ride strip: the way to You and settings
+ *  mid-trip. */
+internal data class YouButton(val username: String, val onClick: () -> Unit)
+
+/** The nav sheet's two ways out: end the route and keep recording, or end
+ *  the trip. Grouped with [YouButton] so [NavSheet] stays under detekt's
+ *  parameter limit (`docs/guidelines/boundaries.md` §8.4). */
+internal data class NavExits(val onEndNavigation: () -> Unit, val onEndTrip: () -> Unit)
+
 /** What `NavButton` needs to offer Go from the drive sheet, grouped for the
  *  same reason as [WhereTo]. */
 internal data class GoTarget(
@@ -157,7 +166,9 @@ internal fun DriveSheet(
                     )
                     NavButton(
                         destination = go.destination,
-                        route = go.route?.waypoints,
+                        // Only a loop (no destination) hands off as a round trip; a
+                        // destination's route, a pick's preview included (#1027), is A→B.
+                        route = go.route?.waypoints?.takeIf { go.destination == null },
                         origin = go.origin,
                         mode = go.mode,
                         inAppAvailable = go.inAppAvailable,
@@ -198,8 +209,8 @@ internal fun NavSheet(
     state: NavState,
     destinationName: String?,
     stats: TripStats?,
-    onEndNavigation: () -> Unit,
-    onEndTrip: () -> Unit,
+    exits: NavExits,
+    you: YouButton,
 ) {
     val expanded = toggle.expanded
     RideSheetCard(toggle) {
@@ -212,7 +223,8 @@ internal fun NavSheet(
             subline = state.remainingText,
             isError = state.offRoute,
             crossDescription = "End navigation",
-            onCross = onEndNavigation,
+            onCross = exits.onEndNavigation,
+            you = you,
         )
         if (expanded) {
             destinationName?.let { name ->
@@ -241,13 +253,13 @@ internal fun NavSheet(
                 EndButton(
                     label = "End route",
                     icon = Icons.Rounded.Close,
-                    onClick = onEndNavigation,
+                    onClick = exits.onEndNavigation,
                     modifier = Modifier.weight(1f),
                 )
                 EndButton(
                     label = "End trip",
                     icon = Icons.Rounded.Stop,
-                    onClick = onEndTrip,
+                    onClick = exits.onEndTrip,
                     modifier = Modifier.weight(1f),
                     enabled = stats != null,
                 )
@@ -292,6 +304,7 @@ private fun RideSheetHeader(
     isError: Boolean,
     crossDescription: String,
     onCross: () -> Unit,
+    you: YouButton? = null,
 ) {
     Row(
         Modifier
@@ -317,6 +330,7 @@ private fun RideSheetHeader(
                 maxLines = 2,
             )
         }
+        you?.let { YouAvatar(it.username, it.onClick) }
         OutlinedIconButton(
             onClick = onCross,
             modifier = Modifier

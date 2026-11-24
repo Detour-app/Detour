@@ -264,10 +264,12 @@ fun MapScreen(
     // pick, a cancel, or navigation ending and clearing the result. Declared
     // here rather than beside `destination` because it now also reads
     // `navigating`, and Kotlin resolves local declarations in order.
-    LaunchedEffect(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.turnaround) {
+    LaunchedEffect(
+        s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.turnaround, s.guidedTo,
+    ) {
         SpinResultHolder.publish(
             SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating, s.vias, s.viaRide,
-                s.turnaround)
+                s.turnaround, s.guidedTo)
         )
     }
     // Following is the resting state of the map. `camSuspended` is what a pan,
@@ -822,6 +824,7 @@ fun MapScreen(
         // can re-frame it. Same as the car surface, which drops its route on end
         // (car/NavScreen.kt).
         s.route = null
+        s.guidedTo = s.destination // #1027: no route preview for the pin just ridden to
         // Arrival, or the Exit button. Either way stop mid-sentence rather than
         // finishing a prompt for a turn that no longer matters.
         navVoice.stop()
@@ -885,8 +888,9 @@ fun MapScreen(
 
     // The two Overpass prefetches, in MapHazardPrefetch.kt.
     MapHazardPrefetch(s = s, retained = retained, scope = scope, snackbarHostState = snackbarHostState)
-    // HERE traffic while navigating with a key, in MapTraffic.kt (#645).
+    // HERE traffic while navigating (#645), and the route before Start (#1027), in their own files.
     MapTraffic(s = s, retained = retained, mapOverlays = mapOverlays)
+    MapRoutePreview(s = s, serverConfig = serverConfig, mode = mode) { fitTo(it + listOfNotNull(s.myLocation)) }
 
     // Push camera markers to the map. Separate from the main overlay render
     // because cameras change on the prefetch cadence, not per drawable-state flip.
@@ -976,7 +980,7 @@ fun MapScreen(
                 // the bar cannot say "Off route" when no reroute follows (#1008).
                 offRoute = s.offRouteShown,
                 sep = Settings.decimalSeparatorChar(),
-            )
+            ).withRerouteFailure(s.rerouteAttempts.failureText)
         }
     }
 
@@ -1071,11 +1075,9 @@ fun MapScreen(
         Settings.setTripMode(m)
         radiusKm = next.radiusKm
         minRadiusKm = next.minRadiusKm
-        // A concrete destination survives; its route does not — a moto profile
-        // and a car profile reach the same place by different roads, so the
-        // dock drops the fetched route here and startNavigation() re-fetches
-        // on the new profile. A loop spin's route (destination == null) is
-        // cleared by the same line.
+        // A concrete destination survives; its route does not — a moto and a car profile
+        // reach it by different roads, so the route goes and MapRoutePreview (#1027) and
+        // Start re-ask on the new profile. A loop spin's route (destination == null) too.
         s.route = next.route
         s.candidates = next.candidates
         if (next.clearSpinOffer) ConvoyLiveClient.clearSpinOffer()

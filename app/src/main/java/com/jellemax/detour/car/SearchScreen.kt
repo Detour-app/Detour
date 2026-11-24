@@ -19,6 +19,7 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RecentSearchStore
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
+import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.startHeading
@@ -27,6 +28,8 @@ import com.jellemax.detour.presentation.SearchSession
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.tracking.hasLocationPermission
 import com.jellemax.detour.ui.androidSearchSession
+import com.jellemax.detour.ui.labelRes
+import com.jellemax.detour.ui.searchResultDetail
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -74,6 +77,12 @@ class SearchScreen(
                 fix?.let { session.onFix(LatLon(it.lat, it.lon), it.accuracyMeters) }
             }
         }
+        // Saved places above recents, as on the phone (#1007). The car can start without
+        // MainActivity ever running, so this screen loads the store itself.
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { SavedPlaces.ensureLoaded() }
+            SavedPlaces.places.collect { session.setSavedPlaces(it) }
+        }
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 fetchLocation()
@@ -112,31 +121,30 @@ class SearchScreen(
                     }
                     .build(),
             )
-            // Recents, not results: the session answers a cleared query a moment
-            // after the host reports it, and results would hold the old hits till then.
-            search.recents.forEach { result ->
-                list.addItem(
-                    Row.Builder()
-                        .setTitle(result.name)
-                        .setOnClickListener { navigateTo(result) }
-                        .build(),
-                )
+            // Suggestions (saved places, then recents), not results: the session answers a
+            // cleared query a moment after the host reports it, and results would hold the
+            // old hits till then.
+            search.suggestions.forEach { result ->
+                list.addItem(resultRow(result, search.near))
             }
         } else when {
             routeError != null -> list.setNoItemsMessage(routeError!!)
             search.failure != null -> list.setNoItemsMessage(failureText("Search", search.failure!!))
             search.noResults -> list.setNoItemsMessage(carContext.getString(R.string.car_search_nothing_found))
             else -> search.results.forEach { result ->
-                list.addItem(
-                    Row.Builder()
-                        .setTitle(result.name)
-                        .setOnClickListener { navigateTo(result) }
-                        .build(),
-                )
+                list.addItem(resultRow(result, search.near))
             }
         }
         return builder.setItemList(list.build()).build()
     }
+
+    /** A hit as the phone lists it, kind, second line and distance as the row's text (#1006). */
+    private fun resultRow(result: GeocodeResult, near: LatLon?): Row =
+        Row.Builder()
+            .setTitle(result.name)
+            .addText(searchResultDetail(result, carContext.getString(result.kind.labelRes()), near))
+            .setOnClickListener { navigateTo(result) }
+            .build()
 
     private fun onQuery(text: String) {
         query = text
@@ -169,7 +177,9 @@ class SearchScreen(
                     RoutingClient.route(config, from, result.location, TravelMode.CAR.ghProfile,
                         Settings.routePreferences(), heading)
                 }
-                withContext(Dispatchers.IO) { RecentSearchStore.save(result) }
+                if (!session.state.value.isSaved(result)) {
+                    withContext(Dispatchers.IO) { RecentSearchStore.save(result) }
+                }
                 routing = false
                 if (route.instructions.isEmpty()) {
                     // No turn data to drive our own nav screen with — hand off

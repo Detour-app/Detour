@@ -123,7 +123,8 @@ class ArchitectureTest {
             // +4: #902 the idle dim's touch holder, its call and their two imports (both in ui/map/MapIdleDimmer.kt)
             // +19: #921 "Loop via here" through spin(), the pin's PinActions/LoopResultActions call sites
             // +1: #922 loopViaPinKept import (guard body in map/TurnaroundRun.kt)
-            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1480,
+            // +2: #1027 route preview call (body in MapRoutePreview.kt), guidedTo on stop and in the holder publish
+            "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1482,
             // +44: #587 tolls/ferries/unpaved rows and the AvoidRow they share with the two old ones
             // +1: #439 offline tiles row (body in SettingsOfflineTiles.kt)
             // +7: #823 problem-report spoke's title, dispatch and the onNavigate the Diagnostics row needs
