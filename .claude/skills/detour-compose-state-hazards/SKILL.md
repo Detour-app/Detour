@@ -64,7 +64,7 @@ Verified instances:
 |---|---|---|---|
 | `MapScreen.kt:947` | `liveFix, defaultZoom` | `navProgress?.distanceToTurnMeters` (`:955`) | A turn getting closer must not re-aim the camera on its own; it takes effect on the next fix |
 | `MapScreen.kt:411` | `camSuspended, spinning, candidates.isEmpty(), spinOffer == null` | `lastGestureMs` (`:418`) | Keys are *derived booleans*: keying on the collections would restart a `lastFix` collector on every convoy vote |
-| `MapScreen.kt:1056` | `navigating, liveFix, route` | `destination`, `rerouting`, `lastRerouteMs`, `mode`, `serverConfig` | It **writes** `route` at `:1090` from `scope.launch`, re-keying itself asynchronously on purpose — comment `:1078-1080`: a `LaunchedEffect`-scoped request would be cancelled by the next GPS fix |
+| `MapScreen.kt:1056` | `navigating, liveFix, route` | `destination`, `rerouting`, `rerouteAttempts`, `mode`, `serverConfig` | It **writes** `route` at `:1090` from `scope.launch`, re-keying itself asynchronously on purpose — comment `:1078-1080`: a `LaunchedEffect`-scoped request would be cancelled by the next GPS fix |
 | `TripDetailScreen.kt:394` | `scrubbedTo, mapStyle` | — | `scrubbedTo` (`:393`) is `if (replaying) null else rideElapsedMs`: a key deliberately nulled so a value that changes 60×/s does not relaunch a coroutine every frame. Comment `:390-392` |
 
 Three consequences worth holding on to:
