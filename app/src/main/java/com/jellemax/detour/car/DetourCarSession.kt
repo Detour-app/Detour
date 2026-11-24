@@ -65,11 +65,20 @@ class DetourCarSession : Session() {
         return search
     }
 
-    /** "Navigate to X" while the session is already running. */
+    /**
+     * "Navigate to X" while the session is already running. Everything above
+     * home is popped first: a [NavScreen] left under the search keeps
+     * collecting fixes after it stops (old-route voice, the shared camera,
+     * its arrival pop), so a mid-route "Navigate to" would end up with two
+     * screens guiding at once. Popping destroys it, which ends its guidance.
+     */
     override fun onNewIntent(intent: Intent) {
         val map = renderer ?: return
         val home = home ?: return
-        navigateSearch(intent, map, home)?.let { carContext.getCarService(ScreenManager::class.java).push(it) }
+        val search = navigateSearch(intent, map, home) ?: return
+        val screens = carContext.getCarService(ScreenManager::class.java)
+        screens.popToRoot()
+        screens.push(search)
     }
 
     /** Head unit flipped day/night: the map style has to follow (the host
