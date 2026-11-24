@@ -29,6 +29,11 @@ object TripHighlightRules {
     /** How far past its detection threshold an event has to go to read as "very". */
     const val VERY_HARD_FACTOR = 1.5
 
+    /** The shallowest peak lean that earns a pin. Below it the trip recorded
+     *  sensor noise, not a corner: a ride with no lean data peaks at a fraction
+     *  of a degree, which rounds to "0° left" (#1023). */
+    const val MIN_HIGHLIGHT_LEAN_DEG = 5.0
+
     fun isCorner(e: RidingEvent): Boolean =
         e.kind == RidingEventKind.HARD_CORNER_LEAN || e.kind == RidingEventKind.HARD_CORNER_TURN
 
@@ -46,9 +51,10 @@ object TripHighlightRules {
         }
     }
 
-    /** [tracksLean] is the trip's mode: a car's lean is noise and gets no pin. */
+    /** [tracksLean] is the trip's mode: a car's lean is noise and gets no pin.
+     *  Neither does a peak under [MIN_HIGHLIGHT_LEAN_DEG] either way. */
     fun picks(moments: TripMoments, tracksLean: Boolean): TripHighlightPicks = TripHighlightPicks(
-        lean = moments.maxLean?.takeIf { tracksLean && it.value != 0.0 },
+        lean = moments.maxLean?.takeIf { tracksLean && abs(it.value) >= MIN_HIGHLIGHT_LEAN_DEG },
         corner = moments.events.filter(::isCorner).maxByOrNull { abs(it.magnitude) },
         // Braking is negative, so the hardest is the smallest.
         brake = moments.events.filter { it.kind == RidingEventKind.HARD_BRAKE }.minByOrNull { it.magnitude },

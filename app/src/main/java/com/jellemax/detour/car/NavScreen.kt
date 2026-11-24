@@ -344,7 +344,7 @@ class NavScreen(
         // under a camera that glides.
         renderer.setDrivenFraction(p.drivenFraction)
 
-        announce(p)
+        announce(p, speedMps)
         pushTrip(p)
         refreshTemplate(p)
         checkCameras(pos, bearingDeg?.toDouble())
@@ -478,8 +478,8 @@ class NavScreen(
     /** Speaks whatever [NavAnnouncer] says is due for this fix. The decision
      *  and the words are the core's; this screen only decides that speech is
      *  how the head unit delivers them. */
-    private fun announce(p: NavEngine.Progress) {
-        announcer.onProgress(p.nextInstruction, p.distanceToTurnMeters)?.let { speak(it) }
+    private fun announce(p: NavEngine.Progress, speedMps: Double) {
+        announcer.onProgress(p, speedMps)?.let { speak(it) }
     }
 
     // ---- host state -------------------------------------------------------

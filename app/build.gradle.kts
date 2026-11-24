@@ -87,7 +87,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "4.19.13"
+        versionName = "4.24.1"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -302,14 +302,14 @@ dependencies {
     // Firebase Cloud Messaging ONLY — the push transport (docs/PUSH.md). No BOM,
     // no other Firebase product (no Firestore/Database/Analytics/Auth): this is
     // the sole com.google.firebase dependency and it pulls in none of those.
-    implementation("com.google.firebase:firebase-messaging:26.0.1")
+    implementation("com.google.firebase:firebase-messaging:26.0.2")
     // :shared's CircleEvents.placeEventFromRelayFrame takes a kotlinx
     // JsonObject, but shared/build.gradle.kts declares kotlinx-serialization
     // as `implementation`, not `api` - Gradle doesn't leak that onto a
     // consumer's compile classpath, so it has to be declared here too,
     // pinned to the same version shared uses to resolve to one identical
     // class rather than risk two.
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.13.0")
     // QR generation only (#762, owner decision): the convoy invite link as a code
     // a rider beside the host can scan. Core alone is pure Java with no camera
     // or scanner; ui/QrCode.kt draws its matrix in Compose, no bitmap.

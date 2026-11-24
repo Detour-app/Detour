@@ -105,26 +105,28 @@ fun tripNotificationStack(startTimeMs: Long?): List<Destination> = buildList {
 /**
  * The stack a tapped arrival/departure notification lands on.
  *
- * Same reasoning as [tripNotificationStack]. A null [circleId] opens the circles
+ * Same reasoning as [tripNotificationStack]: back walks out through Friends, the
+ * screen Circles is reached from by hand since #1024 (the map's Social card opens
+ * Friends, which holds the Circles row). A null [circleId] opens the circles
  * list, which is what the old code did by setting `screen = Screen.CIRCLES` and
  * letting `CirclesScreen` decide whether the id named a real circle.
  */
 fun circleNotificationStack(circleId: String?): List<Destination> = buildList {
     add(Destination.Map)
-    add(Destination.Hub)
+    add(Destination.Friends)
     add(Destination.Circles)
     if (circleId != null) add(Destination.CircleDetail(circleId))
 }
 
 /**
  * The stack a tapped planned-ride reminder lands on: the ride, with back walking
- * out through the Planned list and Routes it is reached from. Same reasoning as
- * [tripNotificationStack]. No missing-ride fallback is needed here - the detail
- * screen already backs out to the Planned list when the ride is gone.
+ * out through the Planned list and Routes it is reached from (Routes opens from
+ * the map's home card since #1024). Same reasoning as [tripNotificationStack].
+ * No missing-ride fallback is needed here - the detail screen already backs out
+ * to the Planned list when the ride is gone.
  */
 fun plannedRideNotificationStack(rideId: String): List<Destination> = listOf(
     Destination.Map,
-    Destination.Hub,
     Destination.Routes,
     Destination.PlannedRides,
     Destination.PlannedRideDetail(rideId),
@@ -147,11 +149,11 @@ fun updateNotificationStack(): List<Destination> = buildList {
 
 /**
  * The stack a tapped convoy invite link (#764) lands on: Friends, where the join confirm screen
- * opens for the held link (and a signed-out rider is asked to sign in first). Back walks out
- * through the Hub, the way Friends is reached by hand. Same reasoning as [tripNotificationStack].
+ * opens for the held link (and a signed-out rider is asked to sign in first). Back lands on the
+ * map, whose Social card is how Friends is reached by hand since #1024. Same reasoning as
+ * [tripNotificationStack].
  */
 fun convoyInviteStack(): List<Destination> = listOf(
     Destination.Map,
-    Destination.Hub,
     Destination.Friends,
 )

@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -164,8 +163,8 @@ internal fun rideSavedRoute(
 }
 
 /**
- * Saved multi-stop routes: create, navigate, rename, delete, share as a file,
- * export, and pull in whatever friends have shared. Follows
+ * Saved multi-stop routes: create, navigate, rename, delete, share a GPX file,
+ * save one to the device, and pull in whatever friends have shared. Follows
  * [SavedPlacesScreen]'s shape (top bar, empty state, dialogs) for the same
  * kind of list.
  */
@@ -207,6 +206,7 @@ fun RoutesScreen(
     var deleting by remember { mutableStateOf<SavedRoute?>(null) }
     var sharingTo by remember { mutableStateOf<SavedRoute?>(null) }
     var menuOpenFor by remember { mutableStateOf<Long?>(null) }
+    var barMenuOpen by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     // Every outcome below goes to the app snackbar (§5.4): a success with news
     // as a notice, a failure as an error.
@@ -323,31 +323,35 @@ fun RoutesScreen(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             SubScreenTopBar(stringResource(R.string.routes_title), onBack, scrollBehavior) {
-                // Planned rides (#633) sit next to Routes rather than in Social: a planned ride
-                // is a route with a date and company, and this is where riders pick routes.
-                IconButton(onClick = onOpenPlannedRides) {
-                    Icon(Icons.Rounded.Event, contentDescription = stringResource(R.string.planned_title))
+                // One labelled overflow rather than three bare icons (#1025): none of
+                // calendar / refresh / file-up said what it did. A pull in flight still
+                // shows next to it, since its result only arrives as a snackbar.
+                if (refreshing) {
+                    CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(20.dp), strokeWidth = 2.dp)
                 }
-                IconButton(
-                    enabled = !refreshing,
-                    onClick = { scope.launch { pull() } },
-                    modifier = Modifier.padding(end = 8.dp),
-                ) {
-                    if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.routes_pull))
-                }
-                IconButton(
-                    onClick = { importLauncher.launch(RouteFiles.IMPORT_MIME_TYPES) },
-                    modifier = Modifier.padding(end = 8.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Rounded.UploadFile, contentDescription = stringResource(R.string.routes_import))
+                Box(Modifier.padding(end = 4.dp)) {
+                    IconButton(onClick = { barMenuOpen = true }) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.routes_more))
+                    }
+                    DropdownMenu(expanded = barMenuOpen, onDismissRequest = { barMenuOpen = false }) {
+                        // Planned rides (#633) sit next to Routes rather than in Social: a planned
+                        // ride is a route with a date and company, and this is where riders pick routes.
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.planned_title)) },
+                            leadingIcon = { Icon(Icons.Rounded.Event, contentDescription = null) },
+                            onClick = { barMenuOpen = false; onOpenPlannedRides() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.routes_pull)) },
+                            leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
+                            enabled = !refreshing,
+                            onClick = { barMenuOpen = false; scope.launch { pull() } },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.routes_import)) },
+                            leadingIcon = { Icon(Icons.Rounded.UploadFile, contentDescription = null) },
+                            onClick = { barMenuOpen = false; importLauncher.launch(RouteFiles.IMPORT_MIME_TYPES) },
+                        )
                     }
                 }
             }

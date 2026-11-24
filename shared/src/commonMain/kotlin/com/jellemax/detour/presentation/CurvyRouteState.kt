@@ -7,11 +7,13 @@ import com.jellemax.detour.data.TravelMode
 
 /** What the A→B curviness control shows (#652). */
 enum class CurvyControl {
-    /** Not a moto route: the preset never reaches the request, so no control. */
+    /**
+     * Not a moto route, or the server can't route curvy: no control. The
+     * unsupported case used to show a permanent "your routing server can't do
+     * this yet" line, on every destination, for a feature the rider hadn't
+     * asked for (#1027).
+     */
     HIDDEN,
-
-    /** A moto route, but the server's graph has no `curvature`: a one-line reason. */
-    UNSUPPORTED,
 
     /** The fast / balanced / twisty slider. */
     SLIDER,
@@ -19,15 +21,12 @@ enum class CurvyControl {
 
 /**
  * Which [CurvyControl] a destination on [mode] gets. [supported] is
- * `RoutingSupport.curvyRoutingSupported()`. Car is hidden rather than
- * unsupported: `RoutePreferences.rulesFor` drops the preset off every
- * profile but moto, so a slider there would change nothing.
+ * `RoutingSupport.curvyRoutingSupported()`. Car is hidden whatever the
+ * server: `RoutePreferences.rulesFor` drops the preset off every profile but
+ * moto, so a slider there would change nothing.
  */
-fun curvyControl(mode: TravelMode, supported: Boolean): CurvyControl = when {
-    mode != TravelMode.MOTO -> CurvyControl.HIDDEN
-    !supported -> CurvyControl.UNSUPPORTED
-    else -> CurvyControl.SLIDER
-}
+fun curvyControl(mode: TravelMode, supported: Boolean): CurvyControl =
+    if (mode == TravelMode.MOTO && supported) CurvyControl.SLIDER else CurvyControl.HIDDEN
 
 /**
  * The cost line under the slider, "+12 min · +9.4 km", as its two numbers.
