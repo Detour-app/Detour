@@ -4,17 +4,11 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.car.app.connection.CarConnection
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Observer
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -23,10 +17,12 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -41,7 +37,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation3.runtime.NavBackStack
@@ -184,8 +186,14 @@ class MainActivity : ComponentActivity() {
                 Surface {
                     // Android Auto guideline: no phone interaction while the
                     // car is projecting. The car screens carry the whole drive.
+                    // An overlay, not a swap: AppRoot stays composed underneath
+                    // so its map, back stack and any phone nav survive a connect.
                     val projecting = rememberProjecting()
-                    if (projecting) PhoneDrivingLock() else AppRoot()
+                    Box(
+                        Modifier.fillMaxSize().then(if (projecting) Modifier.clearAndSetSemantics {} else Modifier),
+                        propagateMinConstraints = true,
+                    ) { AppRoot() }
+                    if (projecting) PhoneDrivingLock()
                 }
             }
         }
@@ -324,11 +332,15 @@ private fun rememberProjecting(): Boolean {
     return projecting
 }
 
+/** Covers [AppRoot] while projecting: an opaque Surface takes every touch, and Back goes nowhere. */
 @Composable
 private fun PhoneDrivingLock() {
-    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Text(stringResource(R.string.phone_driving_lock), textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.titleMedium)
+    BackHandler {}
+    Surface(Modifier.fillMaxSize()) {
+        Box(Modifier.padding(32.dp), contentAlignment = Alignment.Center) {
+            Text(stringResource(R.string.phone_driving_lock), textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleMedium)
+        }
     }
 }
 

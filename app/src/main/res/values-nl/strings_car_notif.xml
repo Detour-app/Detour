@@ -74,4 +74,5 @@
     <string name="convoy_live_text">Locatie wordt gedeeld, luistert naar push-to-talk</string>
     <string name="convoy_stop">Stoppen</string>
     <string name="phone_driving_lock">Verbonden met Android Auto. De telefoon is uit tijdens het rijden — gebruik het autoscherm.</string>
+    <string name="car_handoff_no_other_app">Geen andere navigatie-app om deze route aan door te geven</string>
 </resources>

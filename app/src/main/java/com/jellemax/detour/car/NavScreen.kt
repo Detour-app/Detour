@@ -2,6 +2,7 @@ package com.jellemax.detour.car
 
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.os.SystemClock
 import android.util.Log
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
@@ -44,6 +45,7 @@ import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.walkRoute
 import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
@@ -77,8 +79,11 @@ private const val TAG = "DetourNav"
  *  no travel time, ~50 km/h. Only feeds the cluster's step ETA. */
 private const val FALLBACK_MPS = 14.0
 
-/** Test-drive pace, ~50 km/h. */
+/** Test-drive pace, ~50 km/h: metres walked per [SIM_TICK_MS]. */
 private const val SIM_SPEED_MPS = 14.0
+private const val SIM_TICK_MS = 1000L
+/** What a good real fix reports, so the test drive passes the accuracy gates. */
+private const val SIM_ACCURACY_M = 5.0
 
 /**
  * The actual turn-by-turn screen, pushed from [SpinScreen] once a candidate
@@ -310,21 +315,14 @@ class NavScreen(
         simulating = true
         invalidate()
         simJob = lifecycleScope.launch {
-            val pts = route.polyline
-            var i = 0
-            var carry = 0.0
-            while (simulating && i < pts.size - 1) {
-                val a = pts[i]; val b = pts[i + 1]
-                val seg = com.jellemax.detour.data.RoadRoulette.distanceMeters(a, b)
-                val stepM = SIM_SPEED_MPS
-                if (seg <= 0.0) { i++; continue }
-                val pos = if (carry >= seg) { carry -= seg; i++; continue } else
-                    LatLon(a.lat + (b.lat - a.lat) * carry / seg, a.lon + (b.lon - a.lon) * carry / seg)
-                val bearing = com.jellemax.detour.data.RoadRoulette.bearingDeg(a, b).toFloat()
-                runCatching { onFix(pos, bearing, SIM_SPEED_MPS, 5.0, android.os.SystemClock.elapsedRealtime()) }
-                    .onFailure { Log.w(TAG, "sim fix failed", it) }
-                carry += stepM
-                delay(1000)
+            for (step in walkRoute(route.polyline, SIM_SPEED_MPS)) {
+                runCatching {
+                    onFix(
+                        step.at, step.bearingDeg.toFloat(), SIM_SPEED_MPS, SIM_ACCURACY_M,
+                        SystemClock.elapsedRealtime(),
+                    )
+                }.onFailure { Log.w(TAG, "sim fix failed", it) }
+                delay(SIM_TICK_MS)
             }
             simulating = false
             invalidate()
