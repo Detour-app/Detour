@@ -3,6 +3,7 @@ package com.jellemax.detour.map
 import com.jellemax.detour.data.HeadingHint
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.ViaStops
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -571,5 +572,61 @@ class NavPolicyTest {
             NavPolicy.Decision.Arrived,
             rideHeading(true, true, true, remainingMeters = 10.0, offRouteMeters = 5.0).last(),
         )
+    }
+
+    /** A straight road east, out to a U-turn and back on the same tarmac. */
+    private val outAndBack = listOf(LatLon(52.0, 5.0), LatLon(52.0, 5.01), LatLon(52.0, 5.0))
+
+    /** Fixes every [stepDeg] of longitude along [outAndBack] at 20 m/s, each
+     *  snapped forward the way the car and the phone snap it, with the course
+     *  the rider is actually on. Returns each fix's position, course and snap. */
+    private fun rideOutAndBack(stepDeg: Double = 0.0003): List<Triple<LatLon, Float, NavEngine.Along>> {
+        val east = generateSequence(5.0) { it + stepDeg }.takeWhile { it < 5.01 }.map { it to 90f }
+        val west = generateSequence(5.01) { it - stepDeg }.takeWhile { it > 5.0 }.map { it to 270f }
+        var ride: ViaStops.Ride? = null
+        return (east + west).map { (lon, course) ->
+            val pos = LatLon(52.0, lon)
+            ride = ViaStops.follow(ride, outAndBack, emptyList(), pos, NavPolicy.OFF_ROUTE_METERS)
+            Triple(pos, course, ride!!.along)
+        }.toList()
+    }
+
+    /** The review's case: riding back along the road just ridden out is on
+     *  route, though the forward snap keeps the outbound segment on the tie and
+     *  its bearing is 180° from the rider's course for the whole return leg. */
+    @Test
+    fun anOnRouteUTurnAtSpeedIsNotHeadingOffRoute() {
+        val fixes = rideOutAndBack()
+        // The trap is real: the snap's own bearing alone calls the return leg off route.
+        assertTrue(fixes.any { (_, course, along) -> NavPolicy.headingOffRoute(course, 20.0, along.bearingDeg) })
+        var streak: NavPolicy.OffRouteStreak? = null
+        fixes.forEachIndexed { i, (pos, course, along) ->
+            val off = NavPolicy.headingOffRoute(course, 20.0, outAndBack, pos, along)
+            assertFalse("fix $i at ${pos.lon} heading $course", off)
+            streak = NavPolicy.trackOffRoute(streak, along.offRouteMeters, 5.0, off, i.toLong(), i * 1_000L)
+            assertNull(streak)
+        }
+    }
+
+    /** The tie allowance does not hide a rider who has really turned off: 20 m
+     *  north of the eastbound road, heading north, with only eastbound road ahead. */
+    @Test
+    fun aRiderTurnedOffBesideTheRoadIsStillHeadingOffRoute() {
+        val line = listOf(LatLon(52.0, 5.0), LatLon(52.0, 5.005), LatLon(52.0, 5.01))
+        val pos = LatLon(52.00018, 5.002)
+        val along = NavEngine.advance(line, pos, null)
+        assertTrue(NavPolicy.headingOffRoute(0f, 20.0, line, pos, along))
+        assertFalse(NavPolicy.headingOffRoute(0f, 20.0, line, pos, null))
+    }
+
+    /** Only a reversed segment excuses the course: a rider snapped onto the
+     *  northbound road after a corner, still heading east past it, is off. */
+    @Test
+    fun ridingStraightOnPastACornerIsStillHeadingOffRoute() {
+        val line = listOf(LatLon(52.0, 5.0), LatLon(52.0, 5.005), LatLon(52.005, 5.005))
+        val pos = LatLon(52.0, 5.0053)
+        val onNorthbound = NavEngine.advance(line, pos, NavEngine.advance(line, LatLon(52.001, 5.005), null))
+        assertEquals(1, onNorthbound.index)
+        assertTrue(NavPolicy.headingOffRoute(90f, 20.0, line, pos, onNorthbound))
     }
 }

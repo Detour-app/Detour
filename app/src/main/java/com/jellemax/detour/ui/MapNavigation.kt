@@ -125,7 +125,7 @@ internal fun MapNavigationSession(
         // bar's "Off route" is the same confirmation decide() reroutes on.
         // The course against the windowed snap's bearing, never the global
         // one's: that can be the other leg of a road ridden twice (#1009).
-        val headingOff = NavPolicy.headingOffRoute(fix.bearingDeg, fix.speedMps, along.bearingDeg)
+        val headingOff = NavPolicy.headingOffRoute(fix.bearingDeg, fix.speedMps, r.polyline, pos, along)
         s.offRoute = NavPolicy.trackOffRoute(
             s.offRoute, progress.offRouteMeters, fix.accuracyMeters.toDouble(), headingOff,
             fix.elapsedRealtimeMs, now)

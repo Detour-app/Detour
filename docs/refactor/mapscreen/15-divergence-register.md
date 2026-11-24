@@ -3288,6 +3288,10 @@ freeze at the furthest point until the rider leaves the line by more than 60 m o
 again. Accepted, as it has been on the phone's planned and closing lines since #736. iOS should call
 `ViaStops.follow` as the car does.
 
+**Since #1009** the phone also keeps a forward ride on a plain line (`MapScreenState.headingAlong`),
+but only for its bearing, which `NavPolicy.headingOffRoute` compares with the GPS course; placing
+the rider there is still the global nearest point. iOS has no heading off-route check at all.
+
 **Fence.**
 
 ```sh

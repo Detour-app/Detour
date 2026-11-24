@@ -1,8 +1,14 @@
 package com.jellemax.detour.map
 
 import com.jellemax.detour.data.HeadingHint
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.RoadRoulette
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -53,6 +59,23 @@ internal object NavPolicy {
      *  (#1009). A curve or a lane change stays well inside it; a slip road
      *  peeling off a motorway, or the other branch of a split, leaves it. */
     const val HEADING_OFF_ROUTE_DEG = 60.0
+
+    /** How many segments either side of the snapped one [headingOffRoute]
+     *  looks at for the same tarmac ridden the other way (#1009): a U-turn
+     *  vertex can carry a repeated point or two between the legs. */
+    const val HEADING_TIE_SEGMENTS = 4
+
+    /** A segment ahead this close to as near the rider as the snapped one is
+     *  the same road (#1009): an out-and-back's two legs share their tarmac,
+     *  and GPS puts the rider a metre or two nearer either. */
+    const val HEADING_TIE_METERS = 5.0
+
+    /** Degrees in a full turn, for wrapping a course difference at north. */
+    private const val FULL_TURN_DEG = 360.0
+    private const val HALF_TURN_DEG = 180.0
+
+    /** Metres per degree of latitude, the figure [NavEngine.advance] projects with. */
+    private const val METERS_PER_DEG_LAT = 111_320.0
 
     /** Minimum gap between reroute requests. Both call sites stamp on request
      *  rather than on success, so a failed reroute is retried after the cooldown
@@ -176,11 +199,65 @@ internal object NavPolicy {
      */
     fun headingOffRoute(courseDeg: Float?, speedMps: Double, routeBearingDeg: Double?): Boolean {
         if (courseDeg == null || routeBearingDeg == null || speedMps < HEADING_OFF_ROUTE_MIN_SPEED_MPS) return false
-        val diff = abs(courseDeg - routeBearingDeg) % FULL_TURN_DEG
-        return min(diff, FULL_TURN_DEG - diff) > HEADING_OFF_ROUTE_DEG
+        return turnDeg(courseDeg.toDouble(), routeBearingDeg) > HEADING_OFF_ROUTE_DEG
     }
 
-    private const val FULL_TURN_DEG = 360.0
+    /**
+     * [headingOffRoute] against the rider at [pos] snapped to [along] on
+     * [line], allowing for an out-and-back (#1009). Its two legs ride the same
+     * tarmac, so every fix on them is a tie between a segment and its reverse,
+     * and [NavEngine.advance] can settle it either way: on the outbound leg
+     * onto the return one, or after the turn onto the outbound one. Either
+     * way [along]'s bearing is 180° from a rider who is on route.
+     *
+     * So a fix is not heading off route when, within [HEADING_TIE_SEGMENTS]
+     * either side of [along]'s, a segment that runs the other way from it is
+     * as near the rider (to [HEADING_TIE_METERS]) and matches the course: that
+     * is the leg the rider is on. Only a reversed segment counts, so a rider
+     * who rode straight on past a corner is still caught.
+     */
+    fun headingOffRoute(
+        courseDeg: Float?,
+        speedMps: Double,
+        line: List<LatLon>,
+        pos: LatLon,
+        along: NavEngine.Along?,
+    ): Boolean {
+        val bearing = along?.bearingDeg
+        if (!headingOffRoute(courseDeg, speedMps, bearing) || bearing == null) return false
+        val own = segmentDistance(line, along.index, pos) ?: return true
+        val first = max(0, along.index - HEADING_TIE_SEGMENTS)
+        val last = min(line.size - 2, along.index + HEADING_TIE_SEGMENTS)
+        return (first..last).filter { it != along.index && line[it] != line[it + 1] }.none { i ->
+            val d = segmentDistance(line, i, pos)
+            if (d == null || d > own + HEADING_TIE_METERS) return@none false
+            val other = RoadRoulette.bearingDeg(line[i], line[i + 1])
+            turnDeg(other, bearing) > HALF_TURN_DEG - HEADING_OFF_ROUTE_DEG &&
+                !headingOffRoute(courseDeg, speedMps, other)
+        }
+    }
+
+    /** The smaller angle between two compass bearings, 0..180. */
+    private fun turnDeg(a: Double, b: Double): Double {
+        val diff = abs(a - b) % FULL_TURN_DEG
+        return min(diff, FULL_TURN_DEG - diff)
+    }
+
+    /** Metres from [pos] to the segment starting at `line[i]`, in the same
+     *  local projection [NavEngine.advance] snaps with; null past the end. */
+    private fun segmentDistance(line: List<LatLon>, i: Int, pos: LatLon): Double? {
+        val a = line.getOrNull(i) ?: return null
+        val b = line.getOrNull(i + 1) ?: return null
+        val mPerLat = METERS_PER_DEG_LAT
+        val mPerLon = METERS_PER_DEG_LAT * cos(pos.lat * PI / HALF_TURN_DEG)
+        val ax = (a.lon - pos.lon) * mPerLon
+        val ay = (a.lat - pos.lat) * mPerLat
+        val dx = (b.lon - pos.lon) * mPerLon - ax
+        val dy = (b.lat - pos.lat) * mPerLat - ay
+        val len2 = dx * dx + dy * dy
+        val t = if (len2 == 0.0) 0.0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / len2))
+        return hypot(ax + t * dx, ay + t * dy)
+    }
 
     /**
      * The run of off-route fixes the caller is in, held by the caller between

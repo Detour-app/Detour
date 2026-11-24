@@ -321,7 +321,7 @@ class NavScreen(
         // before the redraw below, so the trip card's "Off route" is this fix's.
         val now = clock.nowMs()
         // The course against [ride]'s windowed bearing, not p's global one (#1009).
-        val headingOff = NavPolicy.headingOffRoute(bearingDeg, speedMps, ride?.along?.bearingDeg)
+        val headingOff = NavPolicy.headingOffRoute(bearingDeg, speedMps, route.polyline, pos, ride?.along)
         offRoute = NavPolicy.trackOffRoute(
             offRoute, p.offRouteMeters, accuracyMeters, headingOff, fixElapsedMs, now)
         offRouteShown = NavPolicy.offRouteConfirmed(offRoute, now)
