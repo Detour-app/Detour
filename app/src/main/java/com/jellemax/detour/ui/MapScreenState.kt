@@ -76,11 +76,17 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
             if (value != destinationState) {
                 vias = emptyList()
                 viaRide = null
+                guidedTo = null
                 if (error != LOCATION_DENIED_ERROR) error = null
             }
             destinationState = value
         }
     var destinationName: String? by mutableStateOf(seed.destinationName)
+
+    /** The [destination] guidance last ran to, until another one is set
+     *  (#1027): arrival and Exit drop its route but keep the pin, and the
+     *  route preview must not ask for that destination again. */
+    var guidedTo: LatLon? by mutableStateOf(seed.guidedTo)
 
     /** A planned route's stops still to ride through on the way to
      *  [destination] (#736), dropped as [followPlanned] sees them passed. */
