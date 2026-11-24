@@ -19,6 +19,7 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RecentSearchStore
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
+import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.startHeading
@@ -76,6 +77,12 @@ class SearchScreen(
                 fix?.let { session.onFix(LatLon(it.lat, it.lon), it.accuracyMeters) }
             }
         }
+        // Saved places above recents, as on the phone (#1007). The car can start without
+        // MainActivity ever running, so this screen loads the store itself.
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { SavedPlaces.ensureLoaded() }
+            SavedPlaces.places.collect { session.setSavedPlaces(it) }
+        }
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 fetchLocation()
@@ -114,9 +121,10 @@ class SearchScreen(
                     }
                     .build(),
             )
-            // Recents, not results: the session answers a cleared query a moment
-            // after the host reports it, and results would hold the old hits till then.
-            search.recents.forEach { result ->
+            // Suggestions (saved places, then recents), not results: the session answers a
+            // cleared query a moment after the host reports it, and results would hold the
+            // old hits till then.
+            search.suggestions.forEach { result ->
                 list.addItem(resultRow(result, search.near))
             }
         } else when {
@@ -169,7 +177,9 @@ class SearchScreen(
                     RoutingClient.route(config, from, result.location, TravelMode.CAR.ghProfile,
                         Settings.routePreferences(), heading)
                 }
-                withContext(Dispatchers.IO) { RecentSearchStore.save(result) }
+                if (!session.state.value.isSaved(result)) {
+                    withContext(Dispatchers.IO) { RecentSearchStore.save(result) }
+                }
                 routing = false
                 if (route.instructions.isEmpty()) {
                     // No turn data to drive our own nav screen with — hand off
