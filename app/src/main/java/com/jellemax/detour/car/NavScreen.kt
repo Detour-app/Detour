@@ -38,6 +38,7 @@ import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
 import com.jellemax.detour.data.RouteCandidate
+import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.ServerConfig
@@ -153,6 +154,9 @@ class NavScreen(
     /** [NavPolicy.offRouteConfirmed] at the newest fix: what the trip card's
      *  "Off route" shows, the same confirmation [NavPolicy.decide] reroutes on. */
     private var offRouteShown = false
+    /** [NavPolicy.trackStopped]'s start of the current stop, for the parked
+     *  arrival (#1011); null while moving. */
+    private var stoppedSinceMs: Long? = null
 
     /** True between [NavigationManager.navigationStarted] and its end. The
      *  manager throws on updateTrip/clearCallback in the wrong state, and the
@@ -318,6 +322,7 @@ class NavScreen(
         val now = clock.nowMs()
         offRoute = NavPolicy.trackOffRoute(offRoute, p.offRouteMeters, accuracyMeters, fixElapsedMs, now)
         offRouteShown = NavPolicy.offRouteConfirmed(offRoute, now)
+        stoppedSinceMs = NavPolicy.trackStopped(stoppedSinceMs, speedMps, now)
         rerouteAttempts = rerouteAttempts.afterFix(offRoute)
 
         renderer.follow(
@@ -364,7 +369,9 @@ class NavScreen(
         // own once-only latch on popping itself, not part of the policy.
         when (NavPolicy.decide(
             progress = p,
-            hasDestination = true, // a constructor parameter on this screen
+            // A constructor parameter on this screen, so always present.
+            destination = NavPolicy.ToDestination(
+                RoadRoulette.distanceMeters(pos, destination), stoppedSinceMs),
             stopsAhead = false, // the car doesn't ride via stops (#736)
             offRoute = offRoute,
             rerouting = rerouting,

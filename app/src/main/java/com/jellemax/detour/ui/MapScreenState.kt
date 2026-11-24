@@ -116,6 +116,10 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
      *  (#1008). Not state: nothing draws it, only the next fix reads it. */
     var offRoute: NavPolicy.OffRouteStreak? = null
 
+    /** [NavPolicy.trackStopped]'s drive-clock start of the current stop, for
+     *  the parked arrival (#1011); null while moving. Not state, like [offRoute]. */
+    var stoppedSinceMs: Long? = null
+
     /** [NavPolicy.offRouteConfirmed] at the newest fix: the bottom bar's
      *  "Off route", so it agrees with the reroute decision (#1008). */
     var offRouteShown: Boolean by mutableStateOf(false)
