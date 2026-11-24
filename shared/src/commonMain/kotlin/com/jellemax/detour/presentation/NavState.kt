@@ -1,6 +1,8 @@
 package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.NetworkFailureException
+import com.jellemax.detour.data.NoRoutingServerException
 import kotlinx.datetime.TimeZone
 
 /**
@@ -57,7 +59,16 @@ data class NavState(
     /** A route request is in flight — the first fetch after Start or a
      *  reroute. The drive sheet's Start shows busy while it is (#432). */
     val rerouting: Boolean,
-)
+) {
+    /**
+     * This state with [failureText] ([rerouteFailureText]) in place of "Off
+     * route" while still off route (#1010). Separate from [navStateFrom] so that
+     * signature keeps its seven parameters (§8.4): the failure is the app's
+     * `NavPolicy` state, and iOS, with no reroute policy yet, never passes one.
+     */
+    fun withRerouteFailure(failureText: String?): NavState =
+        if (offRoute && failureText != null) copy(arrivalText = failureText) else this
+}
 
 /**
  * Pure map from [NavEngine.Progress] — plus the handful of values that live
@@ -156,4 +167,16 @@ internal fun navStateFrom(
         speedLimitKmh = if (navigating) progress?.speedLimitKmh else ambientSpeedLimitKmh,
         rerouting = rerouting,
     )
+}
+
+/**
+ * What the nav banner says instead of "Off route" once a reroute has failed
+ * (#1010): short enough for the bottom bar and an Android Auto trip card,
+ * which is why it is not [com.jellemax.detour.data.failureReason]'s sentence.
+ * Phone and car both word it here.
+ */
+fun rerouteFailureText(e: Throwable): String = when (e) {
+    is NetworkFailureException -> "Can't reroute — no connection"
+    is NoRoutingServerException -> "Can't reroute — no routing server"
+    else -> "Can't reroute"
 }

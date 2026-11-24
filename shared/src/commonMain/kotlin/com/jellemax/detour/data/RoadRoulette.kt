@@ -37,16 +37,37 @@ object RoadRoulette {
         bearingDeg: Double? = null,
         explored: ExploredArea? = null,
         minRadiusMeters: Double = 0.0,
+    ): LatLon = randomRoadPoint(center, radiusMeters, bearingDeg, explored, minRadiusMeters) { at, r ->
+        fetchRoadsOrThrow(at, r, highwayRegex)
+    }
+
+    /**
+     * [randomRoadPoint] with the road fetch passed in, so commonTest can stand in for the
+     * backend. [fetchRoads] returns the matching ways within a radius of a point, or throws
+     * when the server can't be reached.
+     *
+     * When no point turns up, the sentence depends on why (#1030, as #1021 for round trips):
+     * if no fetch got an answer, the last failure is rethrown as it came, so the rider reads
+     * a connection problem; otherwise it is a [SpinFailure] saying the area has no roads.
+     */
+    internal suspend fun randomRoadPoint(
+        center: LatLon,
+        radiusMeters: Double,
+        bearingDeg: Double?,
+        explored: ExploredArea?,
+        minRadiusMeters: Double,
+        fetchRoads: suspend (center: LatLon, radiusMeters: Double) -> List<OverpassWay>,
     ): LatLon {
-        // Small circles are cheap to fetch whole.
+        // Small circles are cheap to fetch whole; a failed fetch propagates as it came.
         if (radiusMeters <= 1500) {
             return pickPoint(
-                fetchRoads(center, radiusMeters, highwayRegex),
+                fetchRoads(center, radiusMeters),
                 center, radiusMeters, bearingDeg, explored, minRadiusMeters,
-            ) ?: throw SpinFailure("No roads found within radius")
+            ) ?: throw SpinFailure(NO_ROADS_MESSAGE)
         }
 
         var lastError: IOException? = null
+        var answered = false
         for (attempt in 0 until 4) {
             // Prefer sampling sub-areas the fog of war hasn't uncovered yet.
             val sample = generateSequence {
@@ -55,16 +76,22 @@ object RoadRoulette {
                 ?: randomPointInCircle(center, radiusMeters, bearingDeg, minRadiusMeters)
             // 600 m, 2.4 km, 5.4 km, 9.6 km — widen only if the spot was empty.
             val searchRadius = min(600.0 * (attempt + 1) * (attempt + 1), radiusMeters)
-            try {
-                val ways = fetchRoads(sample, searchRadius, highwayRegex)
-                pickPoint(ways, center, radiusMeters, bearingDeg, explored, minRadiusMeters)
-                    ?.let { return it }
+            val ways = try {
+                fetchRoads(sample, searchRadius)
             } catch (e: IOException) {
                 lastError = e
+                continue
             }
+            answered = true
+            pickPoint(ways, center, radiusMeters, bearingDeg, explored, minRadiusMeters)
+                ?.let { return it }
         }
-        throw lastError ?: SpinFailure("No roads found within radius")
+        // Any answer means the server is up and the area is the problem.
+        throw lastError.takeUnless { answered } ?: SpinFailure(NO_ROADS_MESSAGE)
     }
+
+    /** [randomRoadPoint]'s sentence when the server answered and the circle has no road. */
+    internal const val NO_ROADS_MESSAGE = "No roads found within radius"
 
     /**
      * Uniform-by-area random point in the [minRadiusMeters, radiusMeters] annulus
@@ -181,9 +208,10 @@ object RoadRoulette {
 
     /**
      * [fetchRoads], except a backend that can't be reached (or refuses) throws its
-     * [IOException] instead of passing for an area with no roads — so `RoundTripPlanner` can
-     * tell the rider the server is down rather than to try a larger radius (#1021). No
-     * backend configured, or an answer that won't parse, is still an empty list.
+     * [IOException] instead of passing for an area with no roads — so `RoundTripPlanner` and
+     * [randomRoadPoint] can tell the rider the server is down rather than to try a larger
+     * radius (#1021, #1030). No backend configured, or an answer that won't parse, is still an
+     * empty list.
      */
     internal suspend fun fetchRoadsOrThrow(
         center: LatLon,
