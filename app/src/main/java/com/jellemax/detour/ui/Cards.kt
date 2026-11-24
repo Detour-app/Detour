@@ -20,8 +20,8 @@ import androidx.compose.ui.unit.sp
 
 /**
  * The prototype's list/section card: 20dp corners, a low-emphasis surface
- * container, a faint outline. Not specific to any one screen — You, Social,
- * and Profile each wrap a block of content in exactly this shell.
+ * container, a faint outline. Not specific to any one screen — You, Friends'
+ * Circles row and Profile each wrap a block of content in exactly this shell.
  */
 @Composable
 fun ListCard(
@@ -47,7 +47,8 @@ fun ListCard(
 /**
  * The divider between rows inside a [ListCard] — 0.35-alpha outlineVariant,
  * the one this repo drew by hand at five identical call sites (the Hub's
- * shortcut list, the Social row pair, Saved places). One definition now.
+ * shortcut list, the old Social screen's row pair, Saved places). One
+ * definition now.
  */
 @Composable
 fun CardDivider() {

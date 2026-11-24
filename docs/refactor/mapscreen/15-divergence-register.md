@@ -3157,6 +3157,10 @@ session (`app/…/ui/SearchSessionHost.kt` builds it with the lookup on `Dispatc
 `Watcher` for `StateFlow<SearchState>` and a holder Swift can construct, on `TrafficKeyHolder`'s
 pattern — is not written.
 
+`#1007` added saved places to the session: matched by name and listed above recents, offered with
+recents on an empty query (`SearchState.suggestions`). Android's map island and Android Auto feed
+them; iOS's search has no saved places either way, so it follows with the rest of this entry.
+
 **Verdict: bug — iOS follows.** Not a product question: iOS should drive the same session, which
 also resolves entries 20 (bias), 38 and 39 there.
 
@@ -3172,10 +3176,99 @@ check 'iOS still searches unbiased on its own' 1 \
 
 ---
 
-## 44. Placing the rider along the route: the car snaps forward on every line, the phone only on some, iOS never
+## 42. Logbook month header: Android says "new towns", iOS still says "new places"
+
+**New with `#1026`** — recorded because iOS is parked (owner decision 2026-10-27).
+
+**What.** "places" meant two things: the You screen's saved-places count and the Logbook's newly
+visited municipalities. Android now says "towns" for municipalities everywhere in the Logbook (the
+month summary, the year strip, the ride sticker) and labels the You tile "saved". The month
+summary is plain text, the newest chapter starts open (the current month, or the last one ridden
+in), and the recap action reads "Wrapped".
+
+**Copies.** The ride sticker text is shared (`Logbook.chips` in `shared/…/data/Logbook.kt`), so iOS
+gets "new town" there. The month summary is not: Android's is `R.plurals.history_new_towns` in
+`app/…/ui/HistoryScreen.kt`, iOS builds its own "new place(s)" string in `MonthHeader` in
+`iosApp/Detour/HistoryScreen.swift`.
+
+**Verdict: survive — and iOS follows.** Not a product question: iOS's `MonthHeader.summary`
+should say "new town(s)".
+
+**Fence.**
+
+```sh
+# Entry 42 — month summary wording. A changed count means iOS switched to towns or Android lost it.
+check 'Android month summary says towns' 1 \
+    "$(grep -c 'R.plurals.history_new_towns' app/src/main/java/com/jellemax/detour/ui/HistoryScreen.kt)"
+check 'iOS month summary still says places' 1 \
+    "$(grep -c '"1 new place"' iosApp/Detour/HistoryScreen.swift)"
+```
+
+---
+
+## 43. Routes screen: Android labels its top-bar actions and shows an unmeasured length, iOS doesn't
+
+**New with `#1025`** — recorded because iOS is parked (owner decision 2026-10-27).
+
+**What.** Android's Routes top bar puts Planned rides / Pull shared routes / Import route in one
+labelled overflow menu, and a route card with no routed distance shows its line's length as
+"~120 km" (`routeSubtitle`'s `approxMeters`, shared). iOS's `RoutesScreen.swift` still has bare
+icon buttons (accessibility labels only) and shows a distance only when `distanceMeters` is set.
+iOS has no save-a-spin, so the "Loop · ~120 km" name has no iOS half.
+
+**Verdict: polish gap on iOS, not a product question.** Use the shared `routeSubtitle` for the
+card line and label the toolbar actions when iOS is unparked.
+
+**Fence.**
+
+```sh
+# Entry 43 — Routes top bar and unmeasured length. Counts measured against this entry's commit.
+check 'Android routes top bar is one overflow' 1 \
+    "$(grep -c 'R.string.routes_more)' app/src/main/java/com/jellemax/detour/ui/RoutesScreen.kt)"
+check 'iOS still shows only a measured distance' 1 \
+    "$(grep -c 'route.distanceMeters?.doubleValue' iosApp/Detour/RoutesScreen.swift)"
+```
+
+---
+
+## 44. Search rows: Android shows kind, second line and distance; iOS shows the title alone
+
+**New with `#1006`** — recorded because iOS is parked (owner decision 2026-10-27) and the data is
+shared. Renumbered 43 -> 44 on merge (main took 42-43 meanwhile).
+
+**What.** `Geocoder` now fills `GeocodeResult.secondary` (street + house number, district,
+postcode + city — only what the title does not already say) and `GeocodeResult.kind`
+(`PlaceKind`, from Photon's `osm_key`/`osm_value`/`type`), asks Photon for 12 hits and keeps 8
+after dedupe, and sends `lang` from the device locale when Photon indexes it (en/de/fr/it),
+retrying without it on an HTTP 400. `SearchState.near` is the bias the rows measure distance
+from. `RecentSearchStore` keeps both new fields and still reads the old `{name, lat, lon}` form.
+
+**Copies.** Android draws all three through `app/…/ui/SearchResultRow.kt`: the map island, the
+route editor and saved places with `SearchResultRow`, Android Auto with `searchResultDetail` as
+the row's text. iOS's `MapScreen.swift` gets the same fields (and the stored ones) but its rows
+are still `Button(result.name)`, and it calls the three-argument `Geocoder.search`, so no
+`lang`. It has no bias point to measure from either (entry 41).
+
+**Verdict: bug — iOS follows.** Not a product question: draw `kind`/`secondary` under the title,
+and the distance once iOS runs the shared session (entry 41).
+
+**Fence.**
+
+```sh
+# Entry 44 — search row detail. A changed count means a surface stopped drawing the shared row or iOS adopted it.
+# Measured against this entry's own commit.
+check 'Android surfaces drawing the shared search row' 4 \
+    "$(grep -lE 'SearchResultRow\(|searchResultDetail\(' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt app/src/main/java/com/jellemax/detour/car/SearchScreen.kt app/src/main/java/com/jellemax/detour/ui/RouteEditorScreen.kt app/src/main/java/com/jellemax/detour/ui/SavedPlacesScreen.kt | wc -l)"
+check 'iOS search rows still title-only' 1 \
+    "$(grep -c 'Button(result.name)' iosApp/Detour/MapScreen.swift)"
+```
+
+---
+
+## 45. Placing the rider along the route: the car snaps forward on every line, the phone only on some, iOS never
 
 **New with `#1014`** — recorded because iOS is parked (owner decision 2026-10-27) and the snap is
-shared. Numbered 44 because open PRs claim 42-43 (40-41 are on `main`).
+shared. Renumbered 44 -> 45 on merge (main took 42-44 meanwhile).
 
 **What.** `ViaStops.follow` (shared, #736) places the rider forward only along the line, so a route
 that rides a road twice is not matched to the leg already ridden. Android Auto (`car/NavScreen.kt`'s
@@ -3198,7 +3291,7 @@ again. Accepted, as it has been on the phone's planned and closing lines since #
 **Fence.**
 
 ```sh
-# Entry 44 — forward-only placement. Measured against the #1014 branch. A changed count means a
+# Entry 45 — forward-only placement. Measured against the #1014 branch. A changed count means a
 # surface moved between the forward snap and the global nearest point.
 check 'the car snaps forward on every line' 1 \
     "$(grep -c 'ViaStops.follow(ride, route.polyline, emptyList(), pos' app/src/main/java/com/jellemax/detour/car/NavScreen.kt)"

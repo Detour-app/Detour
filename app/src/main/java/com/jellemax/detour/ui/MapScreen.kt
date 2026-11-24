@@ -976,7 +976,7 @@ fun MapScreen(
                 // the bar cannot say "Off route" when no reroute follows (#1008).
                 offRoute = s.offRouteShown,
                 sep = Settings.decimalSeparatorChar(),
-            )
+            ).withRerouteFailure(s.rerouteAttempts.failureText)
         }
     }
 
