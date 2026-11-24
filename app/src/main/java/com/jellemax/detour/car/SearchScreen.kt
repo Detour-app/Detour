@@ -177,8 +177,7 @@ class SearchScreen(
                     RoutingClient.route(config, from, result.location, TravelMode.CAR.ghProfile,
                         Settings.routePreferences(), heading)
                 }
-                // A saved place stays out of recents, as on the phone.
-                if (session.state.value.saved.none { it.isSamePlaceAs(result) }) {
+                if (!session.state.value.isSaved(result)) {
                     withContext(Dispatchers.IO) { RecentSearchStore.save(result) }
                 }
                 routing = false

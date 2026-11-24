@@ -145,7 +145,6 @@ fun SearchIsland(
     val search by session.state.collectAsStateWithLifecycle()
     val results = search.results
     val recents = search.recents
-    val saved = search.saved
     val error = search.failure?.let { failureText("Search", it) }
     val noResults = search.noResults
     val searching = search.searching
@@ -180,9 +179,7 @@ fun SearchIsland(
         // Same fire-and-forget-off-thread reasoning as the load above: save()
         // re-reads the file before writing it, so it is just as blocking, and
         // nothing here waits on it.
-        // A saved place is already one tap away; filing it under recents too would only push
-        // a real recent off the end of the list.
-        if (saved.none { it.isSamePlaceAs(r) }) scope.launch(Dispatchers.IO) { RecentSearchStore.save(r) }
+        if (!search.isSaved(r)) scope.launch(Dispatchers.IO) { RecentSearchStore.save(r) }
         onOpenChange(false)
         onPick(r)
     }
@@ -225,7 +222,7 @@ fun SearchIsland(
                         near = search.near,
                         onClick = { pick(r) },
                         origin = when {
-                            saved.any { it.isSamePlaceAs(r) } -> SearchResultOrigin.SAVED
+                            search.isSaved(r) -> SearchResultOrigin.SAVED
                             recents.any { it.isSamePlaceAs(r) } -> SearchResultOrigin.RECENT
                             else -> SearchResultOrigin.LIVE
                         },

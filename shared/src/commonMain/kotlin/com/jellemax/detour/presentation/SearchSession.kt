@@ -50,6 +50,13 @@ data class SearchState(
      * hits for the moment between a cleared box and the session answering it.
      */
     val suggestions: List<GeocodeResult> get() = mergeSearchResults(saved, recents)
+
+    /**
+     * [result] is one of the rider's saved places. Every surface reads this rather than its own
+     * copy: it picks the row's icon, and a saved place is kept out of recents when picked, since
+     * it is already one tap away and filing it there would only push a real recent off the end.
+     */
+    fun isSaved(result: GeocodeResult): Boolean = saved.any { it.isSamePlaceAs(result) }
 }
 
 /**

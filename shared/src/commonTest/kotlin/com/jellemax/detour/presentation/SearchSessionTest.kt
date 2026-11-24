@@ -106,6 +106,16 @@ class SearchSessionTest {
     }
 
     @Test
+    fun isSavedMatchesASavedPlaceByPlaceNotByObject() {
+        val savedHome = GeocodeResult("Home", LatLon(51.0, 3.7))
+        val state = SearchState(saved = listOf(savedHome), recents = listOf(shop))
+
+        assertTrue(state.isSaved(savedHome.copy(location = LatLon(51.0001, 3.7001))))
+        assertFalse(state.isSaved(shop))
+        assertFalse(state.isSaved(savedHome.copy(location = gent)))
+    }
+
+    @Test
     fun typingWithinTheDebounceAsksOnceForTheLastQuery() = runBlocking {
         val s = session { listOf(home) }
         val queries = MutableStateFlow("")
