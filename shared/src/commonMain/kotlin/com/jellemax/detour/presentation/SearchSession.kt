@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.update
  * @property recents every recent the session was given, so a row can tell it is one.
  * @property saved every saved place the session was given, as results, so a row can tell it is one.
  * @property searching a lookup is in flight (after the debounce, not during it).
+ * @property near the point the rows measure their distance from: the bias in force when this
+ *   query was answered, null when there was none (#1006).
  */
 data class SearchState(
     val query: String = "",
@@ -40,6 +42,7 @@ data class SearchState(
     val searching: Boolean = false,
     val failure: Throwable? = null,
     val noResults: Boolean = false,
+    val near: LatLon? = null,
 ) {
     /**
      * What an empty box offers: saved places, then recents not already among them. Derived from
@@ -117,12 +120,15 @@ class SearchSession(
         fun List<GeocodeResult>.matching() =
             if (query.isEmpty()) this else filter { it.name.contains(query, ignoreCase = true) }
         val local = mergeSearchResults(savedList.matching(), recentList.matching())
-        _state.update { SearchState(query = query, results = local, recents = recentList, saved = savedList) }
+        _state.update {
+            SearchState(query = query, results = local, recents = recentList, saved = savedList, near = bias())
+        }
         if (query.length < MIN_QUERY_LENGTH) return
         delay(DEBOUNCE_MS)
-        _state.update { it.copy(searching = true) }
+        val near = bias()
+        _state.update { it.copy(searching = true, near = near) }
         try {
-            val merged = mergeSearchResults(local, search(query, bias()))
+            val merged = mergeSearchResults(local, search(query, near))
             _state.update { it.copy(results = merged, searching = false, noResults = merged.isEmpty()) }
         } catch (e: CancellationException) {
             // Superseded by the next query (#1003): not a failure, and the next answer
