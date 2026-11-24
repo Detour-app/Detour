@@ -1,8 +1,11 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.HttpStatusException
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
+import com.jellemax.detour.data.NetworkFailureException
+import com.jellemax.detour.data.NoRoutingServerException
 import kotlinx.datetime.TimeZone
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -263,5 +266,27 @@ class NavStateTest {
             navigating = true, rerouting = false, ambientSpeedLimitKmh = null, nowMs = 0L,
         )
         assertEquals(0f, state.progressFraction)
+    }
+
+    // --- #1010: a failed reroute says why, in place of "Off route" ----------
+
+    @Test fun rerouteFailureTextNamesAMissingConnection() {
+        assertEquals(
+            "Can't reroute — no connection",
+            rerouteFailureText(NetworkFailureException(timedOut = true, cause = RuntimeException())),
+        )
+        assertEquals("Can't reroute — no routing server", rerouteFailureText(NoRoutingServerException()))
+        assertEquals("Can't reroute", rerouteFailureText(HttpStatusException(502, "")))
+    }
+
+    @Test fun aRerouteFailureReplacesOffRouteOnlyWhileOffRoute() {
+        fun state(offRoute: Boolean) = navStateFrom(
+            progress(), navigating = true, rerouting = false, ambientSpeedLimitKmh = null,
+            nowMs = 0L, offRoute = offRoute, zone = TimeZone.UTC,
+        )
+        assertEquals("Can't reroute", state(offRoute = true).withRerouteFailure("Can't reroute").arrivalText)
+        assertEquals("Off route", state(offRoute = true).withRerouteFailure(null).arrivalText)
+        val onRoute = state(offRoute = false)
+        assertEquals(onRoute, onRoute.withRerouteFailure("Can't reroute"))
     }
 }

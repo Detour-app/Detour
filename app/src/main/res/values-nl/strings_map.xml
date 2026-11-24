@@ -75,6 +75,7 @@
     <string name="save_spin_name">Naam</string>
     <string name="save_spin_loop">Lus opslaan</string>
     <string name="save_spin_loop_name">Lus · %1$s</string>
+    <string name="save_spin_loop_name_approx">Lus · ~%1$s</string>
     <string name="save_spin_destination_name">Spinbestemming</string>
     <string name="candidates_go_with_lead">Volg de keuze van de koploper</string>
     <string name="candidates_cancel">Annuleren</string>
@@ -134,15 +135,13 @@
     <string name="hub_settings">Instellingen</string>
     <string name="hub_rides_section">RITTEN</string>
     <string name="hub_logbook">Logboek</string>
-    <string name="hub_routes">Routes</string>
     <string name="hub_saved_places">Opgeslagen plekken</string>
     <string name="hub_badges_coverage">Badges &amp; dekking</string>
-    <string name="hub_social">Sociaal</string>
     <string name="hub_profile_account">Profiel &amp; account</string>
     <string name="hub_guest_title">Je rijdt als gast</string>
     <string name="hub_guest_text">Ritten en badges worden op deze telefoon bewaard. Meld je aan om met vrienden te rijden en er een back-up van te maken.</string>
     <string name="hub_stat_rides">ritten</string>
-    <string name="hub_stat_places">plekken</string>
+    <string name="hub_stat_places">bewaard</string>
     <string name="hub_stat_badges">badges</string>
     <string name="map_permission_explainer_title">Voor je rijdt</string>
     <string name="map_permission_explainer_intro">Detour vraagt straks om een paar machtigingen. Je kunt ze allemaal weigeren.</string>
@@ -154,6 +153,7 @@
     <string name="map_permission_notifications_why">De melding terwijl een rit wordt opgenomen, en meldingen van je kringen.</string>
     <string name="map_continue">Doorgaan</string>
     <!-- Camera banner (#549): which camera the countdown beside it is for. -->
+    <string name="map_cameras_load_failed">Flitspalen konden niet worden geladen</string>
     <string name="map_camera_banner_speed">Snelheidscamera</string>
     <string name="map_camera_banner_red_light">Roodlichtcamera</string>
     <string name="map_camera_banner_combined">Snelheids- en roodlichtcamera</string>
@@ -179,4 +179,15 @@
     <string name="map_traffic_delay">+%1$d min file</string>
     <string name="map_traffic_delay_label">op de route vooruit</string>
     <string name="map_traffic_closed">Weg verderop afgesloten</string>
+    <!-- Search result kinds (#1006): one word under the row's title. -->
+    <string name="place_kind_address">Adres</string>
+    <string name="place_kind_street">Straat</string>
+    <string name="place_kind_town">Plaats</string>
+    <string name="place_kind_region">Regio</string>
+    <string name="place_kind_fuel">Tankstation</string>
+    <string name="place_kind_parking">Parking</string>
+    <string name="place_kind_food">Eten &amp; drinken</string>
+    <string name="place_kind_shop">Winkel</string>
+    <string name="place_kind_station">Station</string>
+    <string name="place_kind_place">Plek</string>
 </resources>

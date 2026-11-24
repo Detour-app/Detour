@@ -26,8 +26,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Clear
-import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -69,6 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.R
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.RecentSearchStore
+import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.presentation.failureText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -151,6 +150,11 @@ fun SearchIsland(
     val searching = search.searching
     val focusRequester = remember { FocusRequester() }
 
+    // Saved places rank above recents (#1007). MainActivity has already loaded the store, and
+    // the flow keeps the list current if one is added or renamed while the island is up.
+    val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
+    LaunchedEffect(session, savedPlaces) { session.setSavedPlaces(savedPlaces) }
+
     // Back dismisses the island before it reaches the map, where back leaves
     // the app.
     BackHandler(enabled = open) { onOpenChange(false) }
@@ -175,7 +179,7 @@ fun SearchIsland(
         // Same fire-and-forget-off-thread reasoning as the load above: save()
         // re-reads the file before writing it, so it is just as blocking, and
         // nothing here waits on it.
-        scope.launch(Dispatchers.IO) { RecentSearchStore.save(r) }
+        if (!search.isSaved(r)) scope.launch(Dispatchers.IO) { RecentSearchStore.save(r) }
         onOpenChange(false)
         onPick(r)
     }
@@ -213,23 +217,16 @@ fun SearchIsland(
                     )
                 }
                 results.forEachIndexed { index, r ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { pick(r) }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            if (recents.any { it.isSamePlaceAs(r) }) Icons.Rounded.History
-                                else Icons.Rounded.Place,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(Modifier.width(16.dp))
-                        Text(r.name, style = MaterialTheme.typography.bodyLarge)
-                    }
+                    SearchResultRow(
+                        r,
+                        near = search.near,
+                        onClick = { pick(r) },
+                        origin = when {
+                            search.isSaved(r) -> SearchResultOrigin.SAVED
+                            recents.any { it.isSamePlaceAs(r) } -> SearchResultOrigin.RECENT
+                            else -> SearchResultOrigin.LIVE
+                        },
+                    )
                     if (index != results.lastIndex) CardDivider()
                 }
             }
@@ -343,30 +340,39 @@ fun SearchIsland(
                         // size, so the 40 dp circle keeps its own ripple while
                         // the layout reserves the full 48 — outside it, the
                         // fixed size would clamp the target back to 40.
-                        else -> Box(
-                            Modifier
-                                .minimumInteractiveComponentSize()
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                                .clickable(onClick = onAvatarClick, role = Role.Button)
-                                // The initial alone told TalkBack nothing about
-                                // where the tap goes; this names the screen it
-                                // opens ("You", plus the Settings button on it).
-                                .semantics { contentDescription = "You and settings" },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        }
+                        else -> YouAvatar(username, onAvatarClick)
                     }
                 }
             }
         }
+    }
+}
+
+/** The rider's initial in a circle: the way to You and settings. Shared by the
+ *  search bar and the nav sheet's closed strip, so both name and size it alike. */
+@Composable
+internal fun YouAvatar(username: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    // minimumInteractiveComponentSize() comes before the size, so the 40 dp
+    // circle keeps its own ripple while the layout reserves the full 48 —
+    // outside it, the fixed size would clamp the target back to 40.
+    Box(
+        modifier
+            .minimumInteractiveComponentSize()
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary)
+            .clickable(onClick = onClick, role = Role.Button)
+            // The initial alone told TalkBack nothing about where the tap goes;
+            // this names the screen it opens ("You", plus the Settings button on it).
+            .semantics { contentDescription = "You and settings" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onPrimary,
+        )
     }
 }
 

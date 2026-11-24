@@ -43,8 +43,27 @@ internal object NavPolicy {
 
     /** Minimum gap between reroute requests. Both call sites stamp on request
      *  rather than on success, so a failed reroute is retried after the cooldown
-     *  rather than immediately. */
+     *  rather than immediately. Doubles per failure up to
+     *  [REROUTE_MAX_COOLDOWN_MS] ([rerouteCooldownMs], #1010). */
     const val REROUTE_COOLDOWN_MS = 15_000L
+
+    /** Under this speed the rider counts as stopped, for [trackStopped]. */
+    const val PARKED_SPEED_MPS = 1.5
+
+    /** Stopped this long on the drive clock, close enough to the destination,
+     *  and the session has arrived even short of the route's end (#1011). */
+    const val PARKED_ARRIVE_MS = 15_000L
+
+    /** Straight-line distance from the destination itself - not from the
+     *  route's end - inside which a stop counts as arriving (#1011). The router
+     *  snaps a shop, car park or address point to the nearest road, often
+     *  50-150 m from where the line ends or where the rider actually parks. */
+    const val PARKED_ARRIVE_METERS = 150.0
+
+    /** The longest [rerouteCooldownMs] gets: 15 s, 30 s, then 60 s for as long
+     *  as requests keep failing. Offline, each attempt is a request left to
+     *  time out; past a minute the rider is better served by the old line. */
+    const val REROUTE_MAX_COOLDOWN_MS = 60_000L
 
     /** Below this speed GPS course is noise, so no request carries a heading. */
     const val HEADING_MIN_SPEED_MPS = 2.0
@@ -168,19 +187,101 @@ internal object NavPolicy {
         streak != null &&
             (streak.fixes >= OFF_ROUTE_CONFIRM_FIXES || nowMs - streak.sinceMs >= OFF_ROUTE_CONFIRM_MS)
 
+    /**
+     * The drive-clock millis the rider has been stopped since, held by the
+     * caller between fixes like [OffRouteStreak]; null while moving. A fix at
+     * [speedMps] under [PARKED_SPEED_MPS] keeps [prevSinceMs] (or starts a run
+     * at [nowMs]), anything faster ends the run. Re-evaluating the same fix
+     * keeps the same answer, so no fix key is needed.
+     */
+    fun trackStopped(prevSinceMs: Long?, speedMps: Double, nowMs: Long): Long? =
+        if (speedMps >= PARKED_SPEED_MPS) null else prevSinceMs ?: nowMs
+
+    /**
+     * Where the rider is relative to a session's destination, for [decide]'s
+     * second way to arrive (#1011): [straightLineMeters] from the destination
+     * point itself, and stopped since [stoppedSinceMs] ([trackStopped]; null
+     * while moving).
+     */
+    data class ToDestination(val straightLineMeters: Double, val stoppedSinceMs: Long?)
+
+    /** Whether a rider at [to] has stopped near the destination long enough to
+     *  have arrived: [PARKED_ARRIVE_MS] inside [PARKED_ARRIVE_METERS]. */
+    fun parkedAtDestination(to: ToDestination, nowMs: Long): Boolean =
+        to.straightLineMeters <= PARKED_ARRIVE_METERS &&
+            to.stoppedSinceMs != null &&
+            nowMs - to.stoppedSinceMs >= PARKED_ARRIVE_MS
+
+    /**
+     * The caller's record of reroute requests in the current off-route
+     * episode (#1010), held between fixes like [OffRouteStreak].
+     *
+     * [lastMs] is the drive clock at the newest request (0 before the first,
+     * which [decide] treats as long ago). [failures] counts requests in this
+     * episode that came back without a route; it sets [rerouteCooldownMs] and
+     * mutes "Rerouting" after the first attempt ([announce]). [failureText] is
+     * the newest failure in rider words, for the banner; null until one fails.
+     *
+     * An episode ends when a fix is back on route ([afterFix]), a request
+     * succeeds ([succeeded]) or navigation stops ([endEpisode]); [lastMs]
+     * survives, so the cooldown still runs from the last request.
+     */
+    data class RerouteAttempts(
+        val lastMs: Long = 0L,
+        val failures: Int = 0,
+        val failureText: String? = null,
+    ) {
+        /** Speak "Rerouting" for this request: only the first of an episode,
+         *  so an offline rider is not told it every retry. */
+        val announce: Boolean get() = failures == 0
+
+        /** A request went out at [nowMs]. */
+        fun started(nowMs: Long): RerouteAttempts = copy(lastMs = nowMs)
+
+        /** The request came back without a route; [text] says why. */
+        fun failed(text: String): RerouteAttempts = copy(failures = failures + 1, failureText = text)
+
+        /** A fresh route arrived: the episode is over. */
+        fun succeeded(): RerouteAttempts = endEpisode()
+
+        /** The next record after a fix whose [trackOffRoute] result is
+         *  [offRoute]: the episode ends once a fix is back on route. */
+        fun afterFix(offRoute: OffRouteStreak?): RerouteAttempts = if (offRoute == null) endEpisode() else this
+
+        /** Back to no failures, keeping [lastMs]. */
+        fun endEpisode(): RerouteAttempts =
+            if (failures == 0 && failureText == null) this else RerouteAttempts(lastMs = lastMs)
+    }
+
+    /** Gap before the next reroute request after [failures] failed ones in a
+     *  row: [REROUTE_COOLDOWN_MS], doubled per failure, capped at
+     *  [REROUTE_MAX_COOLDOWN_MS]. */
+    fun rerouteCooldownMs(failures: Int): Long =
+        (REROUTE_COOLDOWN_MS shl failures.coerceIn(0, MAX_BACKOFF_SHIFT)).coerceAtMost(REROUTE_MAX_COOLDOWN_MS)
+
+    /** Enough doublings to pass any sane cap without overflowing the shift. */
+    private const val MAX_BACKOFF_SHIFT = 8
+
     sealed interface Decision {
         /** Keep following the line that is already drawn. */
         data object Continue : Decision
         /** Arrived: end the session. */
         data object Arrived : Decision
-        /** Confirmed off route and out of cooldown: fetch a fresh route to the destination. */
+        /** Confirmed off route and out of cooldown ([rerouteCooldownMs]): fetch
+         *  a fresh route to the destination. */
         data object Reroute : Decision
     }
 
     /**
-     * [hasDestination] is false for a round trip, which has nothing to arrive at
-     * and nothing to reroute to. The phone passes `destination != null`; the
-     * car's destination is a constructor parameter and so always present.
+     * [destination] is null for a round trip, which has nothing to arrive at
+     * and nothing to reroute to. The phone passes null when it has no
+     * destination; the car's destination is a constructor parameter and so
+     * always present.
+     *
+     * Two ways to arrive: within [ARRIVE_METERS] of the route's end and still
+     * on the line, or parked near the destination ([parkedAtDestination],
+     * #1011) - the end of the line is where the router snapped the
+     * destination to a road, which is often not where the rider stops.
      *
      * [stopsAhead] is true while a planned route still has a stop to ride
      * through (#736): no arrival until the last one is passed. The phone reads
@@ -194,39 +295,45 @@ internal object NavPolicy {
      * reroute needs it confirmed ([offRouteConfirmed]), not one fix past the
      * bound (#1008).
      *
-     * [nowMs] and [lastRerouteMs] are drive-clock millis - the caller owns the
-     * clock, which is what keeps this testable.
+     * [attempts] is the caller's [RerouteAttempts]: its [RerouteAttempts.lastMs]
+     * and [nowMs] are drive-clock millis - the caller owns the clock, which is
+     * what keeps this testable - and its failure count sets the cooldown.
      *
-     * Arrival is tested first, matching both call sites. The order cannot change
-     * an outcome: the two branches are mutually exclusive on [NavEngine.Progress.offRouteMeters],
-     * arrival needing it under [OFF_ROUTE_METERS] and a reroute needing a streak
-     * whose newest fix (this one) is past it.
+     * Arrival is tested first, matching both call sites. For the end-of-line
+     * arrival the order cannot change an outcome: it needs
+     * [NavEngine.Progress.offRouteMeters] under [OFF_ROUTE_METERS] and a reroute
+     * needs a streak whose newest fix (this one) is past it. A parked arrival
+     * can be off the line - a car park beside the road - and there the order
+     * is deliberate: a rider stopped by the destination has arrived, and a
+     * fresh route to a point 100 m away is no use to them.
      *
      * Seven parameters, one over detekt's bound: each is an independent input
      * the caller already holds, and bundling [offRoute], [rerouting] and
-     * [lastRerouteMs] into a holder would only rename the coupling (§8.4). The
-     * state stays with the caller so this stays pure, as [snapToRoute] does.
+     * [attempts] into a holder would only rename the coupling (§8.4).
+     * [ToDestination] is not that: it replaced a `hasDestination` flag whose
+     * only meaning was "these values exist", so the parked arrival came in
+     * without an eighth. The state stays with the caller so this stays pure,
+     * as [snapToRoute] does.
      */
     @Suppress("LongParameterList")
     fun decide(
         progress: NavEngine.Progress,
-        hasDestination: Boolean,
+        destination: ToDestination?,
         stopsAhead: Boolean,
         offRoute: OffRouteStreak?,
         rerouting: Boolean,
-        lastRerouteMs: Long,
+        attempts: RerouteAttempts,
         nowMs: Long,
     ): Decision {
-        if (!hasDestination) return Decision.Continue
-        if (!stopsAhead &&
-            progress.remainingMeters < ARRIVE_METERS &&
+        if (destination == null) return Decision.Continue
+        val atEndOfLine = progress.remainingMeters < ARRIVE_METERS &&
             progress.offRouteMeters < OFF_ROUTE_METERS
-        ) {
+        if (!stopsAhead && (atEndOfLine || parkedAtDestination(destination, nowMs))) {
             return Decision.Arrived
         }
         if (offRouteConfirmed(offRoute, nowMs) &&
             !rerouting &&
-            nowMs - lastRerouteMs > REROUTE_COOLDOWN_MS
+            nowMs - attempts.lastMs > rerouteCooldownMs(attempts.failures)
         ) {
             return Decision.Reroute
         }

@@ -188,4 +188,38 @@ class CameraPrefetchTest {
         // And the centre is still null, so nothing pretended to hold an area.
         assertEquals(null, state.center)
     }
+    // #1028: the failure message waits for the rider to move, and says it once.
+
+    private val failedOnce = CameraPrefetch.fetched(CameraPrefetch.State(), null, LatLon(50.85, 4.35))
+    private val driving = CameraPrefetch.REPORT_MIN_MPS + 5.0
+
+    @Test
+    fun aFailureWhileParkedIsNotReported() {
+        assertFalse(CameraPrefetch.reportsFailure(failedOnce, holdsMarkers = false, speedMps = 0.0))
+        assertFalse(CameraPrefetch.reportsFailure(failedOnce, holdsMarkers = false, speedMps = 1.0))
+    }
+
+    @Test
+    fun aFailureIsReportedOnceTheRiderDrivesOff() {
+        assertTrue(CameraPrefetch.reportsFailure(failedOnce, holdsMarkers = false, speedMps = driving))
+    }
+
+    @Test
+    fun aFailureIsReportedOncePerRunOfFailures() {
+        var state = CameraPrefetch.failureReported(failedOnce)
+        assertFalse(CameraPrefetch.reportsFailure(state, holdsMarkers = false, speedMps = driving))
+        // Another failure in the same run stays quiet.
+        state = CameraPrefetch.fetched(state, null, here)
+        assertFalse(CameraPrefetch.reportsFailure(state, holdsMarkers = false, speedMps = driving))
+        // An answer ends the run; the next failure is a new one.
+        state = CameraPrefetch.fetched(state, SpeedCameras.Result(emptyList(), emptyList()), here)
+        state = CameraPrefetch.fetched(state, null, here)
+        assertTrue(CameraPrefetch.reportsFailure(state, holdsMarkers = false, speedMps = driving))
+    }
+
+    @Test
+    fun noFailureOrMarkersOnScreenMeansNothingToReport() {
+        assertFalse(CameraPrefetch.reportsFailure(CameraPrefetch.State(), holdsMarkers = false, speedMps = driving))
+        assertFalse(CameraPrefetch.reportsFailure(failedOnce, holdsMarkers = true, speedMps = driving))
+    }
 }

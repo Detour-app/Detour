@@ -1,7 +1,6 @@
 package com.jellemax.detour.ui
 
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.jellemax.detour.data.LatLon
@@ -115,11 +114,17 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var navigating: Boolean by mutableStateOf(seed.navigating)
     var navProgress: NavEngine.Progress? by mutableStateOf(null)
     var rerouting: Boolean by mutableStateOf(false)
-    var lastRerouteMs: Long by mutableLongStateOf(0L)
+    /** [NavPolicy.RerouteAttempts]: backoff, "Rerouting" once per episode,
+     *  and the bar's "Can't reroute" (#1010). State: the bar draws its text. */
+    var rerouteAttempts: NavPolicy.RerouteAttempts by mutableStateOf(NavPolicy.RerouteAttempts())
 
     /** The run of off-route fixes [NavPolicy.decide] confirms a reroute on
      *  (#1008). Not state: nothing draws it, only the next fix reads it. */
     var offRoute: NavPolicy.OffRouteStreak? = null
+
+    /** [NavPolicy.trackStopped]'s drive-clock start of the current stop, for
+     *  the parked arrival (#1011); null while moving. Not state, like [offRoute]. */
+    var stoppedSinceMs: Long? = null
 
     /** [NavPolicy.offRouteConfirmed] at the newest fix: the bottom bar's
      *  "Off route", so it agrees with the reroute decision (#1008). */

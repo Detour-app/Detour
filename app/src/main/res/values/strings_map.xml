@@ -78,6 +78,7 @@
     <string name="save_spin_name">Name</string>
     <string name="save_spin_loop">Save loop</string>
     <string name="save_spin_loop_name">Loop · %1$s</string>
+    <string name="save_spin_loop_name_approx">Loop · ~%1$s</string>
     <string name="save_spin_destination_name">Spin destination</string>
     <string name="candidates_go_with_lead">Go with the lead</string>
     <string name="candidates_cancel">Cancel</string>
@@ -137,15 +138,13 @@
     <string name="hub_settings">Settings</string>
     <string name="hub_rides_section">RIDES</string>
     <string name="hub_logbook">Logbook</string>
-    <string name="hub_routes">Routes</string>
     <string name="hub_saved_places">Saved places</string>
     <string name="hub_badges_coverage">Badges &amp; coverage</string>
-    <string name="hub_social">Social</string>
     <string name="hub_profile_account">Profile &amp; account</string>
     <string name="hub_guest_title">Riding as guest</string>
     <string name="hub_guest_text">Trips and badges are saved on this phone. Sign in to ride with friends and back them up.</string>
     <string name="hub_stat_rides">rides</string>
-    <string name="hub_stat_places">places</string>
+    <string name="hub_stat_places">saved</string>
     <string name="hub_stat_badges">badges</string>
     <string name="map_permission_explainer_title">Before you ride</string>
     <string name="map_permission_explainer_intro">Detour will ask for a few permissions next. You can refuse any of them.</string>
@@ -156,6 +155,8 @@
     <string name="map_permission_notifications">Notifications</string>
     <string name="map_permission_notifications_why">The notification while a ride records, and alerts from your circles.</string>
     <string name="map_continue">Continue</string>
+    <!-- Map snackbar: the camera fetch failed and no markers are held (#1028: only once moving). -->
+    <string name="map_cameras_load_failed">Couldn\'t load speed cameras</string>
     <!-- Camera banner (#549): which camera the countdown beside it is for. -->
     <string name="map_camera_banner_speed">Speed camera</string>
     <string name="map_camera_banner_red_light">Red-light camera</string>
@@ -182,4 +183,15 @@
     <string name="map_traffic_delay">+%1$d min traffic</string>
     <string name="map_traffic_delay_label">on the route ahead</string>
     <string name="map_traffic_closed">Road closed ahead</string>
+    <!-- Search result kinds (#1006): one word under the row's title. -->
+    <string name="place_kind_address">Address</string>
+    <string name="place_kind_street">Street</string>
+    <string name="place_kind_town">Town</string>
+    <string name="place_kind_region">Region</string>
+    <string name="place_kind_fuel">Fuel station</string>
+    <string name="place_kind_parking">Parking</string>
+    <string name="place_kind_food">Food &amp; drink</string>
+    <string name="place_kind_shop">Shop</string>
+    <string name="place_kind_station">Station</string>
+    <string name="place_kind_place">Place</string>
 </resources>

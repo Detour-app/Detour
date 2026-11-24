@@ -2,6 +2,8 @@ package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.SavedPlace
+import com.jellemax.detour.data.SavedPlaceKind
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
@@ -66,6 +68,51 @@ class SearchSessionTest {
         assertFalse(done.noResults)
         assertNull(done.failure)
         job.cancelAndJoin()
+    }
+
+    @Test
+    fun anEmptyQueryOffersSavedPlacesThenRecentsNotAlreadyAmongThem() = runBlocking {
+        val homePlace = SavedPlace(1, "Home", LatLon(51.0, 3.7), SavedPlaceKind.HOME)
+        val shopPlace = SavedPlace(2, "Colruyt", shop.location)
+        val s = session { emptyList() }
+        s.setRecents(listOf(home, GeocodeResult("Colruyt", LatLon(51.0601, 3.7301))))
+        s.setSavedPlaces(listOf(homePlace, shopPlace))
+        val job = launch { s.run(MutableStateFlow("")) }
+
+        val expected = listOf(GeocodeResult("Home", homePlace.location), GeocodeResult("Colruyt", shop.location), home)
+        val done = s.awaitState { it.saved.size == 2 && it.recents.size == 2 }
+        assertEquals(expected, done.results)
+        assertEquals(expected, done.suggestions)
+        job.cancelAndJoin()
+    }
+
+    @Test
+    fun aMatchingSavedPlaceComesFirstAndALiveHitForItIsNotRepeated() = runBlocking {
+        val saved = GeocodeResult("Home", LatLon(51.0, 3.7))
+        val homeStreet = GeocodeResult("Homestraat, Gent, België", gent)
+        val s = session { listOf(saved.copy(location = LatLon(51.0001, 3.7001)), homeStreet) }
+        s.setRecents(listOf(home, shop))
+        s.setSavedPlaces(listOf(SavedPlace(1, saved.name, saved.location), SavedPlace(2, "Work", gent)))
+        val queries = MutableStateFlow("")
+        val job = launch { s.run(queries) }
+
+        s.awaitState { it.saved.size == 2 }
+        queries.value = "h"
+        assertEquals(listOf(saved), s.awaitState { it.query == "h" }.results)
+        queries.value = "home"
+        val done = s.awaitState { it.query == "home" && !it.searching && it.results.size > 1 }
+        assertEquals(listOf(saved, homeStreet), done.results)
+        job.cancelAndJoin()
+    }
+
+    @Test
+    fun isSavedMatchesASavedPlaceByPlaceNotByObject() {
+        val savedHome = GeocodeResult("Home", LatLon(51.0, 3.7))
+        val state = SearchState(saved = listOf(savedHome), recents = listOf(shop))
+
+        assertTrue(state.isSaved(savedHome.copy(location = LatLon(51.0001, 3.7001))))
+        assertFalse(state.isSaved(shop))
+        assertFalse(state.isSaved(savedHome.copy(location = gent)))
     }
 
     @Test
@@ -143,8 +190,10 @@ class SearchSessionTest {
         s.onFix(gent, accuracyMeters = 5f)
         val job = launch { s.run(MutableStateFlow("kerk")) }
 
-        s.awaitState { it.noResults }
+        val done = s.awaitState { it.noResults }
         assertEquals(gent, lookups.single().near)
+        // Rows measure their distance from the point the lookup was biased toward (#1006).
+        assertEquals(gent, done.near)
         job.cancelAndJoin()
     }
 }
