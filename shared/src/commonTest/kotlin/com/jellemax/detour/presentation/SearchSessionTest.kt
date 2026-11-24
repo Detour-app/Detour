@@ -143,8 +143,10 @@ class SearchSessionTest {
         s.onFix(gent, accuracyMeters = 5f)
         val job = launch { s.run(MutableStateFlow("kerk")) }
 
-        s.awaitState { it.noResults }
+        val done = s.awaitState { it.noResults }
         assertEquals(gent, lookups.single().near)
+        // Rows measure their distance from the point the lookup was biased toward (#1006).
+        assertEquals(gent, done.near)
         job.cancelAndJoin()
     }
 }

@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.update
  * @property results matching recents first, then live hits not already among them.
  * @property recents every recent the session was given, so a row can tell it is one.
  * @property searching a lookup is in flight (after the debounce, not during it).
+ * @property near the point the rows measure their distance from: the bias in force when this
+ *   query was answered, null when there was none (#1006).
  */
 data class SearchState(
     val query: String = "",
@@ -36,6 +38,7 @@ data class SearchState(
     val searching: Boolean = false,
     val failure: Throwable? = null,
     val noResults: Boolean = false,
+    val near: LatLon? = null,
 )
 
 /**
@@ -96,12 +99,13 @@ class SearchSession(
     private suspend fun answer(query: String, recentList: List<GeocodeResult>) {
         val recentMatches =
             if (query.isEmpty()) recentList else recentList.filter { it.name.contains(query, ignoreCase = true) }
-        _state.update { SearchState(query = query, results = recentMatches, recents = recentList) }
+        _state.update { SearchState(query = query, results = recentMatches, recents = recentList, near = bias()) }
         if (query.length < MIN_QUERY_LENGTH) return
         delay(DEBOUNCE_MS)
-        _state.update { it.copy(searching = true) }
+        val near = bias()
+        _state.update { it.copy(searching = true, near = near) }
         try {
-            val merged = mergeSearchResults(recentMatches, search(query, bias()))
+            val merged = mergeSearchResults(recentMatches, search(query, near))
             _state.update { it.copy(results = merged, searching = false, noResults = merged.isEmpty()) }
         } catch (e: CancellationException) {
             // Superseded by the next query (#1003): not a failure, and the next answer

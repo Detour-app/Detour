@@ -132,8 +132,7 @@ internal fun MapNavigationSession(
 
         // Same policy the head unit and iOS read, so the three surfaces cannot
         // word one maneuver three ways.
-        announcer.onProgress(progress.nextInstruction, progress.distanceToTurnMeters)
-            ?.let { announce(it) }
+        announcer.onProgress(progress, fix.speedMps)?.let { announce(it) }
 
         // Arrival and reroute are NavPolicy's call, shared with car/NavScreen.kt.
         val dest = s.destination

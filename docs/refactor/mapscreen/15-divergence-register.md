@@ -1299,6 +1299,8 @@ inclusive boundaries and its `voice.stop()`-on-mute, both applied to iOS.** The 
 `shared/` candidate under the *"a policy earns the core when it is written more than once"* rule —
 with delivery per platform, per the `CircleEvents.kt` shape.
 
+**Since #1012** the 800/300/80 m ladder is iOS's only; Android times the prompts by speed — entry 40.
+
 **RESOLVED — `c95b19d` (policy), `c9547ee` (car), `fb59b8e` (iOS), `e7cb39f` + `31b2ba5` +
 `d682603` (phone), in favour of decision 1's full parity.** The ladder, `spokenDistance` and the
 phase latch are now `NavAnnouncer` in `shared/…/data/NavAnnouncer.kt` with ten `commonTest` cases,
@@ -3106,6 +3108,38 @@ check 'iOS still keys search rows by name' 1 \
 
 ---
 
+## 40. Voice prompt timing: Android times prompts by speed and chains close turns, iOS keeps 800/300/80 m
+
+**New with `#1012`** — recorded because iOS is parked (owner decision 2026-10-27) and the rule is
+written for both.
+
+**What.** `NavAnnouncer.onProgress(progress, speedMps)` places the three prompts 25/10/3 s before
+the turn at the current speed (floors 400/150/30 m, far capped at 2 km, plus 1.5 s of speech lead),
+and adds ", then <cue>" to the near and now prompts when the following maneuver is within
+`max(8 s, 150 m)`. The phone (`ui/MapNavigation.kt`) and the head unit (`car/NavScreen.kt`) call it.
+
+**Copies.** The rule is not duplicated: both ladders are in `shared/…/data/NavAnnouncer.kt`. iOS's
+`NavScreen.swift` still calls the speed-less overload `onProgress(instruction:distanceMeters:)`,
+which keeps the fixed 800/300/80 m ladder and never chains.
+
+**Verdict: catch-up on iOS.** Not a product question: call `onProgress(progress, speedMps)` with the fix speed,
+then delete the speed-less overload and `FIXED_LADDER`.
+
+**Fence.**
+
+```sh
+# Entry 40 — voice timing. Measured against the #1012 branch. A changed count means a surface
+# moved to the other overload.
+check 'Android surfaces pass speed to the announcer' 2 \
+    "$(grep -c 'announcer.onProgress(p, speedMps)\|announcer.onProgress(progress, fix.speedMps)' \
+        app/src/main/java/com/jellemax/detour/car/NavScreen.kt app/src/main/java/com/jellemax/detour/ui/MapNavigation.kt \
+        | awk -F: '{s+=$2} END {print s}')"
+check 'iOS still uses the speed-less overload' 1 \
+    "$(grep -c 'instruction: p.nextInstruction, distanceMeters: p.distanceToTurnMeters' iosApp/Detour/NavScreen.swift)"
+```
+
+---
+
 ## 41. Place search: one shared session on Android, iOS still has its own
 
 **New with `#1005`** — recorded because iOS is parked (owner decision 2026-10-27) and the session
@@ -3134,6 +3168,95 @@ check 'Android surfaces on the shared search session' 4 \
     "$(grep -lE 'rememberSearchSession|androidSearchSession\(\)' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt app/src/main/java/com/jellemax/detour/car/SearchScreen.kt app/src/main/java/com/jellemax/detour/ui/RouteEditorScreen.kt app/src/main/java/com/jellemax/detour/ui/SavedPlacesScreen.kt | wc -l)"
 check 'iOS still searches unbiased on its own' 1 \
     "$(grep -c 'near: nil' iosApp/Detour/MapScreen.swift)"
+```
+
+---
+
+## 42. Logbook month header: Android says "new towns", iOS still says "new places"
+
+**New with `#1026`** — recorded because iOS is parked (owner decision 2026-10-27).
+
+**What.** "places" meant two things: the You screen's saved-places count and the Logbook's newly
+visited municipalities. Android now says "towns" for municipalities everywhere in the Logbook (the
+month summary, the year strip, the ride sticker) and labels the You tile "saved". The month
+summary is plain text, the newest chapter starts open (the current month, or the last one ridden
+in), and the recap action reads "Wrapped".
+
+**Copies.** The ride sticker text is shared (`Logbook.chips` in `shared/…/data/Logbook.kt`), so iOS
+gets "new town" there. The month summary is not: Android's is `R.plurals.history_new_towns` in
+`app/…/ui/HistoryScreen.kt`, iOS builds its own "new place(s)" string in `MonthHeader` in
+`iosApp/Detour/HistoryScreen.swift`.
+
+**Verdict: survive — and iOS follows.** Not a product question: iOS's `MonthHeader.summary`
+should say "new town(s)".
+
+**Fence.**
+
+```sh
+# Entry 42 — month summary wording. A changed count means iOS switched to towns or Android lost it.
+check 'Android month summary says towns' 1 \
+    "$(grep -c 'R.plurals.history_new_towns' app/src/main/java/com/jellemax/detour/ui/HistoryScreen.kt)"
+check 'iOS month summary still says places' 1 \
+    "$(grep -c '"1 new place"' iosApp/Detour/HistoryScreen.swift)"
+```
+
+---
+
+## 43. Routes screen: Android labels its top-bar actions and shows an unmeasured length, iOS doesn't
+
+**New with `#1025`** — recorded because iOS is parked (owner decision 2026-10-27).
+
+**What.** Android's Routes top bar puts Planned rides / Pull shared routes / Import route in one
+labelled overflow menu, and a route card with no routed distance shows its line's length as
+"~120 km" (`routeSubtitle`'s `approxMeters`, shared). iOS's `RoutesScreen.swift` still has bare
+icon buttons (accessibility labels only) and shows a distance only when `distanceMeters` is set.
+iOS has no save-a-spin, so the "Loop · ~120 km" name has no iOS half.
+
+**Verdict: polish gap on iOS, not a product question.** Use the shared `routeSubtitle` for the
+card line and label the toolbar actions when iOS is unparked.
+
+**Fence.**
+
+```sh
+# Entry 43 — Routes top bar and unmeasured length. Counts measured against this entry's commit.
+check 'Android routes top bar is one overflow' 1 \
+    "$(grep -c 'R.string.routes_more)' app/src/main/java/com/jellemax/detour/ui/RoutesScreen.kt)"
+check 'iOS still shows only a measured distance' 1 \
+    "$(grep -c 'route.distanceMeters?.doubleValue' iosApp/Detour/RoutesScreen.swift)"
+```
+
+---
+
+## 44. Search rows: Android shows kind, second line and distance; iOS shows the title alone
+
+**New with `#1006`** — recorded because iOS is parked (owner decision 2026-10-27) and the data is
+shared. Renumbered 43 -> 44 on merge (main took 42-43 meanwhile).
+
+**What.** `Geocoder` now fills `GeocodeResult.secondary` (street + house number, district,
+postcode + city — only what the title does not already say) and `GeocodeResult.kind`
+(`PlaceKind`, from Photon's `osm_key`/`osm_value`/`type`), asks Photon for 12 hits and keeps 8
+after dedupe, and sends `lang` from the device locale when Photon indexes it (en/de/fr/it),
+retrying without it on an HTTP 400. `SearchState.near` is the bias the rows measure distance
+from. `RecentSearchStore` keeps both new fields and still reads the old `{name, lat, lon}` form.
+
+**Copies.** Android draws all three through `app/…/ui/SearchResultRow.kt`: the map island, the
+route editor and saved places with `SearchResultRow`, Android Auto with `searchResultDetail` as
+the row's text. iOS's `MapScreen.swift` gets the same fields (and the stored ones) but its rows
+are still `Button(result.name)`, and it calls the three-argument `Geocoder.search`, so no
+`lang`. It has no bias point to measure from either (entry 41).
+
+**Verdict: bug — iOS follows.** Not a product question: draw `kind`/`secondary` under the title,
+and the distance once iOS runs the shared session (entry 41).
+
+**Fence.**
+
+```sh
+# Entry 44 — search row detail. A changed count means a surface stopped drawing the shared row or iOS adopted it.
+# Measured against this entry's own commit.
+check 'Android surfaces drawing the shared search row' 4 \
+    "$(grep -lE 'SearchResultRow\(|searchResultDetail\(' app/src/main/java/com/jellemax/detour/ui/SearchIsland.kt app/src/main/java/com/jellemax/detour/car/SearchScreen.kt app/src/main/java/com/jellemax/detour/ui/RouteEditorScreen.kt app/src/main/java/com/jellemax/detour/ui/SavedPlacesScreen.kt | wc -l)"
+check 'iOS search rows still title-only' 1 \
+    "$(grep -c 'Button(result.name)' iosApp/Detour/MapScreen.swift)"
 ```
 
 ---

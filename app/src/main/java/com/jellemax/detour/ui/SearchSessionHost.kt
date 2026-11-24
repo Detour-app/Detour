@@ -12,13 +12,19 @@ import com.jellemax.detour.presentation.SearchSession
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /**
  * A [SearchSession] whose lookup runs on [Dispatchers.IO] — the one thing about it commonMain
  * cannot say. Every Android surface builds its session here, the car included (#1005).
  */
 fun androidSearchSession(): SearchSession =
-    SearchSession(search = { query, near -> withContext(Dispatchers.IO) { Geocoder.search(query, near) } })
+    SearchSession(search = { query, near ->
+        // Names in the device's language where Photon has it (#1006); read per lookup, so a
+        // language change in system settings applies without restarting the screen.
+        val language = Locale.getDefault().language
+        withContext(Dispatchers.IO) { Geocoder.search(query, near, limit = Geocoder.RESULT_LIMIT, language = language) }
+    })
 
 /**
  * A phone screen's [SearchSession] for as long as the caller stays composed: it answers

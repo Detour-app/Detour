@@ -59,6 +59,17 @@ class TripHighlightRulesTest {
     }
 
     @Test
+    fun aLeanUnderTheFloorIsNoiseNotAHighlight() {
+        // #1023: a ride without lean data peaked at a fraction of a degree, shown as "0° left".
+        fun lean(deg: Double) = TripHighlightRules.picks(TripMoments(maxLean = peak(deg)), tracksLean = true).lean
+        assertNull(lean(-0.3))
+        assertNull(lean(TripHighlightRules.MIN_HIGHLIGHT_LEAN_DEG - 0.1))
+        assertNull(lean(-(TripHighlightRules.MIN_HIGHLIGHT_LEAN_DEG - 0.1)))
+        assertEquals(TripHighlightRules.MIN_HIGHLIGHT_LEAN_DEG, lean(TripHighlightRules.MIN_HIGHLIGHT_LEAN_DEG)?.value)
+        assertEquals(-12.0, lean(-12.0)?.value)
+    }
+
+    @Test
     fun anEmptyTripPicksNothing() {
         val picks = TripHighlightRules.picks(TripMoments(), tracksLean = true)
         assertEquals(TripHighlightPicks(null, null, null, null), picks)
