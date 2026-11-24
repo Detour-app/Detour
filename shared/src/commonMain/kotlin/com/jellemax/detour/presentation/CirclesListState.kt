@@ -53,7 +53,7 @@ data class CirclesListState(
  * [CircleRow.sharing] reads [riderId]'s own row in [Group.members] — never
  * merely "any member sharing", which would also be true for a circle where a
  * housemate shares and this rider does not. Matches the "N sharing"
- * definition in `SocialScreen.kt` and `CirclePresence.sharingCircles`
+ * definition in `CirclesEntryCard.kt` and `CirclePresence.sharingCircles`
  * (`circle.members.find { it.id == riderId }?.sharing == true`), so this
  * mapper's rows and that count never disagree about what counts as sharing.
  * A rider with no membership row at all reads as not sharing.

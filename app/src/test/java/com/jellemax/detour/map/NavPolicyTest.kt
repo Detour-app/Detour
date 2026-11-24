@@ -53,7 +53,7 @@ class NavPolicyTest {
         offRouteMeters: Double,
         destination: NavPolicy.ToDestination? = enRoute,
         rerouting: Boolean = false,
-        lastRerouteMs: Long = 0L,
+        attempts: NavPolicy.RerouteAttempts = NavPolicy.RerouteAttempts(),
         nowMs: Long = 1_000_000L,
     ) = NavPolicy.decide(
         progress = progress(remainingMeters, offRouteMeters),
@@ -61,7 +61,7 @@ class NavPolicyTest {
         stopsAhead = false,
         offRoute = streakAfter(offRouteMeters, nowMs),
         rerouting = rerouting,
-        lastRerouteMs = lastRerouteMs,
+        attempts = attempts,
         nowMs = nowMs,
     )
 
@@ -88,7 +88,7 @@ class NavPolicyTest {
         stopsAhead = true,
         offRoute = streakAfter(offRouteMeters, 1_000_000L),
         rerouting = false,
-        lastRerouteMs = 0L,
+        attempts = NavPolicy.RerouteAttempts(),
         nowMs = 1_000_000L,
     )
 
@@ -176,24 +176,25 @@ class NavPolicyTest {
     @Test
     fun respectsTheRerouteCooldown() {
         val last = 1_000_000L
+        val once = NavPolicy.RerouteAttempts(lastMs = last)
         assertEquals(
             NavPolicy.Decision.Continue,
-            decide(2_000.0, 300.0, lastRerouteMs = last, nowMs = last + NavPolicy.REROUTE_COOLDOWN_MS),
+            decide(2_000.0, 300.0, attempts = once, nowMs = last + NavPolicy.REROUTE_COOLDOWN_MS),
         )
         assertEquals(
             NavPolicy.Decision.Reroute,
-            decide(2_000.0, 300.0, lastRerouteMs = last, nowMs = last + NavPolicy.REROUTE_COOLDOWN_MS + 1),
+            decide(2_000.0, 300.0, attempts = once, nowMs = last + NavPolicy.REROUTE_COOLDOWN_MS + 1),
         )
     }
 
-    /** Both call sites start `lastRerouteMs` at 0 (`MapScreen.kt:228`,
+    /** Both call sites start `RerouteAttempts.lastMs` at 0 (`MapScreen.kt:228`,
      *  `car/NavScreen.kt:112`), so the first reroute of a session must not be
      *  held off by a cooldown measured from the epoch. */
     @Test
     fun theFirstRerouteOfASessionIsNotBlocked() {
         assertEquals(
             NavPolicy.Decision.Reroute,
-            decide(2_000.0, 300.0, lastRerouteMs = 0L, nowMs = 1_700_000_000_000L),
+            decide(2_000.0, 300.0, nowMs = 1_700_000_000_000L),
         )
     }
 
@@ -282,7 +283,7 @@ class NavPolicyTest {
                 stopsAhead = false,
                 offRoute = streak,
                 rerouting = false,
-                lastRerouteMs = 0L,
+                attempts = NavPolicy.RerouteAttempts(),
                 nowMs = now,
             )
         }
@@ -402,7 +403,7 @@ class NavPolicyTest {
             stopsAhead = true,
             offRoute = null,
             rerouting = false,
-            lastRerouteMs = 0L,
+            attempts = NavPolicy.RerouteAttempts(),
             nowMs = now,
         )
         assertEquals(NavPolicy.Decision.Continue, decision)
@@ -430,11 +431,71 @@ class NavPolicyTest {
                 stopsAhead = false,
                 offRoute = null,
                 rerouting = false,
-                lastRerouteMs = 0L,
+                attempts = NavPolicy.RerouteAttempts(),
                 nowMs = t,
             )
         }
         // First stopped fix is index 3; 15 s later is index 18.
         assertEquals(18, decisions.indexOfFirst { it == NavPolicy.Decision.Arrived })
+    }
+
+    // --- #1010: offline, back off and stop saying "Rerouting" ---------------
+
+    @Test
+    fun cooldownDoublesPerFailureUpToAMinute() {
+        assertEquals(
+            listOf(15_000L, 30_000L, 60_000L, 60_000L, 60_000L),
+            listOf(0, 1, 2, 3, 40).map(NavPolicy::rerouteCooldownMs),
+        )
+    }
+
+    /** After two failures the next request waits 60 s, not 15 s. */
+    @Test
+    fun aFailedRerouteHoldsTheNextOneOffLonger() {
+        val last = 1_000_000L
+        val twice = NavPolicy.RerouteAttempts().started(last).failed("x").failed("x")
+        assertEquals(
+            NavPolicy.Decision.Continue,
+            decide(2_000.0, 300.0, attempts = twice, nowMs = last + NavPolicy.REROUTE_COOLDOWN_MS + 1),
+        )
+        assertEquals(
+            NavPolicy.Decision.Continue,
+            decide(2_000.0, 300.0, attempts = twice, nowMs = last + NavPolicy.REROUTE_MAX_COOLDOWN_MS),
+        )
+        assertEquals(
+            NavPolicy.Decision.Reroute,
+            decide(2_000.0, 300.0, attempts = twice, nowMs = last + NavPolicy.REROUTE_MAX_COOLDOWN_MS + 1),
+        )
+    }
+
+    /** The issue's case, a rider off route with no signal: "Rerouting" is
+     *  said on the first request and never on a retry. */
+    @Test
+    fun reroutingIsAnnouncedOncePerEpisode() {
+        var attempts = NavPolicy.RerouteAttempts()
+        val announced = (0 until 4).map {
+            val say = attempts.announce
+            attempts = attempts.started(it * 60_000L).failed("Can't reroute — no connection")
+            say
+        }
+        assertEquals(listOf(true, false, false, false), announced)
+        assertEquals("Can't reroute — no connection", attempts.failureText)
+    }
+
+    @Test
+    fun backOnRouteEndsTheEpisodeButKeepsTheLastRequestTime() {
+        val failed = NavPolicy.RerouteAttempts().started(5_000L).failed("x")
+        val streak = NavPolicy.OffRouteStreak(fixes = 3, sinceMs = 0L, lastFixKey = 1L)
+        assertEquals(failed, failed.afterFix(streak))
+        val back = failed.afterFix(null)
+        assertEquals(NavPolicy.RerouteAttempts(lastMs = 5_000L), back)
+        assertTrue(back.announce)
+    }
+
+    @Test
+    fun aFreshRouteEndsTheEpisode() {
+        val ok = NavPolicy.RerouteAttempts().started(5_000L).failed("x").started(65_000L).succeeded()
+        assertEquals(NavPolicy.RerouteAttempts(lastMs = 65_000L), ok)
+        assertEquals(NavPolicy.REROUTE_COOLDOWN_MS, NavPolicy.rerouteCooldownMs(ok.failures))
     }
 }

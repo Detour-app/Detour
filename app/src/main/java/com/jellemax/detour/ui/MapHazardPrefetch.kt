@@ -3,6 +3,8 @@ package com.jellemax.detour.ui
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.res.stringResource
+import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.SpeedCameras
@@ -40,6 +42,7 @@ internal fun MapHazardPrefetch(
     scope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
 ) {
+    val camerasFailed = stringResource(R.string.map_cameras_load_failed)
     // Ambient speed-limit sign while just driving (not navigating). The whole
     // policy — the prefetch throttle, the local snap and the three-miss clear —
     // is SpeedLimitTracker's (shared/…/drive/), where it lives with its tests and
@@ -159,25 +162,19 @@ internal fun MapHazardPrefetch(
                     if (result != null) {
                         retained.speedCameras = result.cameras
                         retained.speedSections = result.sections
-                    } else if (
-                        prefetch.failures == 1 &&
-                        retained.speedCameras.isEmpty() &&
-                        retained.speedSections.isEmpty()
-                    ) {
-                        // "Couldn't load" and "none around here" draw the same
-                        // empty map, and that is the one thing the rider cannot
-                        // work out for themselves. Said once per run of
-                        // failures (CameraPrefetch counts them, and backs off,
-                        // so repeating it every retry would be noise) and only
-                        // while we hold nothing — markers on screen are their
-                        // own answer. Its own coroutine because showSnackbar
-                        // suspends until dismissed, and this job is the
-                        // in-flight guard above.
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Couldn't load speed cameras")
-                        }
                     }
                 }
+            }
+            // After the fetch block, on every fix rather than when a fetch
+            // fails: a failure while parked is reported only once the rider
+            // drives off (#1028), possibly many fixes and no fetch later.
+            val holdsMarkers = retained.speedCameras.isNotEmpty() || retained.speedSections.isNotEmpty()
+            if (CameraPrefetch.reportsFailure(prefetch, holdsMarkers, fix.speedMps)) {
+                prefetch = CameraPrefetch.failureReported(prefetch)
+                retained.cameraPrefetch = prefetch
+                // Own coroutine: showSnackbar suspends until dismissed, and
+                // this collector feeds the section machine.
+                scope.launch { snackbarHostState.showSnackbar(camerasFailed) }
             }
         }
     }

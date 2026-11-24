@@ -21,6 +21,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.RouteTileCache
 import com.jellemax.detour.map.fetchNavRoute
+import com.jellemax.detour.presentation.rerouteFailureText
 import com.jellemax.detour.tracking.Fix
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CoroutineScope
@@ -107,6 +108,7 @@ internal fun MapNavigationSession(
             s.offRoute = null
             s.offRouteShown = false
             s.stoppedSinceMs = null
+            s.rerouteAttempts = s.rerouteAttempts.endEpisode()
             return@LaunchedEffect
         }
         val fix = liveFix ?: return@LaunchedEffect
@@ -123,6 +125,7 @@ internal fun MapNavigationSession(
             s.offRoute, progress.offRouteMeters, fix.accuracyMeters.toDouble(), fix.elapsedRealtimeMs, now)
         s.offRouteShown = NavPolicy.offRouteConfirmed(s.offRoute, now)
         s.stoppedSinceMs = NavPolicy.trackStopped(s.stoppedSinceMs, fix.speedMps, now)
+        s.rerouteAttempts = s.rerouteAttempts.afterFix(s.offRoute)
         s.navProgress = progress
         // No setDrivenFraction here: the marker's frame loop (MapCamera.kt) fades
         // the road behind you off its own eased position. A per-fix write would
@@ -138,13 +141,11 @@ internal fun MapNavigationSession(
         val dest = s.destination
         when (NavPolicy.decide(
             progress = progress,
-            destination = dest?.let {
-                NavPolicy.ToDestination(RoadRoulette.distanceMeters(pos, it), s.stoppedSinceMs)
-            },
+            destination = toDestination(dest, pos, s.stoppedSinceMs),
             stopsAhead = s.vias.isNotEmpty(),
             offRoute = s.offRoute,
             rerouting = s.rerouting,
-            lastRerouteMs = s.lastRerouteMs,
+            attempts = s.rerouteAttempts,
             nowMs = now,
         )) {
             // Point-to-point only; loops end back at the start on their own.
@@ -159,8 +160,10 @@ internal fun MapNavigationSession(
             NavPolicy.Decision.Reroute -> {
                 val target = dest ?: return@LaunchedEffect // Reroute implies a destination
                 s.rerouting = true
-                s.lastRerouteMs = now
-                announce(announcer.rerouting())
+                // Spoken once per off-route episode: offline, every retry
+                // saying it was the bug (#1010). The bar says why instead.
+                if (s.rerouteAttempts.announce) announce(announcer.rerouting())
+                s.rerouteAttempts = s.rerouteAttempts.started(now)
                 // Continue in the direction of travel: keeps the fresh line from
                 // opening with a U-turn, and the penalty scales up with speed so
                 // it never asks for one on a 70/90 road. Skipped while parked or
@@ -170,6 +173,7 @@ internal fun MapNavigationSession(
                     try {
                         val fresh = fetchNavRoute(serverConfig, pos, target, mode, heading, s.vias)
                         s.route = fresh
+                        s.rerouteAttempts = s.rerouteAttempts.succeeded()
                         // #737: the new line may leave the corridor cached at the start,
                         // and this is the one moment there is signal to extend it.
                         RouteTileCache.prefetch(context, fresh.polyline, darkTheme)
@@ -177,7 +181,11 @@ internal fun MapNavigationSession(
                         // the new line's prompts from scratch.
                         announcer.routeChanged()
                     } catch (e: Exception) {
-                        // stay on the old line; retried after the cooldown
+                        // inline: ambient nav state — the route bar already says
+                        // "Off route"; a snackbar mid-ride has no moment to announce.
+                        // Stay on the old line; retried after a cooldown that
+                        // grows per failure (NavPolicy.rerouteCooldownMs).
+                        s.rerouteAttempts = s.rerouteAttempts.failed(rerouteFailureText(e))
                     } finally {
                         s.rerouting = false
                     }
@@ -187,6 +195,11 @@ internal fun MapNavigationSession(
         }
     }
 }
+
+/** Where the rider at [pos] is relative to [dest] for [NavPolicy.decide]'s
+ *  parked arrival (#1011); null while there is no destination (a loop). */
+private fun toDestination(dest: LatLon?, pos: LatLon, stoppedSinceMs: Long?): NavPolicy.ToDestination? =
+    dest?.let { NavPolicy.ToDestination(RoadRoulette.distanceMeters(pos, it), stoppedSinceMs) }
 
 /**
  * #737: a route on the map is the moment to cache its corridor, while the rider

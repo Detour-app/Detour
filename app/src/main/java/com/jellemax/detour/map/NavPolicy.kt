@@ -43,7 +43,8 @@ internal object NavPolicy {
 
     /** Minimum gap between reroute requests. Both call sites stamp on request
      *  rather than on success, so a failed reroute is retried after the cooldown
-     *  rather than immediately. */
+     *  rather than immediately. Doubles per failure up to
+     *  [REROUTE_MAX_COOLDOWN_MS] ([rerouteCooldownMs], #1010). */
     const val REROUTE_COOLDOWN_MS = 15_000L
 
     /** Under this speed the rider counts as stopped, for [trackStopped]. */
@@ -58,6 +59,11 @@ internal object NavPolicy {
      *  snaps a shop, car park or address point to the nearest road, often
      *  50-150 m from where the line ends or where the rider actually parks. */
     const val PARKED_ARRIVE_METERS = 150.0
+
+    /** The longest [rerouteCooldownMs] gets: 15 s, 30 s, then 60 s for as long
+     *  as requests keep failing. Offline, each attempt is a request left to
+     *  time out; past a minute the rider is better served by the old line. */
+    const val REROUTE_MAX_COOLDOWN_MS = 60_000L
 
     /** Below this speed GPS course is noise, so no request carries a heading. */
     const val HEADING_MIN_SPEED_MPS = 2.0
@@ -206,12 +212,63 @@ internal object NavPolicy {
             to.stoppedSinceMs != null &&
             nowMs - to.stoppedSinceMs >= PARKED_ARRIVE_MS
 
+    /**
+     * The caller's record of reroute requests in the current off-route
+     * episode (#1010), held between fixes like [OffRouteStreak].
+     *
+     * [lastMs] is the drive clock at the newest request (0 before the first,
+     * which [decide] treats as long ago). [failures] counts requests in this
+     * episode that came back without a route; it sets [rerouteCooldownMs] and
+     * mutes "Rerouting" after the first attempt ([announce]). [failureText] is
+     * the newest failure in rider words, for the banner; null until one fails.
+     *
+     * An episode ends when a fix is back on route ([afterFix]), a request
+     * succeeds ([succeeded]) or navigation stops ([endEpisode]); [lastMs]
+     * survives, so the cooldown still runs from the last request.
+     */
+    data class RerouteAttempts(
+        val lastMs: Long = 0L,
+        val failures: Int = 0,
+        val failureText: String? = null,
+    ) {
+        /** Speak "Rerouting" for this request: only the first of an episode,
+         *  so an offline rider is not told it every retry. */
+        val announce: Boolean get() = failures == 0
+
+        /** A request went out at [nowMs]. */
+        fun started(nowMs: Long): RerouteAttempts = copy(lastMs = nowMs)
+
+        /** The request came back without a route; [text] says why. */
+        fun failed(text: String): RerouteAttempts = copy(failures = failures + 1, failureText = text)
+
+        /** A fresh route arrived: the episode is over. */
+        fun succeeded(): RerouteAttempts = endEpisode()
+
+        /** The next record after a fix whose [trackOffRoute] result is
+         *  [offRoute]: the episode ends once a fix is back on route. */
+        fun afterFix(offRoute: OffRouteStreak?): RerouteAttempts = if (offRoute == null) endEpisode() else this
+
+        /** Back to no failures, keeping [lastMs]. */
+        fun endEpisode(): RerouteAttempts =
+            if (failures == 0 && failureText == null) this else RerouteAttempts(lastMs = lastMs)
+    }
+
+    /** Gap before the next reroute request after [failures] failed ones in a
+     *  row: [REROUTE_COOLDOWN_MS], doubled per failure, capped at
+     *  [REROUTE_MAX_COOLDOWN_MS]. */
+    fun rerouteCooldownMs(failures: Int): Long =
+        (REROUTE_COOLDOWN_MS shl failures.coerceIn(0, MAX_BACKOFF_SHIFT)).coerceAtMost(REROUTE_MAX_COOLDOWN_MS)
+
+    /** Enough doublings to pass any sane cap without overflowing the shift. */
+    private const val MAX_BACKOFF_SHIFT = 8
+
     sealed interface Decision {
         /** Keep following the line that is already drawn. */
         data object Continue : Decision
         /** Arrived: end the session. */
         data object Arrived : Decision
-        /** Confirmed off route and out of cooldown: fetch a fresh route to the destination. */
+        /** Confirmed off route and out of cooldown ([rerouteCooldownMs]): fetch
+         *  a fresh route to the destination. */
         data object Reroute : Decision
     }
 
@@ -238,8 +295,9 @@ internal object NavPolicy {
      * reroute needs it confirmed ([offRouteConfirmed]), not one fix past the
      * bound (#1008).
      *
-     * [nowMs] and [lastRerouteMs] are drive-clock millis - the caller owns the
-     * clock, which is what keeps this testable.
+     * [attempts] is the caller's [RerouteAttempts]: its [RerouteAttempts.lastMs]
+     * and [nowMs] are drive-clock millis - the caller owns the clock, which is
+     * what keeps this testable - and its failure count sets the cooldown.
      *
      * Arrival is tested first, matching both call sites. For the end-of-line
      * arrival the order cannot change an outcome: it needs
@@ -251,7 +309,7 @@ internal object NavPolicy {
      *
      * Seven parameters, one over detekt's bound: each is an independent input
      * the caller already holds, and bundling [offRoute], [rerouting] and
-     * [lastRerouteMs] into a holder would only rename the coupling (§8.4).
+     * [attempts] into a holder would only rename the coupling (§8.4).
      * [ToDestination] is not that: it replaced a `hasDestination` flag whose
      * only meaning was "these values exist", so the parked arrival came in
      * without an eighth. The state stays with the caller so this stays pure,
@@ -264,7 +322,7 @@ internal object NavPolicy {
         stopsAhead: Boolean,
         offRoute: OffRouteStreak?,
         rerouting: Boolean,
-        lastRerouteMs: Long,
+        attempts: RerouteAttempts,
         nowMs: Long,
     ): Decision {
         if (destination == null) return Decision.Continue
@@ -275,7 +333,7 @@ internal object NavPolicy {
         }
         if (offRouteConfirmed(offRoute, nowMs) &&
             !rerouting &&
-            nowMs - lastRerouteMs > REROUTE_COOLDOWN_MS
+            nowMs - attempts.lastMs > rerouteCooldownMs(attempts.failures)
         ) {
             return Decision.Reroute
         }
