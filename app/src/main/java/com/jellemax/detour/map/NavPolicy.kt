@@ -2,6 +2,8 @@ package com.jellemax.detour.map
 
 import com.jellemax.detour.data.HeadingHint
 import com.jellemax.detour.data.NavEngine
+import kotlin.math.abs
+import kotlin.math.min
 
 /**
  * When a navigation session has arrived, and when it should ask for a fresh
@@ -40,6 +42,17 @@ internal object NavPolicy {
     /** ...or this long off route on the drive clock, whichever comes first, so
      *  a sparse fix stream still reroutes in bounded time. */
     const val OFF_ROUTE_CONFIRM_MS = 4_000L
+
+    /** Below this speed GPS course is too loose to call a rider off route on
+     *  (#1009): a rider filtering through a car park or a junction queue
+     *  points every which way while on the line. 5 m/s = 18 km/h. */
+    const val HEADING_OFF_ROUTE_MIN_SPEED_MPS = 5.0
+
+    /** How far GPS course may differ from the road the rider is snapped to
+     *  before the fix counts as off route even inside [OFF_ROUTE_METERS]
+     *  (#1009). A curve or a lane change stays well inside it; a slip road
+     *  peeling off a motorway, or the other branch of a split, leaves it. */
+    const val HEADING_OFF_ROUTE_DEG = 60.0
 
     /** Minimum gap between reroute requests. Both call sites stamp on request
      *  rather than on success, so a failed reroute is retried after the cooldown
@@ -146,6 +159,30 @@ internal object NavPolicy {
         if (wasSnapped) offRouteMeters <= OFF_ROUTE_METERS else offRouteMeters <= ARRIVE_METERS
 
     /**
+     * Whether a rider on course [courseDeg] at [speedMps] is heading somewhere
+     * the route is not (#1009): moving at [HEADING_OFF_ROUTE_MIN_SPEED_MPS] or
+     * more, on a course more than [HEADING_OFF_ROUTE_DEG] off [routeBearingDeg].
+     * False with no course or no bearing to compare.
+     *
+     * This is what catches the wrong one of two roads that run side by side:
+     * distance alone says nothing until they are [OFF_ROUTE_METERS] apart,
+     * which can be hundreds of metres past the exit.
+     *
+     * [routeBearingDeg] is the *windowed* snap's [NavEngine.Along.bearingDeg],
+     * never [NavEngine.Progress.segmentBearingDeg] from the global snap: on a
+     * route that rides the same road twice the global snap can sit on the
+     * other leg, 180° from the rider, and this would reroute a rider who is on
+     * route. One fix proves nothing either; it feeds [trackOffRoute]'s streak.
+     */
+    fun headingOffRoute(courseDeg: Float?, speedMps: Double, routeBearingDeg: Double?): Boolean {
+        if (courseDeg == null || routeBearingDeg == null || speedMps < HEADING_OFF_ROUTE_MIN_SPEED_MPS) return false
+        val diff = abs(courseDeg - routeBearingDeg) % FULL_TURN_DEG
+        return min(diff, FULL_TURN_DEG - diff) > HEADING_OFF_ROUTE_DEG
+    }
+
+    private const val FULL_TURN_DEG = 360.0
+
+    /**
      * The run of off-route fixes the caller is in, held by the caller between
      * fixes the way [snapToRoute]'s `wasSnapped` is; null while on route.
      *
@@ -160,7 +197,10 @@ internal object NavPolicy {
      * The next [OffRouteStreak] after a fix [offRouteMeters] from the line with
      * reported [accuracyMeters]: null once a fix is back on route, else [prev]
      * extended by this fix. Off route means past [OFF_ROUTE_METERS] and past
-     * [OFF_ROUTE_ACCURACY_FACTOR] times the fix's accuracy (#1008).
+     * [OFF_ROUTE_ACCURACY_FACTOR] times the fix's accuracy (#1008), or
+     * [headingOff] — the caller's [headingOffRoute] for this fix (#1009) —
+     * however near the line it is. Both count toward the same streak, so a
+     * heading is confirmed the way a distance is, never on one noisy course.
      *
      * [fixKey] is anything unique per fix (its elapsed-realtime stamp); [nowMs]
      * is the same drive clock [decide] gets.
@@ -169,12 +209,13 @@ internal object NavPolicy {
         prev: OffRouteStreak?,
         offRouteMeters: Double,
         accuracyMeters: Double,
+        headingOff: Boolean,
         fixKey: Long,
         nowMs: Long,
     ): OffRouteStreak? {
         val bound = maxOf(OFF_ROUTE_METERS, OFF_ROUTE_ACCURACY_FACTOR * accuracyMeters)
         return when {
-            offRouteMeters <= bound -> null
+            offRouteMeters <= bound && !headingOff -> null
             prev == null -> OffRouteStreak(fixes = 1, sinceMs = nowMs, lastFixKey = fixKey)
             prev.lastFixKey == fixKey -> prev
             else -> prev.copy(fixes = prev.fixes + 1, lastFixKey = fixKey)
@@ -300,11 +341,14 @@ internal object NavPolicy {
      * what keeps this testable - and its failure count sets the cooldown.
      *
      * Arrival is tested first, matching both call sites. For the end-of-line
-     * arrival the order cannot change an outcome: it needs
-     * [NavEngine.Progress.offRouteMeters] under [OFF_ROUTE_METERS] and a reroute
-     * needs a streak whose newest fix (this one) is past it. A parked arrival
-     * can be off the line - a car park beside the road - and there the order
-     * is deliberate: a rider stopped by the destination has arrived, and a
+     * arrival on distance alone the order cannot change an outcome: it needs
+     * [NavEngine.Progress.offRouteMeters] under [OFF_ROUTE_METERS] and a
+     * distance streak needs its newest fix (this one) past it. A heading
+     * streak (#1009) can sit inside the bound, and then the order decides: a
+     * rider within [ARRIVE_METERS] of the end and on the line has arrived,
+     * whichever way they are pointing as they pull in. A parked arrival can be
+     * off the line - a car park beside the road - and there the order is
+     * deliberate too: a rider stopped by the destination has arrived, and a
      * fresh route to a point 100 m away is no use to them.
      *
      * Seven parameters, one over detekt's bound: each is an independent input

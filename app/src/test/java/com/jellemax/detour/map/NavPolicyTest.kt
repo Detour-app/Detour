@@ -40,6 +40,7 @@ class NavPolicyTest {
         prev = NavPolicy.OffRouteStreak(NavPolicy.OFF_ROUTE_CONFIRM_FIXES, sinceMs = nowMs, lastFixKey = 0L),
         offRouteMeters = offRouteMeters,
         accuracyMeters = 5.0,
+        headingOff = false,
         fixKey = 1L,
         nowMs = nowMs,
     )
@@ -276,7 +277,8 @@ class NavPolicyTest {
         var streak: NavPolicy.OffRouteStreak? = null
         return fixes.mapIndexed { i, (offRouteMeters, accuracyMeters) ->
             val now = 1_000_000L + i * stepMs
-            streak = NavPolicy.trackOffRoute(streak, offRouteMeters, accuracyMeters, fixKey = i.toLong(), nowMs = now)
+            streak = NavPolicy.trackOffRoute(
+                streak, offRouteMeters, accuracyMeters, headingOff = false, fixKey = i.toLong(), nowMs = now)
             NavPolicy.decide(
                 progress = progress(2_000.0, offRouteMeters),
                 destination = enRoute,
@@ -325,7 +327,7 @@ class NavPolicyTest {
     @Test
     fun aFixWithinItsOwnAccuracyIsNotOffRoute() {
         fun first(offRouteMeters: Double, accuracyMeters: Double) =
-            NavPolicy.trackOffRoute(null, offRouteMeters, accuracyMeters, fixKey = 1L, nowMs = 0L)
+            NavPolicy.trackOffRoute(null, offRouteMeters, accuracyMeters, headingOff = false, fixKey = 1L, nowMs = 0L)
         assertNull(first(offRouteMeters = 80.0, accuracyMeters = 80.0))
         assertNull(first(offRouteMeters = 120.0, accuracyMeters = 80.0))
         assertEquals(1, first(offRouteMeters = 121.0, accuracyMeters = 80.0)?.fixes)
@@ -337,10 +339,10 @@ class NavPolicyTest {
      *  must not count as a second fix. */
     @Test
     fun theSameFixSeenTwiceCountsOnce() {
-        val first = NavPolicy.trackOffRoute(null, 90.0, 10.0, fixKey = 7L, nowMs = 0L)
-        val again = NavPolicy.trackOffRoute(first, 90.0, 10.0, fixKey = 7L, nowMs = 10L)
+        val first = NavPolicy.trackOffRoute(null, 90.0, 10.0, headingOff = false, fixKey = 7L, nowMs = 0L)
+        val again = NavPolicy.trackOffRoute(first, 90.0, 10.0, headingOff = false, fixKey = 7L, nowMs = 10L)
         assertEquals(first, again)
-        assertFalse(NavPolicy.offRouteConfirmed(NavPolicy.trackOffRoute(again, 90.0, 10.0, 8L, 20L), 20L))
+        assertFalse(NavPolicy.offRouteConfirmed(NavPolicy.trackOffRoute(again, 90.0, 10.0, false, 8L, 20L), 20L))
     }
 
     // ---- #1011: parked short of the destination ----------------------------
@@ -497,5 +499,77 @@ class NavPolicyTest {
         val ok = NavPolicy.RerouteAttempts().started(5_000L).failed("x").started(65_000L).succeeded()
         assertEquals(NavPolicy.RerouteAttempts(lastMs = 65_000L), ok)
         assertEquals(NavPolicy.REROUTE_COOLDOWN_MS, NavPolicy.rerouteCooldownMs(ok.failures))
+    }
+
+    // --- #1009: the wrong one of two roads side by side ----------------------
+
+    @Test
+    fun aCourseFarOffTheRoadAtSpeedIsHeadingOffRoute() {
+        assertTrue(NavPolicy.headingOffRoute(courseDeg = 75f, speedMps = 20.0, routeBearingDeg = 10.0))
+        assertFalse(NavPolicy.headingOffRoute(courseDeg = 65f, speedMps = 20.0, routeBearingDeg = 10.0))
+    }
+
+    /** 350° and 45° are 55° apart, not 305°. */
+    @Test
+    fun headingCompareWrapsAtNorth() {
+        assertFalse(NavPolicy.headingOffRoute(courseDeg = 350f, speedMps = 20.0, routeBearingDeg = 45.0))
+        assertTrue(NavPolicy.headingOffRoute(courseDeg = 350f, speedMps = 20.0, routeBearingDeg = 55.0))
+        assertTrue(NavPolicy.headingOffRoute(courseDeg = 10f, speedMps = 20.0, routeBearingDeg = 190.0))
+    }
+
+    @Test
+    fun noHeadingCallWhenSlowOrWithoutACourseOrABearing() {
+        val slow = NavPolicy.HEADING_OFF_ROUTE_MIN_SPEED_MPS - 0.1
+        assertFalse(NavPolicy.headingOffRoute(courseDeg = 180f, speedMps = slow, routeBearingDeg = 0.0))
+        assertFalse(NavPolicy.headingOffRoute(courseDeg = null, speedMps = 20.0, routeBearingDeg = 0.0))
+        assertFalse(NavPolicy.headingOffRoute(courseDeg = 180f, speedMps = 20.0, routeBearingDeg = null))
+    }
+
+    /** Runs fixes [offRouteMeters] from the line one second apart, each heading
+     *  off route or not, through [NavPolicy.trackOffRoute] and [NavPolicy.decide]. */
+    private fun rideHeading(
+        vararg headingOff: Boolean,
+        offRouteMeters: Double = 25.0,
+        remainingMeters: Double = 2_000.0,
+    ): List<NavPolicy.Decision> {
+        var streak: NavPolicy.OffRouteStreak? = null
+        return headingOff.mapIndexed { i, off ->
+            val now = 1_000_000L + i * 1_000L
+            streak = NavPolicy.trackOffRoute(streak, offRouteMeters, 5.0, off, fixKey = i.toLong(), nowMs = now)
+            NavPolicy.decide(
+                progress = progress(remainingMeters, offRouteMeters),
+                hasDestination = true,
+                stopsAhead = false,
+                offRoute = streak,
+                rerouting = false,
+                attempts = NavPolicy.RerouteAttempts(),
+                nowMs = now,
+            )
+        }
+    }
+
+    /** The issue's case: on the slip road 25 m from the motorway, inside the
+     *  distance bound, three fixes pointing away from it reroute. */
+    @Test
+    fun threeFixesHeadingOffRerouteInsideTheDistanceBound() {
+        assertEquals(
+            listOf(NavPolicy.Decision.Continue, NavPolicy.Decision.Continue, NavPolicy.Decision.Reroute),
+            rideHeading(true, true, true),
+        )
+    }
+
+    /** One or two noisy courses are not a missed exit. */
+    @Test
+    fun aNoisyCourseOnRouteDoesNotReroute() {
+        assertTrue(rideHeading(true, false, true, true, false, true).all { it == NavPolicy.Decision.Continue })
+    }
+
+    /** Pulling in at the destination, pointing anywhere, is an arrival. */
+    @Test
+    fun arrivalBeatsAHeadingStreak() {
+        assertEquals(
+            NavPolicy.Decision.Arrived,
+            rideHeading(true, true, true, remainingMeters = 10.0, offRouteMeters = 5.0).last(),
+        )
     }
 }
