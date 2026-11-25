@@ -320,7 +320,10 @@ class NavScreen(
         // reroute, so a 5x replay must not get five times the reroutes. Read
         // before the redraw below, so the trip card's "Off route" is this fix's.
         val now = clock.nowMs()
-        offRoute = NavPolicy.trackOffRoute(offRoute, p.offRouteMeters, accuracyMeters, fixElapsedMs, now)
+        // The course against [ride]'s windowed bearing, not p's global one (#1009).
+        val headingOff = NavPolicy.headingOffRoute(bearingDeg, speedMps, route.polyline, pos, ride?.along)
+        offRoute = NavPolicy.trackOffRoute(
+            offRoute, p.offRouteMeters, accuracyMeters, headingOff, fixElapsedMs, now)
         offRouteShown = NavPolicy.offRouteConfirmed(offRoute, now)
         stoppedSinceMs = NavPolicy.trackStopped(stoppedSinceMs, speedMps, now)
         rerouteAttempts = rerouteAttempts.afterFix(offRoute)

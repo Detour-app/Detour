@@ -160,6 +160,33 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
         return next.along
     }
 
+    /** Where the rider is along a line [followPlanned] leaves to the global
+     *  snap, forward only, for [NavPolicy.headingOffRoute] alone (#1009). Not
+     *  state, and not kept across a rotation: only the next fix reads it. */
+    private var lineRide: ViaStops.Ride? = null
+
+    /**
+     * The windowed snap whose bearing the heading check compares the course
+     * with (#1009): [planned], [followPlanned]'s answer for this fix, when it
+     * gave one, else the rider at [at] moved on along [line] the same
+     * forward-only way. The global snap's bearing can be the other leg's on a
+     * line that rides a road twice. Placing the rider stays [followPlanned]'s;
+     * this is only read for its bearing.
+     */
+    fun headingAlong(line: List<LatLon>, at: LatLon, planned: NavEngine.Along?): NavEngine.Along {
+        if (planned != null) {
+            lineRide = null
+            return planned
+        }
+        return ViaStops.follow(lineRide, line, emptyList(), at, NavPolicy.OFF_ROUTE_METERS)
+            .also { lineRide = it }.along
+    }
+
+    /** Navigation stopped: the next session's line starts its snap over. */
+    fun endHeadingRide() {
+        lineRide = null
+    }
+
     // --- camera ---------------------------------------------------------
     /** Follow/park/gesture, all three transitions dispatched through
      *  [CameraAuthority.reduce] rather than written from ten sites.

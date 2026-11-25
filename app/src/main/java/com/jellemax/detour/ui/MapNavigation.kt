@@ -30,19 +30,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Where the rider at [pos] is along [route]. A line through planned stops or
- * one that ends where it starts can ride a road twice, so on one the rider is
- * placed forward only, and a stop passed drops off every later reroute (#736,
- * #921); how far off the line they are
- * stays the global answer. The ride goes to [SpinResultHolder] every fix, so
- * a rotation carries on from it rather than from metre zero.
+ * Where the rider at [pos] is along [route], and the windowed snap the heading
+ * check reads (#1009). A line through planned stops or one that ends where it
+ * starts can ride a road twice, so on one the rider is placed forward only, and
+ * a stop passed drops off every later reroute (#736, #921); how far off the line
+ * they are stays the global answer. The ride goes to [SpinResultHolder] every
+ * fix, so a rotation carries on from it rather than from metre zero.
  */
-private fun progressOn(s: MapScreenState, route: RouteResult, pos: LatLon): NavEngine.Progress? {
+private fun progressOn(s: MapScreenState, route: RouteResult, pos: LatLon): Pair<NavEngine.Progress, NavEngine.Along>? {
     val global = NavEngine.progress(route, pos) ?: return null
     val along = s.followPlanned(route.polyline, pos)
     SpinResultHolder.keepRide(s.viaRide)
-    if (along == null) return global
-    return NavEngine.progressAlong(route, along, global.offRouteMeters) ?: global
+    val heading = s.headingAlong(route.polyline, pos, along)
+    if (along == null) return global to heading
+    return (NavEngine.progressAlong(route, along, global.offRouteMeters) ?: global) to heading
 }
 
 /**
@@ -106,6 +107,7 @@ internal fun MapNavigationSession(
         if (!s.navigating) {
             // A new session starts with no off-route run behind it.
             s.offRoute = null
+            s.endHeadingRide()
             s.offRouteShown = false
             s.stoppedSinceMs = null
             s.rerouteAttempts = s.rerouteAttempts.endEpisode()
@@ -114,15 +116,19 @@ internal fun MapNavigationSession(
         val fix = liveFix ?: return@LaunchedEffect
         val r = s.route ?: return@LaunchedEffect
         val pos = LatLon(fix.lat, fix.lon)
-        val progress = progressOn(s, r, pos) ?: return@LaunchedEffect
+        val (progress, along) = progressOn(s, r, pos) ?: return@LaunchedEffect
         // The drive's clock, as in car/NavScreen.kt: the cooldown NavPolicy
         // applies is per drive, not per wall second.
         val now = clock.nowMs()
         // Keyed on the fix, so this effect restarting for a new s.route on the
         // same fix does not count it twice. Written with navProgress, so the
         // bar's "Off route" is the same confirmation decide() reroutes on.
+        // The course against the windowed snap's bearing, never the global
+        // one's: that can be the other leg of a road ridden twice (#1009).
+        val headingOff = NavPolicy.headingOffRoute(fix.bearingDeg, fix.speedMps, r.polyline, pos, along)
         s.offRoute = NavPolicy.trackOffRoute(
-            s.offRoute, progress.offRouteMeters, fix.accuracyMeters.toDouble(), fix.elapsedRealtimeMs, now)
+            s.offRoute, progress.offRouteMeters, fix.accuracyMeters.toDouble(), headingOff,
+            fix.elapsedRealtimeMs, now)
         s.offRouteShown = NavPolicy.offRouteConfirmed(s.offRoute, now)
         s.stoppedSinceMs = NavPolicy.trackStopped(s.stoppedSinceMs, fix.speedMps, now)
         s.rerouteAttempts = s.rerouteAttempts.afterFix(s.offRoute)
