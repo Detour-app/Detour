@@ -6,11 +6,20 @@ still advertises finished work is worse than no list.
 
 ## Not built
 
-- **Push notifications.** There is no FCM, no APNs and no device-token table
-  anywhere in the project, so circle arrivals reach a closed app only when it
-  next polls. Adding real push is a new decision rather than a port, and the iOS
-  half needs a paid Apple Developer account. See
-  [docs/CIRCLES_AND_CONVOYS.md §6.3](docs/CIRCLES_AND_CONVOYS.md#63-frames-server-to-client).
+- **Push on iPhone.** Android has it: circle arrival/departure wake pings go
+  out over FCM ([docs/PUSH.md](docs/PUSH.md) §10), and the backend already has
+  an `ApnsGateway` and an `ios` device platform. The iOS app never calls
+  `registerForRemoteNotifications`, never hands its APNs token to the shared
+  `Devices.register(token, platform = "ios")`, and doesn't handle the wake, so
+  on an iPhone a circle arrival still waits for the app to be opened. It needs
+  the push capability in a paid Apple Developer account, and a Mac plus a real
+  iPhone to check the wake. Scope and notes: #702 (closed as parked).
+- **Running the iPhone section-average chip.** The trajectcontrole average
+  readout's iOS half (`SectionAverageHolder`, `SectionReadingWatcher` and the
+  SwiftUI chip) compiles and links in CI's `ios.yml`, but `iosApp/` has no test
+  target and nothing has ever run it. It needs a Mac session with the simulator
+  or an iPhone, replaying `trajectcontrole.txt`. The car half is on the
+  field-test checklist (#809). Notes: #34 (closed as parked).
 - **Push-to-talk, again.** The relay drops voice frames today. What comes back
   will be Opus over binary frames rather than the base64'd PCM the old server
   relayed at ~40 KB/s per talker per listener —
