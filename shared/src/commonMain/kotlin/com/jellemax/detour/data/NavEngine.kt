@@ -12,8 +12,10 @@ object NavEngine {
 
     /** How many segments ahead [advance] looks. Sixteen covers a second of
      *  motorway at any vertex spacing the routers produce, and closes a
-     *  background-sized gap in a handful of frames. */
-    private const val ADVANCE_SEGMENTS = 16
+     *  background-sized gap in a handful of frames. Public because it is also
+     *  how far a tie on a road ridden twice can jump the snap onto the other
+     *  leg, which the app's heading check has to look past (#1009). */
+    const val ADVANCE_SEGMENTS = 16
 
     /** [NavEngine.cut]'s two halves of a route: the road behind you and the
      *  road ahead, sharing only the point they meet at. */

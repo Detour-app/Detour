@@ -539,7 +539,7 @@ class NavPolicyTest {
             streak = NavPolicy.trackOffRoute(streak, offRouteMeters, 5.0, off, fixKey = i.toLong(), nowMs = now)
             NavPolicy.decide(
                 progress = progress(remainingMeters, offRouteMeters),
-                hasDestination = true,
+                destination = enRoute,
                 stopsAhead = false,
                 offRoute = streak,
                 rerouting = false,
@@ -606,6 +606,59 @@ class NavPolicyTest {
             streak = NavPolicy.trackOffRoute(streak, along.offRouteMeters, 5.0, off, i.toLong(), i * 1_000L)
             assertNull(streak)
         }
+    }
+
+    /**
+     * Round 2's review case: a dense out-and-back, 40 vertices each way, with
+     * 2 m of GPS noise and a few degrees of course noise. As a router draws
+     * it, the way back is the other carriageway, 3 m over, with vertices of
+     * its own, so a metre of noise on the way out can put the rider nearer
+     * the return leg and settle the forward snap on it up to a window ahead.
+     * The excuse must look that far, not just round the turn. Both ways round
+     * the same road, 100 seeded rides each.
+     */
+    @Test
+    fun aDenseNoisyOutAndBackNeverHeadsOffRoute() {
+        for (east in listOf(true, false)) {
+            for (seed in 0 until 100) {
+                assertNull("east=$east seed $seed", firstHeadingOffOnOutAndBack(east, java.util.Random(seed.toLong())))
+            }
+        }
+    }
+
+    /** Rides [aDenseNoisyOutAndBackNeverHeadsOffRoute]'s road out and back
+     *  with fixes every 10 m; the first fix called heading off route, or null. */
+    private fun firstHeadingOffOnOutAndBack(east: Boolean, rng: java.util.Random): String? {
+        val legMeters = 40 * DENSE_SPACING_DEG * METERS_PER_DEG_LON_52
+        val carriagewayDeg = 3.0 / 111_320.0
+        fun lon(fromStart: Double) =
+            5.0 + (if (east) fromStart else legMeters - fromStart) / METERS_PER_DEG_LON_52
+        val out = (0..40).map { LatLon(52.0, lon(it * legMeters / 40)) }
+        val back = (39 downTo 0).map { LatLon(52.0 - carriagewayDeg, lon((it + 0.5) * legMeters / 40)) }
+        val line = out + back
+        val outCourse = if (east) 90f else 270f
+        var ride: ViaStops.Ride? = null
+        var meters = 0.0
+        while (meters < 2 * legMeters - 20.0) {
+            val outbound = meters < legMeters
+            val pos = LatLon(
+                (if (outbound) 52.0 else 52.0 - carriagewayDeg) + rng.nextGaussian() * 2.0 / 111_320.0,
+                lon(if (outbound) meters else 2 * legMeters - meters) +
+                    rng.nextGaussian() * 2.0 / METERS_PER_DEG_LON_52,
+            )
+            val course = ((if (outbound) outCourse else outCourse + 180f) +
+                rng.nextGaussian().toFloat() * 3f + 360f) % 360f
+            ride = ViaStops.follow(ride, line, emptyList(), pos, NavPolicy.OFF_ROUTE_METERS)
+            if (NavPolicy.headingOffRoute(course, 20.0, line, pos, ride.along)) return "at ${meters.toInt()} m"
+            meters += 10.0
+        }
+        return null
+    }
+
+    private companion object {
+        /** ~25 m of longitude at 52° N. */
+        const val DENSE_SPACING_DEG = 0.00036
+        val METERS_PER_DEG_LON_52 = 111_320.0 * kotlin.math.cos(52.0 * kotlin.math.PI / 180.0)
     }
 
     /** The tie allowance does not hide a rider who has really turned off: 20 m

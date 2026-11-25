@@ -61,9 +61,11 @@ internal object NavPolicy {
     const val HEADING_OFF_ROUTE_DEG = 60.0
 
     /** How many segments either side of the snapped one [headingOffRoute]
-     *  looks at for the same tarmac ridden the other way (#1009): a U-turn
-     *  vertex can carry a repeated point or two between the legs. */
-    const val HEADING_TIE_SEGMENTS = 4
+     *  looks at for the same tarmac ridden the other way (#1009). On an
+     *  out-and-back a metre of GPS noise can settle [NavEngine.advance]'s tie
+     *  up to a whole window ahead, onto the other leg, and the leg the rider
+     *  is really on can be that far back again: twice the window covers both. */
+    const val HEADING_TIE_SEGMENTS = 2 * NavEngine.ADVANCE_SEGMENTS
 
     /** A segment ahead this close to as near the rider as the snapped one is
      *  the same road (#1009): an out-and-back's two legs share their tarmac,
