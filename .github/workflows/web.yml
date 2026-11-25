@@ -34,7 +34,7 @@ jobs:
         with:
           # The same major as backend/Dockerfile's planner stage, so CI type-checks
           # and builds with what the image builds with.
-          node-version: '22'
+          node-version: '26'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
