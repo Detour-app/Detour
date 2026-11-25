@@ -39,12 +39,14 @@ import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
 import com.jellemax.detour.data.RouteCandidate
+import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.ViaStops
 import com.jellemax.detour.data.walkRoute
 import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
@@ -145,6 +147,11 @@ class NavScreen(
 
     private var route = initialRoute
     private var progress: NavEngine.Progress? = null
+    /** Where the rider is along [route], moved forward only (#1014): the phone's
+     *  #736 snap, so a route that rides a road twice is not placed on the leg
+     *  already ridden. Tied to the line it was made on, so a reroute's fresh
+     *  line starts over from its first point. */
+    private var ride: ViaStops.Ride? = null
     private var currentSpeedKmh = 0.0
     private var rerouting = false
     /** [NavPolicy.RerouteAttempts]: backoff, "Rerouting" once per episode,
@@ -155,6 +162,9 @@ class NavScreen(
     /** [NavPolicy.offRouteConfirmed] at the newest fix: what the trip card's
      *  "Off route" shows, the same confirmation [NavPolicy.decide] reroutes on. */
     private var offRouteShown = false
+    /** [NavPolicy.trackStopped]'s start of the current stop, for the parked
+     *  arrival (#1011); null while moving. */
+    private var stoppedSinceMs: Long? = null
 
     /** True between [NavigationManager.navigationStarted] and its end. The
      *  manager throws on updateTrip/clearCallback in the wrong state, and the
@@ -340,7 +350,7 @@ class NavScreen(
         fixElapsedMs: Long,
     ) {
         currentSpeedKmh = speedMps * 3.6
-        val p = NavEngine.progress(route, pos) ?: return
+        val p = progressOn(pos) ?: return
         progress = p
         // Drive clock: the reroute cooldown bounds how often a *drive* may
         // reroute, so a 5x replay must not get five times the reroutes. Read
@@ -348,6 +358,7 @@ class NavScreen(
         val now = clock.nowMs()
         offRoute = NavPolicy.trackOffRoute(offRoute, p.offRouteMeters, accuracyMeters, fixElapsedMs, now)
         offRouteShown = NavPolicy.offRouteConfirmed(offRoute, now)
+        stoppedSinceMs = NavPolicy.trackStopped(stoppedSinceMs, speedMps, now)
         rerouteAttempts = rerouteAttempts.afterFix(offRoute)
 
         renderer.follow(
@@ -394,7 +405,9 @@ class NavScreen(
         // own once-only latch on popping itself, not part of the policy.
         when (NavPolicy.decide(
             progress = p,
-            hasDestination = true, // a constructor parameter on this screen
+            // A constructor parameter on this screen, so always present.
+            destination = NavPolicy.ToDestination(
+                RoadRoulette.distanceMeters(pos, destination), stoppedSinceMs),
             stopsAhead = false, // the car doesn't ride via stops (#736)
             offRoute = offRoute,
             rerouting = rerouting,
@@ -448,6 +461,21 @@ class NavScreen(
             }
             NavPolicy.Decision.Continue -> {}
         }
+    }
+
+    /**
+     * Where the rider at [pos] is along [route]: placed by [ride], forward only,
+     * rather than at the nearest point on the whole route, which on a line that
+     * uses the same road twice can be the other leg (#1014). How far off the
+     * line they are stays the global answer, as on the phone's `progressOn` in
+     * ui/MapNavigation.kt. The car rides no planned stops, so no vias; unlike the
+     * phone it snaps on every line (divergence register entry 45).
+     */
+    private fun progressOn(pos: LatLon): NavEngine.Progress? {
+        val global = NavEngine.progress(route, pos) ?: return null
+        val next = ViaStops.follow(ride, route.polyline, emptyList(), pos, NavPolicy.OFF_ROUTE_METERS)
+        ride = next
+        return NavEngine.progressAlong(route, next.along, global.offRouteMeters) ?: global
     }
 
     // ---- traffic ----------------------------------------------------------

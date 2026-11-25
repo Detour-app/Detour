@@ -166,7 +166,9 @@ internal fun DriveSheet(
                     )
                     NavButton(
                         destination = go.destination,
-                        route = go.route?.waypoints,
+                        // Only a loop (no destination) hands off as a round trip; a
+                        // destination's route, a pick's preview included (#1027), is A→B.
+                        route = go.route?.waypoints?.takeIf { go.destination == null },
                         origin = go.origin,
                         mode = go.mode,
                         inAppAvailable = go.inAppAvailable,

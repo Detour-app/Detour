@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddRoad
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocalGasStation
@@ -89,10 +90,10 @@ fun searchResultDetail(result: GeocodeResult, kindLabel: String, near: LatLon?):
     ).joinToString(" · ")
 
 /**
- * One tappable search hit: the kind's icon (history for a [recent] pick), the title, the kind and
- * second line under it, and the distance from [near] on the right when there is a point to
- * measure from. [dense] is the in-form list (route editor, saved places): smaller title, no
- * horizontal inset of its own; otherwise the map island's card row.
+ * One tappable search hit: the icon for its [origin] (the kind's own for a live hit), the title,
+ * the kind and second line under it, and the distance from [near] on the right when there is a
+ * point to measure from. [dense] is the in-form list (route editor, saved places): smaller title,
+ * no horizontal inset of its own; otherwise the map island's card row.
  */
 @Composable
 fun SearchResultRow(
@@ -101,7 +102,7 @@ fun SearchResultRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     dense: Boolean = false,
-    recent: Boolean = false,
+    origin: SearchResultOrigin = SearchResultOrigin.LIVE,
 ) {
     Row(
         modifier
@@ -111,7 +112,11 @@ fun SearchResultRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (recent) Icons.Rounded.History else result.kind.icon(),
+            when (origin) {
+                SearchResultOrigin.SAVED -> Icons.Rounded.Bookmark
+                SearchResultOrigin.RECENT -> Icons.Rounded.History
+                SearchResultOrigin.LIVE -> result.kind.icon()
+            },
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp),

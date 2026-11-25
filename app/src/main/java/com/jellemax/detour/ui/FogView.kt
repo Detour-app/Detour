@@ -574,10 +574,14 @@ class FogView(context: Context) : View(context) {
         // One RGB per theme feeds both the scrim and the frost tint, so the two
         // can't be retuned out of sync with each other.
         private class FogTheme(val r: Int, val g: Int, val b: Int, val scrimAlpha: Int, val frostTintAlpha: Int)
-        private val FOG_DARK = FogTheme(r = 8, g = 10, b = 26, scrimAlpha = 150,
+        // Neutral grey, not navy: a blue cast made the home map look like a
+        // different basemap from navigate, trip detail and the car, which share
+        // it without fog (#1029). Lighter than it was (150/110) so streets under
+        // unexplored ground stay readable on the dark style.
+        private val FOG_DARK = FogTheme(r = 12, g = 12, b = 12, scrimAlpha = 110,
             // Lighter than the scrim: once frosted, the blur itself carries part
             // of the "hidden" signal, so the dim can ease off.
-            frostTintAlpha = 110)
+            frostTintAlpha = 80)
         // Scrim needs more weight here than feels natural: a pale wash over the
         // already-pale positron basemap barely registers (white roads stay
         // white), so unexplored ground leaked through during pans and the frost

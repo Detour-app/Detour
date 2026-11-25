@@ -76,11 +76,17 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
             if (value != destinationState) {
                 vias = emptyList()
                 viaRide = null
+                guidedTo = null
                 if (error != LOCATION_DENIED_ERROR) error = null
             }
             destinationState = value
         }
     var destinationName: String? by mutableStateOf(seed.destinationName)
+
+    /** The [destination] guidance last ran to, until another one is set
+     *  (#1027): arrival and Exit drop its route but keep the pin, and the
+     *  route preview must not ask for that destination again. */
+    var guidedTo: LatLon? by mutableStateOf(seed.guidedTo)
 
     /** A planned route's stops still to ride through on the way to
      *  [destination] (#736), dropped as [followPlanned] sees them passed. */
@@ -115,6 +121,10 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     /** The run of off-route fixes [NavPolicy.decide] confirms a reroute on
      *  (#1008). Not state: nothing draws it, only the next fix reads it. */
     var offRoute: NavPolicy.OffRouteStreak? = null
+
+    /** [NavPolicy.trackStopped]'s drive-clock start of the current stop, for
+     *  the parked arrival (#1011); null while moving. Not state, like [offRoute]. */
+    var stoppedSinceMs: Long? = null
 
     /** [NavPolicy.offRouteConfirmed] at the newest fix: the bottom bar's
      *  "Off route", so it agrees with the reroute decision (#1008). */

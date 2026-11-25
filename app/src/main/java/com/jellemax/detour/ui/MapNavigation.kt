@@ -12,6 +12,7 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
@@ -106,6 +107,7 @@ internal fun MapNavigationSession(
             // A new session starts with no off-route run behind it.
             s.offRoute = null
             s.offRouteShown = false
+            s.stoppedSinceMs = null
             s.rerouteAttempts = s.rerouteAttempts.endEpisode()
             return@LaunchedEffect
         }
@@ -122,6 +124,7 @@ internal fun MapNavigationSession(
         s.offRoute = NavPolicy.trackOffRoute(
             s.offRoute, progress.offRouteMeters, fix.accuracyMeters.toDouble(), fix.elapsedRealtimeMs, now)
         s.offRouteShown = NavPolicy.offRouteConfirmed(s.offRoute, now)
+        s.stoppedSinceMs = NavPolicy.trackStopped(s.stoppedSinceMs, fix.speedMps, now)
         s.rerouteAttempts = s.rerouteAttempts.afterFix(s.offRoute)
         s.navProgress = progress
         // No setDrivenFraction here: the marker's frame loop (MapCamera.kt) fades
@@ -138,7 +141,7 @@ internal fun MapNavigationSession(
         val dest = s.destination
         when (NavPolicy.decide(
             progress = progress,
-            hasDestination = dest != null,
+            destination = toDestination(dest, pos, s.stoppedSinceMs),
             stopsAhead = s.vias.isNotEmpty(),
             offRoute = s.offRoute,
             rerouting = s.rerouting,
@@ -192,6 +195,11 @@ internal fun MapNavigationSession(
         }
     }
 }
+
+/** Where the rider at [pos] is relative to [dest] for [NavPolicy.decide]'s
+ *  parked arrival (#1011); null while there is no destination (a loop). */
+private fun toDestination(dest: LatLon?, pos: LatLon, stoppedSinceMs: Long?): NavPolicy.ToDestination? =
+    dest?.let { NavPolicy.ToDestination(RoadRoulette.distanceMeters(pos, it), stoppedSinceMs) }
 
 /**
  * #737: a route on the map is the moment to cache its corridor, while the rider

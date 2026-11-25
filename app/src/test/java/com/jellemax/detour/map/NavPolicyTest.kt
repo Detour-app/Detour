@@ -44,16 +44,20 @@ class NavPolicyTest {
         nowMs = nowMs,
     )
 
+    /** A destination the rider is far from and moving towards: the parked
+     *  arrival (#1011) stays out of the rules that aren't about it. */
+    private val enRoute = NavPolicy.ToDestination(straightLineMeters = 5_000.0, stoppedSinceMs = null)
+
     private fun decide(
         remainingMeters: Double,
         offRouteMeters: Double,
-        hasDestination: Boolean = true,
+        destination: NavPolicy.ToDestination? = enRoute,
         rerouting: Boolean = false,
         attempts: NavPolicy.RerouteAttempts = NavPolicy.RerouteAttempts(),
         nowMs: Long = 1_000_000L,
     ) = NavPolicy.decide(
         progress = progress(remainingMeters, offRouteMeters),
-        hasDestination = hasDestination,
+        destination = destination,
         stopsAhead = false,
         offRoute = streakAfter(offRouteMeters, nowMs),
         rerouting = rerouting,
@@ -80,7 +84,7 @@ class NavPolicyTest {
     /** The helper's other defaults, with a planned stop still ahead (#736). */
     private fun decideWithStopAhead(remainingMeters: Double, offRouteMeters: Double) = NavPolicy.decide(
         progress = progress(remainingMeters, offRouteMeters),
-        hasDestination = true,
+        destination = enRoute,
         stopsAhead = true,
         offRoute = streakAfter(offRouteMeters, 1_000_000L),
         rerouting = false,
@@ -116,11 +120,11 @@ class NavPolicyTest {
     fun neverArrivesOrReroutesWithoutADestination() {
         assertEquals(
             NavPolicy.Decision.Continue,
-            decide(remainingMeters = 1.0, offRouteMeters = 1.0, hasDestination = false),
+            decide(remainingMeters = 1.0, offRouteMeters = 1.0, destination = null),
         )
         assertEquals(
             NavPolicy.Decision.Continue,
-            decide(remainingMeters = 5_000.0, offRouteMeters = 500.0, hasDestination = false),
+            decide(remainingMeters = 5_000.0, offRouteMeters = 500.0, destination = null),
         )
     }
 
@@ -275,7 +279,7 @@ class NavPolicyTest {
             streak = NavPolicy.trackOffRoute(streak, offRouteMeters, accuracyMeters, fixKey = i.toLong(), nowMs = now)
             NavPolicy.decide(
                 progress = progress(2_000.0, offRouteMeters),
-                hasDestination = true,
+                destination = enRoute,
                 stopsAhead = false,
                 offRoute = streak,
                 rerouting = false,
@@ -337,6 +341,102 @@ class NavPolicyTest {
         val again = NavPolicy.trackOffRoute(first, 90.0, 10.0, fixKey = 7L, nowMs = 10L)
         assertEquals(first, again)
         assertFalse(NavPolicy.offRouteConfirmed(NavPolicy.trackOffRoute(again, 90.0, 10.0, 8L, 20L), 20L))
+    }
+
+    // ---- #1011: parked short of the destination ----------------------------
+
+    private val now = 1_000_000L
+
+    /** Stopped [stoppedMs] on the drive clock, [meters] straight-line from the destination. */
+    private fun parked(meters: Double, stoppedMs: Long) =
+        NavPolicy.ToDestination(straightLineMeters = meters, stoppedSinceMs = now - stoppedMs)
+
+    /** The issue's case: stopped in the car park 60 m short of the route's end,
+     *  80 m from the shop itself. The end-of-line rule never fires there. */
+    @Test
+    fun arrivesWhenParkedNearTheDestination() {
+        assertEquals(
+            NavPolicy.Decision.Arrived,
+            decide(remainingMeters = 60.0, offRouteMeters = 20.0, destination = parked(80.0, 15_000L)),
+        )
+    }
+
+    /** Off the line in a car park beside the road: arriving beats asking for
+     *  a fresh route to a point 100 m away. */
+    @Test
+    fun parkedArrivalWinsOverAConfirmedReroute() {
+        assertEquals(
+            NavPolicy.Decision.Arrived,
+            decide(remainingMeters = 60.0, offRouteMeters = 120.0, destination = parked(100.0, 20_000L)),
+        )
+    }
+
+    /** A red light or a give-way near the destination is shorter than the wait. */
+    @Test
+    fun aShortStopNearTheDestinationDoesNotArrive() {
+        assertEquals(
+            NavPolicy.Decision.Continue,
+            decide(remainingMeters = 60.0, offRouteMeters = 20.0, destination = parked(80.0, 14_999L)),
+        )
+    }
+
+    /** Stopped for a long time, but further than [NavPolicy.PARKED_ARRIVE_METERS]
+     *  from the destination itself: a jam, not an arrival. */
+    @Test
+    fun aLongStopFarFromTheDestinationDoesNotArrive() {
+        assertEquals(
+            NavPolicy.Decision.Continue,
+            decide(remainingMeters = 60.0, offRouteMeters = 20.0, destination = parked(150.1, 600_000L)),
+        )
+        assertEquals(
+            NavPolicy.Decision.Arrived,
+            decide(remainingMeters = 60.0, offRouteMeters = 20.0, destination = parked(150.0, 15_000L)),
+        )
+    }
+
+    /** #736 still holds: a planned stop ahead blocks the parked arrival too. */
+    @Test
+    fun parkedNearTheDestinationWithAStopAheadDoesNotArrive() {
+        val decision = NavPolicy.decide(
+            progress = progress(2_000.0, 5.0),
+            destination = parked(50.0, 60_000L),
+            stopsAhead = true,
+            offRoute = null,
+            rerouting = false,
+            attempts = NavPolicy.RerouteAttempts(),
+            nowMs = now,
+        )
+        assertEquals(NavPolicy.Decision.Continue, decision)
+    }
+
+    @Test
+    fun trackStoppedStartsKeepsAndEndsARun() {
+        assertNull(NavPolicy.trackStopped(prevSinceMs = null, speedMps = NavPolicy.PARKED_SPEED_MPS, nowMs = 10L))
+        assertEquals(10L, NavPolicy.trackStopped(prevSinceMs = null, speedMps = 0.4, nowMs = 10L))
+        assertEquals(10L, NavPolicy.trackStopped(prevSinceMs = 10L, speedMps = 1.0, nowMs = 9_000L))
+        assertNull(NavPolicy.trackStopped(prevSinceMs = 10L, speedMps = 3.0, nowMs = 9_000L))
+    }
+
+    /** Creeping up to the bay and stopping, fix by fix, as a caller steps it. */
+    @Test
+    fun aRideIntoTheCarParkArrivesFifteenSecondsAfterStopping() {
+        var since: Long? = null
+        val speeds = listOf(8.0, 4.0, 2.0) + List(20) { 0.3 }
+        val decisions = speeds.mapIndexed { i, speed ->
+            val t = now + i * 1_000L
+            since = NavPolicy.trackStopped(since, speed, t)
+            NavPolicy.decide(
+                progress = progress(70.0, 15.0),
+                destination = NavPolicy.ToDestination(90.0, since),
+                stopsAhead = false,
+                offRoute = null,
+                rerouting = false,
+                attempts = NavPolicy.RerouteAttempts(),
+                nowMs = t,
+            )
+        }
+        // First stopped fix is index 3; 15 s later is index 18.
+        assertEquals(18, decisions.indexOfFirst { it == NavPolicy.Decision.Arrived })
     }
 
     // --- #1010: offline, back off and stop saying "Rerouting" ---------------

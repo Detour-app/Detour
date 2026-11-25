@@ -47,6 +47,19 @@ internal object NavPolicy {
      *  [REROUTE_MAX_COOLDOWN_MS] ([rerouteCooldownMs], #1010). */
     const val REROUTE_COOLDOWN_MS = 15_000L
 
+    /** Under this speed the rider counts as stopped, for [trackStopped]. */
+    const val PARKED_SPEED_MPS = 1.5
+
+    /** Stopped this long on the drive clock, close enough to the destination,
+     *  and the session has arrived even short of the route's end (#1011). */
+    const val PARKED_ARRIVE_MS = 15_000L
+
+    /** Straight-line distance from the destination itself - not from the
+     *  route's end - inside which a stop counts as arriving (#1011). The router
+     *  snaps a shop, car park or address point to the nearest road, often
+     *  50-150 m from where the line ends or where the rider actually parks. */
+    const val PARKED_ARRIVE_METERS = 150.0
+
     /** The longest [rerouteCooldownMs] gets: 15 s, 30 s, then 60 s for as long
      *  as requests keep failing. Offline, each attempt is a request left to
      *  time out; past a minute the rider is better served by the old line. */
@@ -175,6 +188,31 @@ internal object NavPolicy {
             (streak.fixes >= OFF_ROUTE_CONFIRM_FIXES || nowMs - streak.sinceMs >= OFF_ROUTE_CONFIRM_MS)
 
     /**
+     * The drive-clock millis the rider has been stopped since, held by the
+     * caller between fixes like [OffRouteStreak]; null while moving. A fix at
+     * [speedMps] under [PARKED_SPEED_MPS] keeps [prevSinceMs] (or starts a run
+     * at [nowMs]), anything faster ends the run. Re-evaluating the same fix
+     * keeps the same answer, so no fix key is needed.
+     */
+    fun trackStopped(prevSinceMs: Long?, speedMps: Double, nowMs: Long): Long? =
+        if (speedMps >= PARKED_SPEED_MPS) null else prevSinceMs ?: nowMs
+
+    /**
+     * Where the rider is relative to a session's destination, for [decide]'s
+     * second way to arrive (#1011): [straightLineMeters] from the destination
+     * point itself, and stopped since [stoppedSinceMs] ([trackStopped]; null
+     * while moving).
+     */
+    data class ToDestination(val straightLineMeters: Double, val stoppedSinceMs: Long?)
+
+    /** Whether a rider at [to] has stopped near the destination long enough to
+     *  have arrived: [PARKED_ARRIVE_MS] inside [PARKED_ARRIVE_METERS]. */
+    fun parkedAtDestination(to: ToDestination, nowMs: Long): Boolean =
+        to.straightLineMeters <= PARKED_ARRIVE_METERS &&
+            to.stoppedSinceMs != null &&
+            nowMs - to.stoppedSinceMs >= PARKED_ARRIVE_MS
+
+    /**
      * The caller's record of reroute requests in the current off-route
      * episode (#1010), held between fixes like [OffRouteStreak].
      *
@@ -235,9 +273,15 @@ internal object NavPolicy {
     }
 
     /**
-     * [hasDestination] is false for a round trip, which has nothing to arrive at
-     * and nothing to reroute to. The phone passes `destination != null`; the
-     * car's destination is a constructor parameter and so always present.
+     * [destination] is null for a round trip, which has nothing to arrive at
+     * and nothing to reroute to. The phone passes null when it has no
+     * destination; the car's destination is a constructor parameter and so
+     * always present.
+     *
+     * Two ways to arrive: within [ARRIVE_METERS] of the route's end and still
+     * on the line, or parked near the destination ([parkedAtDestination],
+     * #1011) - the end of the line is where the router snapped the
+     * destination to a road, which is often not where the rider stops.
      *
      * [stopsAhead] is true while a planned route still has a stop to ride
      * through (#736): no arrival until the last one is passed. The phone reads
@@ -255,31 +299,36 @@ internal object NavPolicy {
      * and [nowMs] are drive-clock millis - the caller owns the clock, which is
      * what keeps this testable - and its failure count sets the cooldown.
      *
-     * Arrival is tested first, matching both call sites. The order cannot change
-     * an outcome: the two branches are mutually exclusive on [NavEngine.Progress.offRouteMeters],
-     * arrival needing it under [OFF_ROUTE_METERS] and a reroute needing a streak
-     * whose newest fix (this one) is past it.
+     * Arrival is tested first, matching both call sites. For the end-of-line
+     * arrival the order cannot change an outcome: it needs
+     * [NavEngine.Progress.offRouteMeters] under [OFF_ROUTE_METERS] and a reroute
+     * needs a streak whose newest fix (this one) is past it. A parked arrival
+     * can be off the line - a car park beside the road - and there the order
+     * is deliberate: a rider stopped by the destination has arrived, and a
+     * fresh route to a point 100 m away is no use to them.
      *
      * Seven parameters, one over detekt's bound: each is an independent input
      * the caller already holds, and bundling [offRoute], [rerouting] and
-     * [attempts] into a holder would only rename the coupling (§8.4). The
-     * state stays with the caller so this stays pure, as [snapToRoute] does.
+     * [attempts] into a holder would only rename the coupling (§8.4).
+     * [ToDestination] is not that: it replaced a `hasDestination` flag whose
+     * only meaning was "these values exist", so the parked arrival came in
+     * without an eighth. The state stays with the caller so this stays pure,
+     * as [snapToRoute] does.
      */
     @Suppress("LongParameterList")
     fun decide(
         progress: NavEngine.Progress,
-        hasDestination: Boolean,
+        destination: ToDestination?,
         stopsAhead: Boolean,
         offRoute: OffRouteStreak?,
         rerouting: Boolean,
         attempts: RerouteAttempts,
         nowMs: Long,
     ): Decision {
-        if (!hasDestination) return Decision.Continue
-        if (!stopsAhead &&
-            progress.remainingMeters < ARRIVE_METERS &&
+        if (destination == null) return Decision.Continue
+        val atEndOfLine = progress.remainingMeters < ARRIVE_METERS &&
             progress.offRouteMeters < OFF_ROUTE_METERS
-        ) {
+        if (!stopsAhead && (atEndOfLine || parkedAtDestination(destination, nowMs))) {
             return Decision.Arrived
         }
         if (offRouteConfirmed(offRoute, nowMs) &&
