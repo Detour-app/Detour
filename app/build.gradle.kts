@@ -87,7 +87,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "4.26.2"
+        versionName = "4.27.0"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -173,9 +173,11 @@ android {
             }
         }
         // The APK published to GitHub Releases, and the only build allowed to
-        // update itself. Identical to release in every other way — same R8
-        // config, same signing, same applicationId — so the artifact a rider
-        // installs is the release build plus one permission.
+        // update itself. Same R8 config and signing as release, plus one
+        // permission. Its own applicationId so it installs alongside the Play
+        // build: Play re-signs with its app signing key, so the GitHub APK can
+        // never update a Play install, and sharing the id only made the install
+        // fail outright.
         //
         // A separate build type because the permission has to be absent from
         // the Play bundle, and a manifest source set keys off a variant. Play
@@ -186,6 +188,7 @@ android {
         create("githubRelease") {
             initWith(getByName("release"))
             matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".github"
             // Passed by CI as github.repository, so a fork's build points at
             // the fork. Only this build type: the Play bundle must not offer
             // an update from GitHub, and its manifest has no service to run one.

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- githubRelease-only overrides of app/src/main/res/values/. Its
+     applicationIdSuffix = ".github" lets it sit beside the Play install, so
+     the two need different launcher labels. -->
+<resources>
+    <string name="app_name">Detour (GitHub)</string>
+</resources>
