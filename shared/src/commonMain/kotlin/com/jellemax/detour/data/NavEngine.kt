@@ -15,6 +15,15 @@ object NavEngine {
      *  background-sized gap in a handful of frames. */
     private const val ADVANCE_SEGMENTS = 16
 
+    /** How much nearer a later segment has to be before [advance] takes it
+     *  over an earlier one. Where a route rides the same road out and back,
+     *  the router hands both legs the same vertices, so a rider on the
+     *  outbound leg is as near the return leg as to their own, and floating
+     *  point picked the winner: it picked the return leg hundreds of metres
+     *  before the turnaround (#1084). Half a metre is far above that noise
+     *  and costs at most half a metre of lag past a vertex. */
+    private const val LATER_LEG_MARGIN_METERS = 0.5
+
     /** [NavEngine.cut]'s two halves of a route: the road behind you and the
      *  road ahead, sharing only the point they meet at. */
     data class Cut(val behind: List<LatLon>, val ahead: List<LatLon>)
@@ -341,8 +350,9 @@ object NavEngine {
      * displayed frame and is also what keeps it honest: a global nearest-point
      * search run at frame rate strobes between legs wherever a route rides the
      * same tarmac twice, because both legs are equally near. A forward window
-     * cannot pick the wrong one, and cannot go backwards past the vertex it
-     * started on.
+     * cannot go backwards past where it started. It can still reach
+     * past a turnaround onto the return leg, so of equally near segments the
+     * earliest wins ([LATER_LEG_MARGIN_METERS]).
      *
      * When [pos] is beyond the window — the app was in the background, or a fix
      * jumped — the snap clamps to the far end of the window and says so in
@@ -368,17 +378,23 @@ object NavEngine {
         var bestDist = Double.MAX_VALUE
         var bestT = 0.0
         var best = Along(first, line[first], cum, total, segmentBearing(line, first), cum)
+        // Not behind [from] on the segment it sat on, either: just past a
+        // turnaround the rider is as near the leg they rode in on as the one
+        // they are riding out on, and only going forward tells them apart.
+        // Applies to the window's first segment only.
+        var tFrom = startT(line, from.takeIf { windowed })
         for (i in first until last) {
             val ax = (line[i].lon - pos.lon) * mPerLon
             val ay = (line[i].lat - pos.lat) * mPerLat
             val dx = (line[i + 1].lon - pos.lon) * mPerLon - ax
             val dy = (line[i + 1].lat - pos.lat) * mPerLat - ay
             val segLen2 = dx * dx + dy * dy
-            val t = if (segLen2 == 0.0) 0.0
-                else max(0.0, min(1.0, -(ax * dx + ay * dy) / segLen2))
-            val d = hypot(ax + t * dx, ay + t * dy)
             val segment = segmentMeters(line[i], line[i + 1])
-            if (d < bestDist) {
+            val t = if (segLen2 == 0.0) 0.0
+                else max(tFrom, min(1.0, -(ax * dx + ay * dy) / segLen2))
+            val d = hypot(ax + t * dx, ay + t * dy)
+            // Earliest wins a tie: see [LATER_LEG_MARGIN_METERS].
+            if (d < bestDist - LATER_LEG_MARGIN_METERS) {
                 bestDist = d
                 bestT = t
                 best = Along(
@@ -392,6 +408,7 @@ object NavEngine {
                 )
             }
             cum += segment
+            tFrom = 0.0
         }
         // The far end of a window that stops short of the line's end is a
         // clamp, not a snap: the rider is further along than it could see. A
@@ -401,6 +418,13 @@ object NavEngine {
             best = best.copy(beyondWindow = true)
         }
         return best
+    }
+
+    /** How far [from] is along the segment it sat on, 0..1; 0 with no [from]. */
+    private fun startT(line: List<LatLon>, from: Along?): Double {
+        if (from == null) return 0.0
+        val segment = segmentMeters(line[from.index], line[from.index + 1])
+        return if (segment > 0.0) ((from.meters - from.indexMeters) / segment).coerceIn(0.0, 1.0) else 0.0
     }
 
     /** The point [t] of the way from [a] to [b], 0..1. */

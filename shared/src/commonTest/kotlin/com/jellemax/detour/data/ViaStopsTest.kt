@@ -185,6 +185,44 @@ class ViaStopsTest {
         assertTrue(global.remainingMeters > 9000.0, "the global snap's answer, the bug: ${global.remainingMeters}")
     }
 
+    /** #1084: a route out along a residential road to a turnaround and back
+     *  on the same road, then off elsewhere, as the router hands it over: the
+     *  return leg is the outbound vertices reversed, so every fix on the way
+     *  out is exactly as near the return leg. With ~20 m vertices the forward
+     *  window reaches past the turnaround, and floating point used to pick
+     *  the return leg ~150 m before it. Fixes every 4 m, as a 1 Hz car fix at
+     *  15 km/h would come. */
+    @Test fun anOutAndBackOnOneRoadIsNotPlacedOnTheReturnLegEarly() {
+        val outbound = (0..34).map {
+            LatLon(
+                50.8791234 + it * 0.000163 + 0.00002 * kotlin.math.sin(it * 1.7),
+                4.6012345 + it * 0.0000917 + 0.00003 * kotlin.math.cos(it * 2.3),
+            )
+        }
+        val elsewhere = (1..20).map { LatLon(outbound[0].lat - it * 0.0009, outbound[0].lon + it * 0.0003) }
+        val line = outbound + outbound.reversed().drop(1) + elsewhere
+        val turnaround = NavEngine.lengthMeters(outbound)
+        var ride: ViaStops.Ride? = null
+        for (i in 0 until outbound.size - 1) {
+            for (step in 0 until 5) {
+                val t = step / 5.0
+                val fix = LatLon(
+                    outbound[i].lat + (outbound[i + 1].lat - outbound[i].lat) * t,
+                    outbound[i].lon + (outbound[i + 1].lon - outbound[i].lon) * t,
+                )
+                ride = ViaStops.follow(ride, line, emptyList(), fix, OFF_M)
+                assertTrue(
+                    ride.along.meters <= turnaround + 0.5,
+                    "on the way out at vertex $i, placed ${ride.along.meters - turnaround} m past the turnaround",
+                )
+            }
+        }
+        // And once round the turnaround, the way back is still followed.
+        ride = ViaStops.follow(ride, line, emptyList(), outbound[30], OFF_M)
+        ride = ViaStops.follow(ride, line, emptyList(), outbound[25], OFF_M)
+        assertTrue(ride.along.meters > turnaround + 100.0, "on the way back: ${ride.along.meters} m")
+    }
+
     /** #921: an out-and-back from the rider ends where it starts, and so does
      *  a round loop; a line to somewhere else does not. */
     @Test
