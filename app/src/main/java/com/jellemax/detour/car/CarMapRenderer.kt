@@ -396,10 +396,9 @@ class CarMapRenderer(
             height,
             surfaceContainer.dpi,
             surface,
-            // OWN_CONTENT_ONLY is not optional: without it the platform treats
-            // the display as screen mirroring and demands CAPTURE_VIDEO_OUTPUT.
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
+            // OWN_CONTENT_ONLY avoids mirroring (needs CAPTURE_VIDEO_OUTPUT). Not
+            // PUBLIC: a locked phone covers public displays with its keyguard (#1076).
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
         ) ?: return
         virtualDisplay = display
