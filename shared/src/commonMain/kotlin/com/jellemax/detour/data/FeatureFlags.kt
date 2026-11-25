@@ -33,7 +33,12 @@ object Flag {
      *  (#906). Off until a two-rider check passes; remove once it has been on for everyone. */
     val CONVOY_ALERTS = FlagDef("convoy-alerts", false)
 
-    val all: List<FlagDef> = listOf(SELFTEST, CONVOY_JOIN_LINK, CONVOY_ALERTS)
+    /** The external display link requires a bonded, MITM-protected (passkey) pairing, so an
+     *  unpaired central can't read nav or write telemetry (#837). Off until the board firmware
+     *  that pairs (moto_hud) has been checked on the bike; read when the display starts. */
+    val BLE_ENCRYPTED_LINK = FlagDef("ble-encrypted-link", false)
+
+    val all: List<FlagDef> = listOf(SELFTEST, CONVOY_JOIN_LINK, CONVOY_ALERTS, BLE_ENCRYPTED_LINK)
 }
 
 /** Where a [FlagReading]'s value came from. */
