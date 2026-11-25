@@ -3,6 +3,7 @@ package com.jellemax.detour.car
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.util.Log
+import androidx.annotation.DrawableRes
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
 import androidx.car.app.CarToast
@@ -531,7 +532,7 @@ class NavScreen(
      */
     private fun pushTrip(p: NavEngine.Progress) {
         if (!navigating) return
-        val step = stepFor(p.nextInstruction, continueCue) ?: return
+        val step = stepFor(carContext, p.nextInstruction, continueCue) ?: return
         // The destination's time carries the traffic delay, as the phone's ETA
         // does; the steps keep the router's pace, since the delay is spread
         // over the next 20 km and not over the next turn.
@@ -544,7 +545,7 @@ class NavScreen(
                     travelEstimate(p.remainingMeters, remainingSec),
                 )
                 .addStep(step, travelEstimate(p.distanceToTurnMeters, stepSec))
-            val nextStep = stepFor(p.nextNextInstruction, continueCue)
+            val nextStep = stepFor(carContext, p.nextNextInstruction, continueCue)
             val nextDistance = p.distanceToNextNextMeters
             if (nextStep != null && nextDistance != null) {
                 builder.addStep(nextStep, travelEstimate(nextDistance, secondsFor(p, nextDistance)))
@@ -656,7 +657,7 @@ class NavScreen(
             builder.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
             return builder.build()
         }
-        val step = stepFor(p.nextInstruction, continueCue)
+        val step = stepFor(carContext, p.nextInstruction, continueCue)
         if (step == null) {
             // No instruction left, or a cue the host wouldn't build a Step from.
             // Leaving navigationInfo unset drops the entire turn card, so the
@@ -665,7 +666,7 @@ class NavScreen(
             builder.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
         } else {
             val info = RoutingInfo.Builder().setCurrentStep(step, carDistance(p.distanceToTurnMeters))
-            stepFor(p.nextNextInstruction, continueCue)?.let { info.setNextStep(it) }
+            stepFor(carContext, p.nextNextInstruction, continueCue)?.let { info.setNextStep(it) }
             builder.setNavigationInfo(info.build())
         }
         builder.setDestinationTravelEstimate(
@@ -793,10 +794,13 @@ class NavScreen(
     }
 }
 
-private fun carDistance(meters: Double): Distance {
+/** [meters] as the car shows it, rounded the way [displayMeters] rounds —
+ *  the host prints a metre value as given, so an unrounded one read "431,9 m". */
+internal fun carDistance(meters: Double): Distance {
     val safe = if (meters.isNaN()) 0.0 else max(0.0, meters)
-    return if (safe >= 1000.0) Distance.create(safe / 1000.0, Distance.UNIT_KILOMETERS_P1)
-    else Distance.create(safe, Distance.UNIT_METERS)
+    val shown = displayMeters(safe)
+    return if (shown >= 1000) Distance.create(shown / 1000.0, Distance.UNIT_KILOMETERS_P1)
+    else Distance.create(shown.toDouble(), Distance.UNIT_METERS)
 }
 
 /** Distance as the template shows it — to 10 m up close, 100 m further out.
@@ -808,12 +812,12 @@ private fun displayMeters(meters: Double): Long =
 /** A car [Step] for [instruction]: the spoken/written cue plus a maneuver icon,
  *  [fallbackCue] when the router gave no text. Null when there is no
  *  instruction to show. */
-private fun stepFor(instruction: NavInstruction?, fallbackCue: String): Step? {
+private fun stepFor(context: CarContext, instruction: NavInstruction?, fallbackCue: String): Step? {
     instruction ?: return null
     val cue = instruction.text.ifBlank { fallbackCue }
     return runCatching {
         Step.Builder(cue)
-            .apply { maneuverFor(instruction)?.let { setManeuver(it) } }
+            .apply { maneuverFor(context, instruction)?.let { setManeuver(it) } }
             .build()
     }.getOrNull()
 }
@@ -830,12 +834,16 @@ private fun stepFor(instruction: NavInstruction?, fallbackCue: String): Step? {
  * GraphHopper *does* send the exit number (`NavInstruction.exitNumber`), it was
  * simply never passed on, and where it is missing (0, or negative when the
  * router can't tell) the plain enter type is used instead.
+ *
+ * The icon is not optional either, though nothing says so: the host accepts a
+ * maneuver without one and then draws no turn card at all (#1082).
  */
-private fun maneuverFor(instruction: NavInstruction): Maneuver? {
+private fun maneuverFor(context: CarContext, instruction: NavInstruction): Maneuver? {
     val exit = instruction.exitNumber
     val type = maneuverType(instruction.sign, exit)
     return runCatching {
         Maneuver.Builder(type)
+            .setIcon(CarIcon.Builder(IconCompat.createWithResource(context, maneuverIcon(type))).build())
             .apply {
                 if (type == Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CW ||
                     type == Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CCW
@@ -868,4 +876,28 @@ private fun maneuverType(sign: Int, exitNumber: Int): Int = when (sign) {
         else Maneuver.TYPE_ROUNDABOUT_ENTER_CCW
     }
     else -> Maneuver.TYPE_STRAIGHT
+}
+
+/** The turn-card glyph for a car maneuver [type] — the arrow ui/Navigation.kt's
+ *  signIcon() draws for the same GraphHopper sign, so the car and the phone
+ *  point the same way. One roundabout glyph for every roundabout type: the
+ *  phone draws its own to the exit angle, which a fixed drawable cannot. */
+@DrawableRes
+internal fun maneuverIcon(type: Int): Int = when (type) {
+    Maneuver.TYPE_U_TURN_LEFT -> R.drawable.ic_car_maneuver_u_turn_left
+    Maneuver.TYPE_U_TURN_RIGHT -> R.drawable.ic_car_maneuver_u_turn_right
+    Maneuver.TYPE_KEEP_LEFT -> R.drawable.ic_car_maneuver_keep_left
+    Maneuver.TYPE_KEEP_RIGHT -> R.drawable.ic_car_maneuver_keep_right
+    Maneuver.TYPE_TURN_SHARP_LEFT -> R.drawable.ic_car_maneuver_turn_sharp_left
+    Maneuver.TYPE_TURN_NORMAL_LEFT -> R.drawable.ic_car_maneuver_turn_left
+    Maneuver.TYPE_TURN_SLIGHT_LEFT -> R.drawable.ic_car_maneuver_turn_slight_left
+    Maneuver.TYPE_TURN_SLIGHT_RIGHT -> R.drawable.ic_car_maneuver_turn_slight_right
+    Maneuver.TYPE_TURN_NORMAL_RIGHT -> R.drawable.ic_car_maneuver_turn_right
+    Maneuver.TYPE_TURN_SHARP_RIGHT -> R.drawable.ic_car_maneuver_turn_sharp_right
+    Maneuver.TYPE_DESTINATION -> R.drawable.ic_car_maneuver_destination
+    Maneuver.TYPE_ROUNDABOUT_ENTER_CCW,
+    Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CCW,
+    Maneuver.TYPE_ROUNDABOUT_EXIT_CCW,
+    -> R.drawable.ic_car_maneuver_roundabout
+    else -> R.drawable.ic_car_maneuver_straight
 }
