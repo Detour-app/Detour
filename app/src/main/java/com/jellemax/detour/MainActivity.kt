@@ -203,10 +203,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /** onResume, not onStart: coming back from the system's permission screen
-     *  or a permission dialog resumes the activity without stopping it. */
+     *  or a permission dialog resumes the activity without stopping it. The
+     *  same holds for a Custom Tab that does not cover the whole task. */
     override fun onResume() {
         super.onResume()
         PermissionEvents.recordIfChanged(this)
+        // After onNewIntent, so a sign-in redirect has already been taken;
+        // still waiting here means the login tab was closed without one.
+        PendingSignIn.returnedFromBrowser()
     }
 
     /**

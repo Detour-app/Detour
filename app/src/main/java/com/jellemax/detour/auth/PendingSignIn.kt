@@ -16,8 +16,20 @@ import kotlinx.coroutines.flow.asStateFlow
 object PendingSignIn {
 
     private val _busy = MutableStateFlow(false)
-    /** True from the redirect landing until the tokens are stored or refused. */
+    /** True from the button tap until the tokens are stored or refused, or
+     *  until the rider comes back from the browser without a redirect. */
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    /**
+     * The browser is open and nothing has come back from it yet.
+     *
+     * Closing the tab sends no redirect, so without this nothing would ever
+     * clear [busy] and the button would spin until the process died (#1061).
+     * Only this phase may be ended by [returnedFromBrowser]: during the realm
+     * probe before it, and during the code exchange after it, busy is owned by
+     * whoever is doing that work. Main thread only, like the rest of sign-in.
+     */
+    private var awaitingRedirect = false
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -38,6 +50,7 @@ object PendingSignIn {
     val signedInAs: StateFlow<String?> = _signedInAs.asStateFlow()
 
     fun begin() {
+        awaitingRedirect = false
         _busy.value = true
         _error.value = null
         _signedInAs.value = null
@@ -46,6 +59,7 @@ object PendingSignIn {
     /** [username] may be blank: the realm is not obliged to put a
      *  `preferred_username` in the token, and the reader says so differently. */
     fun succeed(username: String) {
+        awaitingRedirect = false
         _busy.value = false
         _error.value = null
         _signedInAs.value = username
@@ -57,8 +71,31 @@ object PendingSignIn {
     }
 
     fun fail(message: String) {
+        awaitingRedirect = false
         _busy.value = false
         _error.value = message
+    }
+
+    /** The login page opened; from here only a redirect or [returnedFromBrowser]
+     *  ends the wait. */
+    fun browserOpened() {
+        if (_busy.value) awaitingRedirect = true
+    }
+
+    /**
+     * The app is in front again. A redirect that came back is delivered before
+     * this (onNewIntent runs before onResume) and has already called [begin],
+     * which ended the browser phase — so reaching here still in it means the
+     * rider closed the tab or switched back without signing in.
+     *
+     * The verifier [com.jellemax.detour.data.Oidc] parked is left alone: the
+     * tab may still be open behind the app, and finishing there later should
+     * still work.
+     */
+    fun returnedFromBrowser() {
+        if (!awaitingRedirect) return
+        awaitingRedirect = false
+        _busy.value = false
     }
 
     fun clear() {
