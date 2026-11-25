@@ -62,8 +62,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -97,8 +99,9 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
-// Padding around the fitted route. The map is its own hero pane now, with
-// nothing drawn over its foot, so one value serves all four sides.
+// Least padding around the fitted route. The map is its own hero pane now, with
+// nothing drawn over its foot; the value tags widen the sides and top past
+// this (routeFitPaddingDp, #1066).
 private const val FIT_PADDING_DP = 32
 
 // Share of the screen the map hero takes, sized to the route's own shape
@@ -337,8 +340,12 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
             // Value tags (#836): one image per highlight, drawn by the effect
             // that writes this source. Overlap allowed, so a tag never drops
             // out when two highlights sit close; the focused one sorts on top.
+            // Stood above the point rather than on it (#1066), so a highlight
+            // near the start or end leaves that dot visible.
             style.addLayer(SymbolLayer("mr-highlight-tags", SRC_HIGHLIGHTS).withProperties(
                 PropertyFactory.iconImage(Expression.get("icon")),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                PropertyFactory.iconOffset(arrayOf(0f, -HIGHLIGHT_TAG_LIFT_DP)),
                 PropertyFactory.symbolSortKey(Expression.get("sort")),
                 PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
             style.addSource(GeoJsonSource(SRC_REPLAY_TRAVELLED))
@@ -354,30 +361,6 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
                 PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
             mapStyle = style
         }
-    }
-
-    // Draw the route and fit the camera once both the trace and the overlays
-    // are ready — the trace load and the style load race, so either one
-    // arriving last is what should trigger this.
-    val fitPaddingPx = with(LocalDensity.current) { FIT_PADDING_DP.dp.roundToPx() }
-    LaunchedEffect(trace, mapOverlays, mapStyle) {
-        val points = trace?.map { it.at } ?: return@LaunchedEffect
-        val overlays = mapOverlays ?: return@LaunchedEffect
-        val style = mapStyle ?: return@LaunchedEffect
-        val map = mapLibreMap ?: return@LaunchedEffect
-        // This screen draws the route and its end dots itself (setSpeedRoute);
-        // MapOverlays only clears its own route and destination layers.
-        setSpeedRoute(style, points, routeSteps, inkHex = routeInk)
-        overlays.render(
-            myLocation = null,
-            destination = null,
-            routePolyline = emptyList(),
-            reachMeters = null,
-            directionDeg = null,
-            candidates = emptyList(),
-            positionMarker = PositionMarker.Hide,
-        )
-        if (points.isNotEmpty()) cameraForPoints(map, points, fitPaddingPx)
     }
 
     // Places and boundaries, for the story's "places passed" and the Deep
@@ -407,6 +390,48 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
         highlights = withContext(Dispatchers.Default) {
             tripHighlights(context.resources, trip, loaded, TripInsights.bestStretch(loaded))
         }
+    }
+
+    // Draw the route and fit the camera once both the trace and the overlays
+    // are ready — the trace load and the style load race, so either one
+    // arriving last is what should trigger this. Fitted again when the hero
+    // pane settles on its size (it shrinks to the route's shape once the trace
+    // loads, #1066) and when the highlights arrive, since their tags need room
+    // at the sides and top. Tapping a highlight changes neither, so the fitted
+    // view holds while its tag is raised.
+    val screenDensity = LocalDensity.current
+    val fitPaddingPx = with(screenDensity) { FIT_PADDING_DP.dp.roundToPx() }
+    var heroSize by remember { mutableStateOf(IntSize.Zero) }
+    val widestTagDp = remember(highlights) {
+        highlights.filter { it.stretch == null }
+            .maxOfOrNull { highlightTagWidthDp(it.value, screenDensity.density) } ?: 0f
+    }
+    val routeFitPadding = remember(widestTagDp) { routeFitPaddingDp(widestTagDp, FIT_PADDING_DP.toFloat()) }
+    LaunchedEffect(trace, mapOverlays, mapStyle, heroSize, routeFitPadding) {
+        if (heroSize == IntSize.Zero) return@LaunchedEffect
+        val points = trace?.map { it.at } ?: return@LaunchedEffect
+        val overlays = mapOverlays ?: return@LaunchedEffect
+        val style = mapStyle ?: return@LaunchedEffect
+        val map = mapLibreMap ?: return@LaunchedEffect
+        // This screen draws the route and its end dots itself (setSpeedRoute);
+        // MapOverlays only clears its own route and destination layers.
+        setSpeedRoute(style, points, routeSteps, inkHex = routeInk)
+        overlays.render(
+            myLocation = null,
+            destination = null,
+            routePolyline = emptyList(),
+            reachMeters = null,
+            directionDeg = null,
+            candidates = emptyList(),
+            positionMarker = PositionMarker.Hide,
+        )
+        if (points.isEmpty()) return@LaunchedEffect
+        val side = with(screenDensity) { routeFitPadding.sideDp.dp.roundToPx() }
+        cameraForPoints(
+            map, points, paddingPx = side, leftPaddingPx = side,
+            topPaddingPx = with(screenDensity) { routeFitPadding.topDp.dp.roundToPx() },
+            bottomPaddingPx = with(screenDensity) { routeFitPadding.bottomDp.dp.roundToPx() },
+        )
     }
     var selectedHighlight by remember { mutableStateOf<String?>(null) }
     // Tag images, plain and focused, once per highlight list and style load
@@ -525,15 +550,20 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
         }
     }
 
-    // Scrubbing (or the initial map-ready draw at rideElapsedMs = 0, which
-    // plants the marker at the trip's start) moves the marker without
-    // starting playback — the frame loop above already covers the playing
-    // case, so this only needs to act while paused.
+    // Replay sits behind a button (#444): the screen leads with where the ride
+    // went, and the scrubber is for the rider who asks for it.
+    var replayOpen by remember { mutableStateOf(false) }
+
+    // Scrubbing moves the marker without starting playback — the frame loop
+    // above already covers the playing case, so this only needs to act while
+    // paused. Nothing until replay is opened: a marker parked on the start
+    // would cover the start dot and any tag beside it (#1066).
     // Null while playing so this effect isn't cancelled and relaunched every
     // frame (rideElapsedMs changes 60 times a second) for a coroutine that
     // would immediately bail — the frame loop owns the pushes then.
     val scrubbedTo = if (replaying) null else rideElapsedMs
-    LaunchedEffect(scrubbedTo, mapStyle) {
+    LaunchedEffect(scrubbedTo, mapStyle, replayOpen) {
+        if (!replayOpen) return@LaunchedEffect
         val elapsed = scrubbedTo ?: return@LaunchedEffect
         val points = trace ?: return@LaunchedEffect
         val timeline = replayTimeline ?: return@LaunchedEffect
@@ -575,9 +605,6 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
     val points = trace.orEmpty()
     var cardDialogOpen by remember { mutableStateOf(false) }
 
-    // Replay sits behind a button (#444): the screen leads with where the ride
-    // went, and the scrubber is for the rider who asks for it.
-    var replayOpen by remember { mutableStateOf(false) }
     val leanOffset by Settings.leanOffsetDeg.collectAsStateWithLifecycle()
 
     fun focusHighlight(h: TripHighlight) {
@@ -596,8 +623,8 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
         value = withContext(Dispatchers.IO) { runCatching { TripTitleStore.load()[trip.startTimeMs] }.getOrNull() }
     }
     val configuration = LocalConfiguration.current
-    val heroFraction = remember(trace, configuration) {
-        heroFraction(trace?.map { it.at }, configuration.screenWidthDp, configuration.screenHeightDp)
+    val heroFraction = remember(trace, configuration, routeFitPadding) {
+        heroFraction(trace?.map { it.at }, configuration.screenWidthDp, configuration.screenHeightDp, routeFitPadding)
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -637,7 +664,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit, onOpenRoute: (Long) -> Unit
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Box(Modifier.fillMaxWidth().fillMaxHeight(heroFraction)) {
+            Box(Modifier.fillMaxWidth().fillMaxHeight(heroFraction).onSizeChanged { heroSize = it }) {
                 AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
                 val loaded = trace
                 when {
@@ -807,16 +834,17 @@ private fun TripOverflowMenu(enabled: Boolean, onExportGpx: () -> Unit) {
 /**
  * How much of the screen the map should take for [points]: the route's own
  * height-to-width on the map (Mercator shrinks a degree of longitude by
- * cos(latitude)), at the screen's width, plus the fit padding — clamped so a
+ * cos(latitude)), at the screen's width less the side [padding], plus the top
+ * and bottom [padding] — clamped so a
  * north-south ride doesn't take the whole screen and a flat one keeps a map.
  * The maximum while the trace is still loading.
  */
-private fun heroFraction(points: List<LatLon>?, widthDp: Int, heightDp: Int): Float {
+private fun heroFraction(points: List<LatLon>?, widthDp: Int, heightDp: Int, padding: RouteFitPadding): Float {
     if (points.isNullOrEmpty() || heightDp <= 0) return MAP_HERO_MAX_FRACTION
     val latSpan = points.maxOf { it.lat } - points.minOf { it.lat }
     val midLat = Math.toRadians((points.maxOf { it.lat } + points.minOf { it.lat }) / 2)
     val lonSpan = (points.maxOf { it.lon } - points.minOf { it.lon }) * cos(midLat)
     val aspect = if (lonSpan > 1e-9) latSpan / lonSpan else 1.0
-    val wanted = (widthDp - 2 * FIT_PADDING_DP) * aspect + 2 * FIT_PADDING_DP
+    val wanted = (widthDp - 2 * padding.sideDp) * aspect + padding.topDp + padding.bottomDp
     return (wanted / heightDp).toFloat().coerceIn(MAP_HERO_MIN_FRACTION, MAP_HERO_MAX_FRACTION)
 }
