@@ -135,7 +135,7 @@ class ArchitectureTest {
             // +35: #648 break/regroup flows and sends (the state itself is in ConvoyBreakRegroup.kt)
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1246,
             // +10: #653 traffic layers held and refilled on a replacement surface, as cameras are
-            "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1016,
+            "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1015,
             // +11: #902 dimMapWhenIdle (flow, load, setter), 9 over the limit; one bag of
             // independent prefs with no second owner to hand a slice to yet
             // +11: #977 notificationsEnabled (flow, load, setter), same bag; the
