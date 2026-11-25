@@ -410,7 +410,7 @@ Both are invite-only and only ever from someone you're already friends with.
 [CIRCLES_AND_CONVOYS.md](CIRCLES_AND_CONVOYS.md) covers how the two share one
 mechanism, and documents the live protocol behind them.
 
-<img src="screenshots/account.png" width="260" align="right" alt="Account screen">
+<img src="screenshots/account.png" width="260" align="right" alt="Sign-in page on the server">
 
 **Signing in happens in a browser, on your server's own sign-in page.** Tapping
 sign in opens a Custom Tab at the server's identity provider (Keycloak); you
