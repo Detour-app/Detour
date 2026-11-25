@@ -293,8 +293,9 @@ private fun YouGuestCard() {
                             val failure = AuthBrowser.start(context)
                             when (failure) {
                                 // The browser is open; MainActivity's redirect handler
-                                // owns the rest, including clearing busy.
-                                null -> {}
+                                // owns the rest, or its onResume clears busy if the
+                                // rider comes back without a redirect (#1061).
+                                null -> PendingSignIn.browserOpened()
                                 AuthBrowser.StartFailure.InvalidRealmUrl -> PendingSignIn.fail(
                                     context.getString(R.string.friends_signin_invalid_realm)
                                 )
