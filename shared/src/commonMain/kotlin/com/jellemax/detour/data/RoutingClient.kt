@@ -154,6 +154,24 @@ internal fun roundTripQuery(
         (headingDeg?.let { "&heading=${it.toInt()}" } ?: "") +
         "&points_encoded=false&details=max_speed&details=roundabout"
 
+/**
+ * The GET [RoutingClient.randomRoadDestination] snaps a random spin target
+ * with (#1078). GraphHopper snaps to any road class by default, so without
+ * `snap_prevention` a destination can land on a motorway, up a ramp
+ * (`motorway` covers `motorway_link`) or in a tunnel. Trunks are kept off
+ * for moto only, matching [TravelMode]'s Overpass regexes. The GET name is
+ * singular: GraphHopper silently ignores `snap_preventions` on a GET.
+ */
+internal fun snapQuery(base: String, from: LatLon, to: LatLon, profile: String): String =
+    base +
+        "/route?profile=$profile" +
+        "&point=${from.lat},${from.lon}" +
+        "&point=${to.lat},${to.lon}" +
+        "&points_encoded=false" +
+        "&snap_prevention=motorway" +
+        (if (profile == TravelMode.MOTO.ghProfile) "&snap_prevention=trunk" else "") +
+        "&snap_prevention=tunnel&snap_prevention=ferry"
+
 /** One `/route` request: a GET when [body] is null, else a POST of [body]. */
 internal data class RouteRequest(val url: String, val body: String?)
 
@@ -562,11 +580,7 @@ object RoutingClient {
         to: LatLon,
         profile: String,
     ): LatLon? {
-        val url = requireRoutingBase(config) +
-            "/route?profile=$profile" +
-            "&point=${from.lat},${from.lon}" +
-            "&point=${to.lat},${to.lon}" +
-            "&points_encoded=false"
+        val url = snapQuery(requireRoutingBase(config), from, to, profile)
         val body = try {
             Http.get(url, RoutingServer.userAgentHeaders(), readTimeoutMs = 15_000)
         } catch (e: HttpStatusException) {
