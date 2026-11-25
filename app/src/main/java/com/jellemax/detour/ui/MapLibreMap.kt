@@ -725,8 +725,9 @@ private fun offset(from: LatLon, meters: Double, bearingDeg: Double): LatLon {
     return LatLon(from.lat + dLat, from.lon + dLon)
 }
 
-/** Camera bounds fitted to [points], with [paddingPx] on the top/right,
- *  [bottomPaddingPx] on the bottom and [leftPaddingPx] on the left. Separate
+/** Camera bounds fitted to [points], with [paddingPx] on the right,
+ *  [topPaddingPx] on the top, [bottomPaddingPx] on the bottom and
+ *  [leftPaddingPx] on the left. Separate
  *  because the expanded spin card sits over roughly the bottom half of the
  *  screen in portrait, and over the left edge in landscape — a fit that only
  *  knew about [paddingPx] would tuck the route right behind it. */
@@ -736,6 +737,7 @@ fun cameraForPoints(
     paddingPx: Int,
     bottomPaddingPx: Int = paddingPx,
     leftPaddingPx: Int = paddingPx,
+    topPaddingPx: Int = paddingPx,
 ) {
     if (points.isEmpty()) return
     val builder = LatLngBounds.Builder()
@@ -746,7 +748,7 @@ fun cameraForPoints(
             .include(LatLng(points[0].lat - 0.005, points[0].lon - 0.005)).build()
     else builder.build()
     map.animateCamera(
-        CameraUpdateFactory.newLatLngBounds(bounds, leftPaddingPx, paddingPx, paddingPx, bottomPaddingPx))
+        CameraUpdateFactory.newLatLngBounds(bounds, leftPaddingPx, topPaddingPx, paddingPx, bottomPaddingPx))
 }
 
 /** Camera position for the follow loop: target/zoom/bearing in one shot. */

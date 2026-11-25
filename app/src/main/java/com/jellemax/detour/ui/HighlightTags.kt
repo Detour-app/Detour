@@ -20,18 +20,49 @@ private const val TAG_HEIGHT_DP = 24f
 // The focused tag (its row was tapped) gets a white ring, the same ring the
 // dots used to carry, so it stands out from the others without resizing.
 private const val TAG_RING_DP = 2f
+// Tags stand this far above their point (#1066), so the route's start and end
+// dots and the replay marker under it stay visible.
+const val HIGHLIGHT_TAG_LIFT_DP = 6f
+// Least gap between a tag on the route's outermost point and the map's edge.
+private const val TAG_EDGE_GAP_DP = 8f
 
 /** Style image id of [highlightId]'s tag, plain or [focused]. */
 fun highlightTagImageId(highlightId: String, focused: Boolean): String =
     "mr-img-tag-$highlightId" + if (focused) "-focused" else ""
 
+/** Width in dp of [text]'s tag image, ring included, the same for plain and focused. */
+fun highlightTagWidthDp(text: String, density: Float): Float =
+    TAG_PAD_H_DP + TAG_DOT_DP + TAG_GAP_DP + tagTextPaint(density).measureText(text) / density + TAG_PAD_H_DP +
+        2 * TAG_RING_DP
+
+/**
+ * Padding, in dp, that fits the trip-detail route so no tag clips (#1066):
+ * tags sit centred above their point, so a point on the left or right edge
+ * needs half the [widestTagDp] beside it and one on the top edge a whole tag
+ * above it. Never less than [marginDp] on any side; just [marginDp] with no tags.
+ */
+internal fun routeFitPaddingDp(widestTagDp: Float, marginDp: Float): RouteFitPadding {
+    if (widestTagDp <= 0f) return RouteFitPadding(sideDp = marginDp, topDp = marginDp, bottomDp = marginDp)
+    val tagHeightDp = TAG_HEIGHT_DP + 2 * TAG_RING_DP
+    return RouteFitPadding(
+        sideDp = maxOf(marginDp, widestTagDp / 2 + TAG_EDGE_GAP_DP),
+        topDp = maxOf(marginDp, HIGHLIGHT_TAG_LIFT_DP + tagHeightDp + TAG_EDGE_GAP_DP),
+        bottomDp = marginDp,
+    )
+}
+
+/** What [routeFitPaddingDp] returns; left and right share [sideDp]. */
+internal data class RouteFitPadding(val sideDp: Float, val topDp: Float, val bottomDp: Float)
+
+private fun tagTextPaint(density: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    color = Color.WHITE
+    textSize = TAG_TEXT_DP * density
+    typeface = Typeface.DEFAULT_BOLD
+}
+
 /** Draws one tag: [dotColor] (a "#RRGGBB" highlight colour) then [text]. */
 fun highlightTagBitmap(text: String, dotColor: String, focused: Boolean, density: Float): Bitmap {
-    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = TAG_TEXT_DP * density
-        typeface = Typeface.DEFAULT_BOLD
-    }
+    val textPaint = tagTextPaint(density)
     val ring = TAG_RING_DP * density
     val height = TAG_HEIGHT_DP * density
     val padH = TAG_PAD_H_DP * density
