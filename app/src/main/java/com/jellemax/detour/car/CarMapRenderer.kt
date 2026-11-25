@@ -122,7 +122,7 @@ private data class PeerAnchor(val fix: FriendPosition, val arrivalElapsedMs: Lon
 
 class CarMapRenderer(
     private val carContext: CarContext,
-    private val darkTheme: Boolean,
+    private var darkTheme: Boolean,
     /** The drive's clock (#307). Handed in by [DetourCarSession], which is the
      *  car surface's composition root, rather than reached for from the two
      *  frame-loop call sites below. */
@@ -436,29 +436,41 @@ class CarMapRenderer(
             mapLibreMap = map
             applyPadding(map)
             if (!camLat.isNaN()) applyCamera(map)
-            map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
-                val fresh = MapOverlays(style, carContext, darkTheme)
-                overlays = fresh
-                // A replacement surface starts with empty sources; refill them
-                // from what we already know instead of waiting for the next
-                // route change to redraw the line.
-                pushRoute(fresh)
-                position?.let { fresh.setPosition(it, positionBearing) }
-                if (cameras.cameras.isNotEmpty()) fresh.setCameras(cameras.cameras, cameras.sections)
-                if (friends.isNotEmpty()) fresh.setFriends(friends)
-                traffic?.let { fresh.setTraffic(it) }
-                // Signed-out guarded here too, not just in the poll loop
-                // above: the loop only notices a sign-out on its own
-                // CIRCLE_FIX_POLL_MS cadence, and a surface recreated (car
-                // app switched away and back) inside that window must not
-                // redraw circleMembers that tick hasn't caught up to clearing
-                // yet.
-                val myRiderId = Account.riderId.value
-                if (circleMembers.isNotEmpty() && myRiderId.value.isNotBlank()) {
-                    fresh.setCircleMembers(circleMembers)
-                }
-            }
+            loadStyle(map)
             startCameraLoop()
+        }
+    }
+
+    /** Day/night flip from the host restyles the live map
+     *  instead of waiting for a new surface. No-op when unchanged. */
+    fun setDarkTheme(dark: Boolean) {
+        if (dark == darkTheme) return
+        darkTheme = dark
+        mapLibreMap?.let { loadStyle(it) }
+    }
+
+    private fun loadStyle(map: MapLibreMap) {
+        map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
+            val fresh = MapOverlays(style, carContext, darkTheme)
+            overlays = fresh
+            // A replacement surface starts with empty sources; refill them
+            // from what we already know instead of waiting for the next
+            // route change to redraw the line.
+            pushRoute(fresh)
+            position?.let { fresh.setPosition(it, positionBearing) }
+            if (cameras.cameras.isNotEmpty()) fresh.setCameras(cameras.cameras, cameras.sections)
+            if (friends.isNotEmpty()) fresh.setFriends(friends)
+            traffic?.let { fresh.setTraffic(it) }
+            // Signed-out guarded here too, not just in the poll loop
+            // above: the loop only notices a sign-out on its own
+            // CIRCLE_FIX_POLL_MS cadence, and a surface recreated (car
+            // app switched away and back) inside that window must not
+            // redraw circleMembers that tick hasn't caught up to clearing
+            // yet.
+            val myRiderId = Account.riderId.value
+            if (circleMembers.isNotEmpty() && myRiderId.value.isNotBlank()) {
+                fresh.setCircleMembers(circleMembers)
+            }
         }
     }
 

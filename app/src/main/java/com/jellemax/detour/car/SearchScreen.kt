@@ -1,6 +1,5 @@
 package com.jellemax.detour.car
 
-import android.content.Intent
 import android.net.Uri
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
@@ -14,6 +13,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.LocationServices
 import com.jellemax.detour.R
+import com.jellemax.detour.data.GeoTarget
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RecentSearchStore
@@ -22,6 +22,7 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.parseGeoUri
 import com.jellemax.detour.map.startHeading
 import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.SearchSession
@@ -56,6 +57,9 @@ class SearchScreen(
      *  that screen, not duplicated here, since it already holds the location,
      *  radius and preview state a spin needs. */
     private val onSpin: () -> Unit,
+    /** A `geo:` URI the head unit handed us ("Navigate to X"): coordinates
+     *  start routing straight away, a `q=` text runs as a search. */
+    private val geoUri: Uri? = null,
 ) : Screen(carContext) {
 
     private val session = androidSearchSession()
@@ -66,6 +70,10 @@ class SearchScreen(
     /** Why routing to a pick failed, or that there is no location to route from yet. */
     private var routeError: String? = null
     private var myLocation: LatLon? = null
+    /** Picked before there was a location to route from; routes when one comes in. */
+    private var pendingDestination: GeocodeResult? = null
+    /** [geoUri] acted on already: onStart runs again each time the screen comes back. */
+    private var geoTaken = false
 
     init {
         // Created once per screen: the session answers every keystroke until the screen goes.
@@ -74,7 +82,11 @@ class SearchScreen(
         // Same bias source as the phone's search: the tracker's last accurate fix.
         lifecycleScope.launch {
             TripTrackingService.lastFix.collect { fix ->
-                fix?.let { session.onFix(LatLon(it.lat, it.lon), it.accuracyMeters) }
+                fix ?: return@collect
+                session.onFix(LatLon(fix.lat, fix.lon), fix.accuracyMeters)
+                // A tracker fix is as good a start as the fused last location,
+                // and the only one there is when that comes back empty.
+                if (myLocation == null) onLocation(LatLon(fix.lat, fix.lon))
             }
         }
         // Saved places above recents, as on the phone (#1007). The car can start without
@@ -86,6 +98,7 @@ class SearchScreen(
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 fetchLocation()
+                takeGeoUri()
                 lifecycleScope.launch {
                     session.setRecents(withContext(Dispatchers.IO) { RecentSearchStore.load() })
                 }
@@ -106,7 +119,11 @@ class SearchScreen(
         if (routing || search.searching) return builder.setLoading(true).build()
 
         val list = ItemList.Builder()
-        if (query.isBlank()) {
+        // First, whatever the query: a "Navigate to X" pick has no query, and its
+        // wait for a location or routing failure has to show all the same.
+        if (routeError != null) {
+            list.setNoItemsMessage(routeError!!)
+        } else if (query.isBlank()) {
             // Spin only makes sense before you've typed anything — once
             // there's a query the list is search results, not destination
             // pickers. Always present even with no recents yet, so the list
@@ -128,7 +145,6 @@ class SearchScreen(
                 list.addItem(resultRow(result, search.near))
             }
         } else when {
-            routeError != null -> list.setNoItemsMessage(routeError!!)
             search.failure != null -> list.setNoItemsMessage(failureText("Search", search.failure!!))
             search.noResults -> list.setNoItemsMessage(carContext.getString(R.string.car_search_nothing_found))
             else -> search.results.forEach { result ->
@@ -149,18 +165,22 @@ class SearchScreen(
     private fun onQuery(text: String) {
         query = text
         routeError = null
+        pendingDestination = null
         queries.value = text
         invalidate()
     }
 
     private fun navigateTo(result: GeocodeResult) {
         val from = myLocation ?: run {
+            // Routes once the first location comes in (onLocation).
+            pendingDestination = result
             routeError = carContext.getString(R.string.car_waiting_for_location)
             fetchLocation()
             invalidate()
             return
         }
         routing = true
+        routeError = null
         invalidate()
         lifecycleScope.launch {
             try {
@@ -183,8 +203,10 @@ class SearchScreen(
                 routing = false
                 if (route.instructions.isEmpty()) {
                     // No turn data to drive our own nav screen with — hand off
-                    // the same way SpinScreen does.
-                    handOff(result.location)
+                    // the same way SpinScreen does. Should that land back in
+                    // Detour, the session stops it (CarNavHandOff.isEcho).
+                    invalidate()
+                    CarNavHandOff.start(carContext, result.location)
                 } else {
                     screenManager.push(
                         NavScreen(carContext, renderer, from, result.location, route, config, result.name),
@@ -198,20 +220,36 @@ class SearchScreen(
         }
     }
 
-    private fun handOff(dest: LatLon) {
-        val uri = Uri.parse("geo:${dest.lat},${dest.lon}?q=${dest.lat},${dest.lon}")
-        carContext.startCarApp(Intent(CarContext.ACTION_NAVIGATE, uri))
-    }
-
     private fun fetchLocation() {
         if (myLocation != null) return
         if (!hasLocationPermission(carContext)) return
         LocationServices.getFusedLocationProviderClient(carContext).lastLocation
             .addOnSuccessListener { loc ->
-                if (loc != null) {
-                    myLocation = LatLon(loc.latitude, loc.longitude)
+                if (loc != null && myLocation == null) {
                     session.onFix(LatLon(loc.latitude, loc.longitude), loc.accuracy)
+                    onLocation(LatLon(loc.latitude, loc.longitude))
                 }
             }
+    }
+
+    /** First location: a pick that was waiting on it routes now. */
+    private fun onLocation(at: LatLon) {
+        myLocation = at
+        pendingDestination?.let { pendingDestination = null; navigateTo(it) }
+    }
+
+    private fun takeGeoUri() {
+        val uri = geoUri ?: return
+        if (geoTaken) return
+        geoTaken = true
+        when (val target = parseGeoUri(uri.schemeSpecificPart.orEmpty())) {
+            is GeoTarget.Point ->
+                navigateTo(GeocodeResult(target.label ?: carContext.getString(R.string.car_nav_destination), target.at))
+            is GeoTarget.Query -> onQuery(target.text)
+            null -> {
+                routeError = carContext.getString(R.string.car_search_nothing_found)
+                invalidate()
+            }
+        }
     }
 }

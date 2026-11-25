@@ -2,6 +2,7 @@ package com.jellemax.detour.car
 
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.os.SystemClock
 import android.util.Log
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
@@ -46,6 +47,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.ViaStops
+import com.jellemax.detour.data.walkRoute
 import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
@@ -79,6 +81,12 @@ private const val TAG = "DetourNav"
 /** Fallback pace for the "time to the next turn" estimate when the router gave
  *  no travel time, ~50 km/h. Only feeds the cluster's step ETA. */
 private const val FALLBACK_MPS = 14.0
+
+/** Test-drive pace, ~50 km/h: metres walked per [SIM_TICK_MS]. */
+private const val SIM_SPEED_MPS = 14.0
+private const val SIM_TICK_MS = 1000L
+/** What a good real fix reports, so the test drive passes the accuracy gates. */
+private const val SIM_ACCURACY_M = 5.0
 
 /**
  * The actual turn-by-turn screen, pushed from [SpinScreen] once a candidate
@@ -276,6 +284,7 @@ class NavScreen(
         lifecycleScope.launch {
             TripTrackingService.lastFix.collect { fix ->
                 fix ?: return@collect
+                if (simulating) return@collect
                 // One bad fix must not take the app with it. Everything below
                 // runs against live network and host state — a reroute, an
                 // Overpass call, a template the host rejects — and an exception
@@ -303,6 +312,38 @@ class NavScreen(
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 Settings.hereTrafficKey.collectLatest { key -> runTraffic(key) }
             }
+        }
+    }
+
+    private var simulating = false
+    private var simJob: Job? = null
+
+    /** Test drive: walks the route at ~50 km/h through the same [onFix] real
+     *  GPS feeds, so reviewers (and anyone at a desk) see turn cards, voice
+     *  and arrival without moving. Toggled from the action strip. Every start
+     *  and end drops [ride]: it only moves forward, so a ride left at the sim's
+     *  position would hold turn cards, voice and ETA there when a real fix (or
+     *  a fresh walk from the start) comes in behind it, on the line. */
+    private fun toggleSimulation() {
+        ride = null
+        if (simulating) {
+            simJob?.cancel(); simulating = false; invalidate(); return
+        }
+        simulating = true
+        invalidate()
+        simJob = lifecycleScope.launch {
+            for (step in walkRoute(route.polyline, SIM_SPEED_MPS)) {
+                runCatching {
+                    onFix(
+                        step.at, step.bearingDeg.toFloat(), SIM_SPEED_MPS, SIM_ACCURACY_M,
+                        SystemClock.elapsedRealtime(),
+                    )
+                }.onFailure { Log.w(TAG, "sim fix failed", it) }
+                delay(SIM_TICK_MS)
+            }
+            ride = null
+            simulating = false
+            invalidate()
         }
     }
 
@@ -699,6 +740,16 @@ class NavScreen(
                     }
                     .build(),
             )
+            // The strip caps at four actions; the convoy Break button would be a fifth.
+            .apply {
+                if (CarBreakRegroup.breakAction(carContext) == null) addAction(
+                    Action.Builder()
+                        .setIcon(CarIcon.Builder(IconCompat.createWithResource(carContext,
+                            if (simulating) R.drawable.ic_car_sim_stop else R.drawable.ic_car_sim_start)).build())
+                        .setOnClickListener { toggleSimulation() }
+                        .build(),
+                )
+            }
             // The strip allows a single action with a custom title, and that
             // one is Exit; anything else added here has to be an icon.
             .addAction(

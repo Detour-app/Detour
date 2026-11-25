@@ -1,7 +1,5 @@
 package com.jellemax.detour.car
 
-import android.content.Intent
-import android.net.Uri
 import android.util.Log
 import androidx.car.app.CarContext
 import androidx.car.app.Screen
@@ -304,7 +302,8 @@ class SpinScreen(
             }
     }
 
-    private fun spin() {
+    /** Internal for [DetourCarSession]: a search opened by "Navigate to X" spins from here too. */
+    internal fun spin() {
         val loc = myLocation ?: run {
             errorText = carContext.getString(R.string.car_waiting_for_location)
             fetchLocation()
@@ -428,8 +427,5 @@ class SpinScreen(
         }
     }
 
-    private fun navigate(dest: LatLon) {
-        val uri = Uri.parse("geo:${dest.lat},${dest.lon}?q=${dest.lat},${dest.lon}")
-        carContext.startCarApp(Intent(CarContext.ACTION_NAVIGATE, uri))
-    }
+    private fun navigate(dest: LatLon) = CarNavHandOff.start(carContext, dest)
 }

@@ -74,4 +74,6 @@
     <string name="convoy_live_title">Convoy live</string>
     <string name="convoy_live_text">Sharing location, listening for push-to-talk</string>
     <string name="convoy_stop">Stop</string>
+    <string name="phone_driving_lock">Connected to Android Auto. Phone controls are off while you drive — use the car screen.</string>
+    <string name="car_handoff_no_other_app">No other navigation app to hand this route to</string>
 </resources>

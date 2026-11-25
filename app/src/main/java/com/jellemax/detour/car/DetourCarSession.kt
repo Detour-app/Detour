@@ -1,16 +1,20 @@
 package com.jellemax.detour.car
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.util.Log
 import androidx.car.app.AppManager
+import androidx.car.app.CarContext
 import androidx.car.app.CarToast
 import androidx.car.app.Screen
+import androidx.car.app.ScreenManager
 import androidx.car.app.Session
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.convoy.ConvoyGapAlerts
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.tracking.DriveClocks
@@ -31,6 +35,9 @@ class DetourCarSession : Session() {
      */
     private var renderer: CarMapRenderer? = null
 
+    /** The root screen, so a search opened by a NAVIGATE intent can still spin from it. */
+    private var home: SpinScreen? = null
+
     override fun onCreateScreen(intent: Intent): Screen {
         // The head unit can start this process with the phone UI never having
         // run, and the car screens both read (map zoom) and write (voice
@@ -43,11 +50,53 @@ class DetourCarSession : Session() {
             override fun onDestroy(owner: LifecycleOwner) {
                 map.destroy()
                 renderer = null
+                home = null
             }
         })
         toastConvoyGapAlerts()
         CarBreakRegroup.announce(this, carContext)
-        return SpinScreen(carContext, map)
+        val home = SpinScreen(carContext, map)
+        this.home = home
+        // Cold start from "Navigate to X": home goes on the stack first and the
+        // search is returned, so the host shows the search on top and Back from
+        // it lands on home. (Returning home instead puts home above the search.)
+        val search = navigateSearch(intent, map, home) ?: return home
+        carContext.getCarService(ScreenManager::class.java).push(home)
+        return search
+    }
+
+    /**
+     * "Navigate to X" while the session is already running. Everything above
+     * home is popped first: a [NavScreen] left under the search keeps
+     * collecting fixes after it stops (old-route voice, the shared camera,
+     * its arrival pop), so a mid-route "Navigate to" would end up with two
+     * screens guiding at once. Popping destroys it, which ends its guidance.
+     */
+    override fun onNewIntent(intent: Intent) {
+        val map = renderer ?: return
+        val home = home ?: return
+        val search = navigateSearch(intent, map, home) ?: return
+        val screens = carContext.getCarService(ScreenManager::class.java)
+        screens.popToRoot()
+        screens.push(search)
+    }
+
+    /** Head unit flipped day/night: the map style has to follow (the host
+     *  only re-themes its own templates). */
+    override fun onCarConfigurationChanged(newConfiguration: Configuration) {
+        renderer?.setDarkTheme(carContext.isDarkMode)
+    }
+
+    /** The search a NAVIGATE intent opens, or null when [intent] is not one we should act on. */
+    private fun navigateSearch(intent: Intent, map: CarMapRenderer, home: SpinScreen): SearchScreen? {
+        val uri = intent.data?.takeIf { intent.action == CarContext.ACTION_NAVIGATE } ?: return null
+        if (CarNavHandOff.isEcho(uri)) {
+            // Our own hand-off came back: Detour is the car's navigation app, so
+            // there is nowhere else to send a route without turn data.
+            CarToast.makeText(carContext, R.string.car_handoff_no_other_app, CarToast.LENGTH_LONG).show()
+            return null
+        }
+        return SearchScreen(carContext, map, onSpin = { home.spin() }, geoUri = uri)
     }
 
     /**
