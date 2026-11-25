@@ -959,7 +959,7 @@ fun MapScreen(
             stopNavigation()
             TripTrackingService.navigationEnded(context, endNow = true)
         },
-        ambientSpeedLimitKmh = retained.ambientSpeedLimitKmh, // the map's off-route sign
+        retained = retained, // the off-route sign's limit, the display's minimap
     )
 
     // The banner, its "then" chip, the bottom bar and the HUD's limit source all

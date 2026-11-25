@@ -3,12 +3,17 @@ package com.jellemax.detour.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.ble.BleNavServer
+import com.jellemax.detour.ble.Minimap
+import com.jellemax.detour.ble.MinimapKind
+import com.jellemax.detour.ble.MinimapLine
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
@@ -67,7 +72,7 @@ internal fun MapNavigationSession(
     announcer: NavAnnouncer,
     announceAloud: (String) -> Unit,
     onArrive: () -> Unit,
-    ambientSpeedLimitKmh: Double?,
+    retained: RetainedMap,
 ) {
     // Derived here rather than drilled in: each was an alias for something the
     // holder or a Settings flow already owns (state-holders.md §14.1).
@@ -84,9 +89,6 @@ internal fun MapNavigationSession(
     // second; captured directly, each would freeze on its first composition.
     val announce by rememberUpdatedState(announceAloud)
     val arrive by rememberUpdatedState(onArrive)
-    // Read, not keyed: the limit changes far less often than the fix, and the
-    // packet only needs whatever it is when the next fix arrives.
-    val ambientLimit by rememberUpdatedState(ambientSpeedLimitKmh)
     PlannedRouteTileCache(s, darkTheme)
     // Current speed for the external display when there's no route up —
     // BleNavServer.send() below covers the navigating case on the same
@@ -97,9 +99,11 @@ internal fun MapNavigationSession(
         BleNavServer.sendStats(
             context,
             currentSpeedKmh = fix.speedMps * 3.6,
-            speedLimitKmh = ambientLimit,
+            speedLimitKmh = retained.ambientSpeedLimitKmh,
         )
     }
+
+    MapMinimapPush(liveFix, s, retained)
 
     // Follow the route while navigating: progress, arrival, reroute.
     LaunchedEffect(s.navigating, liveFix, s.route) {
@@ -215,3 +219,34 @@ private fun PlannedRouteTileCache(s: MapScreenState, darkTheme: Boolean) {
         if (!s.navigating) RouteTileCache.prefetch(context, line, darkTheme)
     }
 }
+
+/**
+ * The external display's minimap (#1070), one frame per [fix], navigating or not. Takes the
+ * map screen's own fix rather than collecting [TripTrackingService.lastFix] again. The route
+ * and the nearby roads are read per fix, not keyed: both holders' fields are snapshot state.
+ */
+@Composable
+internal fun MapMinimapPush(fix: Fix?, s: MapScreenState, retained: RetainedMap) {
+    val context = LocalContext.current
+    // Survives a stop: a standstill fix's bearing is noise.
+    var heading by remember { mutableDoubleStateOf(0.0) }
+    LaunchedEffect(fix) {
+        if (fix == null || !Settings.externalDisplayEnabled.value) return@LaunchedEffect
+        if (fix.speedMps > MINIMAP_HEADING_MIN_MPS) fix.bearingDeg?.let { heading = it.toDouble() }
+        // ponytail: roads are the speed-limit ways already fetched for the sign, so a road
+        // without a maxspeed tag isn't drawn; a dedicated roads fetch if that shows.
+        val lines = retained.limitState.ways.map {
+            MinimapLine(if (it.kmh >= MINIMAP_MAJOR_KMH) MinimapKind.MAJOR else MinimapKind.MINOR, it.points)
+        } + listOfNotNull(s.route?.let { MinimapLine(MinimapKind.ROUTE, it.polyline) })
+        val facing = heading
+        val frame = withContext(Dispatchers.Default) {
+            Minimap.encode(LatLon(fix.lat, fix.lon), facing, Minimap.radiusFor(fix.speedMps), lines)
+        }
+        BleNavServer.sendMap(context, frame)
+    }
+}
+
+/** Below this a fix's bearing is noise, so the minimap keeps the last good heading. */
+private const val MINIMAP_HEADING_MIN_MPS = 1.5
+/** A posted limit at or above this draws the road as major on the minimap. */
+private const val MINIMAP_MAJOR_KMH = 70.0
