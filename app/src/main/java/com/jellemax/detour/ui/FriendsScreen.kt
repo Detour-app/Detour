@@ -89,7 +89,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit) {
+fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit, onOpenCircles: () -> Unit) {
     val username by Account.username.collectAsStateWithLifecycle()
     var addOpen by remember { mutableStateOf(false) }
 
@@ -156,6 +156,7 @@ fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit) {
                 }
                 else -> {
                     FriendsSection(username)
+                    CirclesEntryCard(onOpenCircles)
                     // Convoys: deliberately untouched. Out of scope for this
                     // whole redesign effort (spec §2/§5/§9) — it drives an
                     // Android-only WebSocket singleton (ConvoyLiveClient), a
@@ -217,8 +218,9 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
                 val failure = AuthBrowser.start(context)
                 when (failure) {
                     // The browser is open; MainActivity's redirect handler owns
-                    // the rest, including clearing busy.
-                    null -> {}
+                    // the rest, or its onResume clears busy if the rider comes
+                    // back without a redirect (#1061).
+                    null -> PendingSignIn.browserOpened()
                     AuthBrowser.StartFailure.InvalidRealmUrl -> PendingSignIn.fail(
                         context.getString(R.string.friends_signin_invalid_realm)
                     )

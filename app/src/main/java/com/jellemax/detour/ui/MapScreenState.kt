@@ -1,7 +1,6 @@
 package com.jellemax.detour.ui
 
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.jellemax.detour.data.LatLon
@@ -64,17 +63,30 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     private var destinationState: LatLon? by mutableStateOf(seed.destination)
 
     /** Any other destination drops [vias]: they were the stops on the way to
-     *  this one, and a dozen writers set it without knowing they exist. */
+     *  this one, and a dozen writers set it without knowing they exist.
+     *
+     *  It drops [error] too (#1022): a failed spin, then a picked place, put
+     *  the spin's failure under the Navigate panel the rider had just opened.
+     *  Every writer that reports about the new destination sets [error] after
+     *  setting it. A denied location stays: that is still true, and its
+     *  snackbar carries the Allow action. */
     var destination: LatLon?
         get() = destinationState
         set(value) {
             if (value != destinationState) {
                 vias = emptyList()
                 viaRide = null
+                guidedTo = null
+                if (error != LOCATION_DENIED_ERROR) error = null
             }
             destinationState = value
         }
     var destinationName: String? by mutableStateOf(seed.destinationName)
+
+    /** The [destination] guidance last ran to, until another one is set
+     *  (#1027): arrival and Exit drop its route but keep the pin, and the
+     *  route preview must not ask for that destination again. */
+    var guidedTo: LatLon? by mutableStateOf(seed.guidedTo)
 
     /** A planned route's stops still to ride through on the way to
      *  [destination] (#736), dropped as [followPlanned] sees them passed. */
@@ -102,7 +114,21 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
     var navigating: Boolean by mutableStateOf(seed.navigating)
     var navProgress: NavEngine.Progress? by mutableStateOf(null)
     var rerouting: Boolean by mutableStateOf(false)
-    var lastRerouteMs: Long by mutableLongStateOf(0L)
+    /** [NavPolicy.RerouteAttempts]: backoff, "Rerouting" once per episode,
+     *  and the bar's "Can't reroute" (#1010). State: the bar draws its text. */
+    var rerouteAttempts: NavPolicy.RerouteAttempts by mutableStateOf(NavPolicy.RerouteAttempts())
+
+    /** The run of off-route fixes [NavPolicy.decide] confirms a reroute on
+     *  (#1008). Not state: nothing draws it, only the next fix reads it. */
+    var offRoute: NavPolicy.OffRouteStreak? = null
+
+    /** [NavPolicy.trackStopped]'s drive-clock start of the current stop, for
+     *  the parked arrival (#1011); null while moving. Not state, like [offRoute]. */
+    var stoppedSinceMs: Long? = null
+
+    /** [NavPolicy.offRouteConfirmed] at the newest fix: the bottom bar's
+     *  "Off route", so it agrees with the reroute decision (#1008). */
+    var offRouteShown: Boolean by mutableStateOf(false)
 
     /** Where the rider is along a line fetched through [vias], for
      *  [followPlanned]; seeded from [SpinResult.ride], so a rotation picks the
@@ -195,6 +221,7 @@ internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusReques
 
     /** Every failure the screen reports, from a denied permission to a spin
      *  that found nothing. A dozen writers and, before the snackbar, one
-     *  reader inside a sheet that is collapsed by default. */
+     *  reader inside a sheet that is collapsed by default. A new
+     *  [destination] clears it. */
     var error: String? by mutableStateOf(null)
 }

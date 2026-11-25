@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Loop
@@ -63,7 +63,8 @@ import com.jellemax.detour.data.TravelMode
  * (#329): [homeBottomCard] only shows this dock once a destination exists,
  * and only shows the home sheet once it doesn't, so a save-pin action gated
  * on "there is a destination" could never be reachable from the sheet that
- * used to carry it.
+ * used to carry it. A bookmark, not a `+` (#1027): a plus reads as "add a
+ * stop", and Saved places is where the pin lands.
  *
  * [curvy] is the curviness row under the mode (#652), a slot because it owns
  * its own preview request and this dock stays stateless.
@@ -106,7 +107,7 @@ internal fun NavigationDock(
                 Row {
                     IconButton(onClick = pin.onSave) {
                         Icon(
-                            Icons.Outlined.Add,
+                            Icons.Outlined.BookmarkAdd,
                             contentDescription = stringResource(R.string.nav_save_pin),
                         )
                     }
@@ -120,9 +121,10 @@ internal fun NavigationDock(
             }
 
             // The router only reports distance/time once a route is back —
-            // startNavigation()'s fetch, or a route seeded from RoutesScreen
-            // or a convoy. Until then the callout is just the name; the pin
-            // and the orange border still say "this is where you're headed".
+            // the preview MapRoutePreview asks for on a pick (#1027), or a
+            // route seeded from RoutesScreen or a convoy. Until then the
+            // callout is just the name; the pin and the orange border still
+            // say "this is where you're headed".
             // formatDurationHistory ("25 min" / "1 h 12 min") is the wording a
             // route ETA takes elsewhere — the routes list, the nav sheet's
             // "… min left" — not the M:SS clock the live trip card uses.

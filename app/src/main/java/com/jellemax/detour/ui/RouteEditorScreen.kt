@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -51,7 +50,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.jellemax.detour.R
-import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteFill
@@ -69,7 +67,6 @@ import com.jellemax.detour.presentation.formatCoordinatePair
 import com.jellemax.detour.tracking.hasLocationPermission
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -121,45 +118,25 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     val messages = LocalAppMessages.current
 
     var searchQuery by remember { mutableStateOf("") }
-    var searchResults by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
-    var searching by remember { mutableStateOf(false) }
+    // The shared search session (#1005), biased toward the route's last stop, or the
+    // rider's last good fix while there are no stops yet.
+    val searchSession = rememberSearchSession(searchQuery, anchor = stops.lastOrNull()?.at)
+    val search by searchSession.state.collectAsStateWithLifecycle()
+    // Only what answers the box as it reads now: a pick clears the box, and the
+    // session's answer to that lands a moment later.
+    val searchCurrent = search.query == searchQuery.trim()
+    val searching = searchCurrent && search.searching
+    val searchResults = if (searchCurrent) search.results else emptyList()
     // Why the result list is empty, in the rider's words — "No results" when
     // the geocoder had nothing, something else when it was never asked.
     // Null while there is nothing to say.
-    var searchStatus by remember { mutableStateOf<String?>(null) }
-    val keyboardController = LocalSoftwareKeyboardController.current
-
-    // Debounced live search, same shape as SavedPlacesScreen's add-place dialog.
-    // `near` biases results toward the route so far, once it has a stop to bias from.
-    LaunchedEffect(searchQuery) {
-        // Clearing the box while a request is still in flight cancels this
-        // effect mid-call, so the early return has to drop the spinner too.
-        if (searchQuery.length < 3) {
-            searchResults = emptyList()
-            searching = false
-            searchStatus = null
-            return@LaunchedEffect
-        }
-        delay(400)
-        searching = true
-        try {
-            val hits = withContext(Dispatchers.IO) { Geocoder.search(searchQuery, stops.lastOrNull()?.at) }
-            searchResults = hits
-            searchStatus = if (hits.isEmpty()) context.getString(R.string.route_editor_no_results) else null
-        } catch (e: CancellationException) {
-            // The next keystroke cancelled us. Rethrowing rather than falling
-            // into the catch below is what keeps a superseded search from
-            // reporting itself as an empty one.
-            throw e
-        } catch (e: Exception) {
-            // A geocoder that could not be reached is not an address that does
-            // not exist, and the rider was being told the second thing.
-            ensureActive()
-            searchResults = emptyList()
-            searchStatus = context.getString(R.string.route_editor_search_failed)
-        }
-        searching = false
+    val searchStatus = when {
+        !searchCurrent -> null
+        search.failure != null -> stringResource(R.string.route_editor_search_failed)
+        search.noResults -> stringResource(R.string.route_editor_no_results)
+        else -> null
     }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // Names for stops that have only coordinates — tapped onto the map, or
     // imported from a GPX without names (#503). Display-only: a saved route keeps the
@@ -442,19 +419,15 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                     )
                 } else {
                     searchResults.take(5).forEach { result ->
-                        Text(
-                            result.name,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    stops = stops + RouteStop(result.location, result.name)
-                                    searchQuery = ""
-                                    searchResults = emptyList()
-                                    searchStatus = null
-                                    keyboardController?.hide()
-                                }
-                                .padding(vertical = 10.dp),
+                        SearchResultRow(
+                            result,
+                            near = search.near,
+                            onClick = {
+                                stops = stops + RouteStop(result.location, result.name)
+                                searchQuery = ""
+                                keyboardController?.hide()
+                            },
+                            dense = true,
                         )
                     }
                 }

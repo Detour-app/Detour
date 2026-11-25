@@ -105,7 +105,6 @@ import com.jellemax.detour.ui.RoutesScreen
 import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.SettingsSpokeScreen
-import com.jellemax.detour.ui.SocialScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.LocalAppMessages
 import com.jellemax.detour.ui.isAppDarkTheme
@@ -204,10 +203,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /** onResume, not onStart: coming back from the system's permission screen
-     *  or a permission dialog resumes the activity without stopping it. */
+     *  or a permission dialog resumes the activity without stopping it. The
+     *  same holds for a Custom Tab that does not cover the whole task. */
     override fun onResume() {
         super.onResume()
         PermissionEvents.recordIfChanged(this)
+        // After onNewIntent, so a sign-in redirect has already been taken;
+        // still waiting here means the login tab was closed without one.
+        PendingSignIn.returnedFromBrowser()
     }
 
     /**
@@ -504,11 +507,11 @@ private fun AppRoot() {
                         PreferRefreshRate(MAP_REFRESH_RATE_HZ)
                         MapScreen(
                             onOpenHub = { backStack.push(Destination.Hub) },
-                            // The home sheet's two cards. Both destinations already
-                            // exist and are already reachable from the Hub; this is the
-                            // map handing them a second entry point, not a promotion.
+                            // The home sheet's two cards, and the only way to Routes and
+                            // Friends: You no longer repeats them (#1024). Social opens
+                            // Friends directly, which carries the Circles row.
                             onOpenRoutes = { backStack.push(Destination.Routes) },
-                            onOpenSocial = { backStack.push(Destination.Social) },
+                            onOpenSocial = { backStack.push(Destination.Friends) },
                             retained = retainedMap,
                         )
                     }
@@ -516,10 +519,8 @@ private fun AppRoot() {
                         HubScreen(
                             onBack = { backStack.pop() },
                             onOpenProfile = { backStack.push(Destination.Profile) },
-                            onOpenSocial = { backStack.push(Destination.Social) },
                             onOpenSettings = { backStack.push(Destination.Settings) },
                             onOpenHistory = { backStack.push(Destination.History) },
-                            onOpenRoutes = { backStack.push(Destination.Routes) },
                             onOpenSavedPlaces = { backStack.push(Destination.SavedPlaces) },
                             onOpenBadges = { backStack.push(Destination.Badges) },
                         )
@@ -548,26 +549,6 @@ private fun AppRoot() {
                     entry<Destination.CoverageMap> {
                         CoverageMapScreen(onBack = { backStack.pop() })
                     }
-                    entry<Destination.Social> {
-                        SocialScreen(
-                            onBack = { backStack.pop() },
-                            // Profile has no signed-out state — it offers a rider who
-                            // never signed in a "Sign out" button — so a guest goes to
-                            // Hub, which carries the sign-in card. Account.signedIn is
-                            // the refresh token and nothing else, which is what You
-                            // decides the same thing on; the handle is no substitute,
-                            // since Auth.carriedUsername leaves a signed-in rider blank
-                            // whenever the token's subject and the stored account scope
-                            // disagree. Social's avatar labels itself off this too.
-                            onOpenAccount = {
-                                backStack.push(
-                                    if (Account.signedIn) Destination.Profile else Destination.Hub
-                                )
-                            },
-                            onOpenFriends = { backStack.push(Destination.Friends) },
-                            onOpenCircles = { backStack.push(Destination.Circles) },
-                        )
-                    }
                     entry<Destination.Profile> {
                         ProfileScreen(
                             onBack = { backStack.pop() },
@@ -578,6 +559,7 @@ private fun AppRoot() {
                         FriendsScreen(
                             onBack = { backStack.pop() },
                             onOpenServerSettings = { backStack.push(Destination.SettingsServersSync) },
+                            onOpenCircles = { backStack.push(Destination.Circles) },
                         )
                     }
                     entry<Destination.Circles> {

@@ -1,8 +1,11 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.HttpStatusException
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
+import com.jellemax.detour.data.NetworkFailureException
+import com.jellemax.detour.data.NoRoutingServerException
 import kotlinx.datetime.TimeZone
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -172,23 +175,24 @@ class NavStateTest {
         assertEquals("", state.arrivalText)
     }
 
-    // --- off-route, just under and just over the threshold --------------------
+    // --- off-route: the caller's verdict, not the distance (#1008) -----------
 
-    @Test fun exactlyAtTheThresholdIsNotOffRoute() {
+    @Test fun farFromTheLineButNotConfirmedIsNotOffRoute() {
+        // One outlier fix: NavPolicy has not confirmed it, so neither does the bar.
         val state = navStateFrom(
-            progress = progress(offRouteMeters = 60.0, remainingTimeMs = 8 * 60_000L),
+            progress = progress(offRouteMeters = 90.0, remainingTimeMs = 8 * 60_000L),
             navigating = true, rerouting = false,
-            ambientSpeedLimitKmh = null, nowMs = 0L, offRouteThresholdMeters = 60.0,
+            ambientSpeedLimitKmh = null, nowMs = 0L, offRoute = false,
             zone = TimeZone.UTC,
         )
         assertEquals(false, state.offRoute)
         assertEquals("Arrival 00:08", state.arrivalText)
     }
 
-    @Test fun justOverTheThresholdIsOffRoute() {
+    @Test fun confirmedOffRouteIsOffRoute() {
         val state = navStateFrom(
-            progress = progress(offRouteMeters = 60.01), navigating = true, rerouting = false,
-            ambientSpeedLimitKmh = null, nowMs = 0L, offRouteThresholdMeters = 60.0,
+            progress = progress(offRouteMeters = 90.0), navigating = true, rerouting = false,
+            ambientSpeedLimitKmh = null, nowMs = 0L, offRoute = true,
         )
         assertEquals(true, state.offRoute)
         assertEquals("Off route", state.arrivalText)
@@ -262,5 +266,27 @@ class NavStateTest {
             navigating = true, rerouting = false, ambientSpeedLimitKmh = null, nowMs = 0L,
         )
         assertEquals(0f, state.progressFraction)
+    }
+
+    // --- #1010: a failed reroute says why, in place of "Off route" ----------
+
+    @Test fun rerouteFailureTextNamesAMissingConnection() {
+        assertEquals(
+            "Can't reroute — no connection",
+            rerouteFailureText(NetworkFailureException(timedOut = true, cause = RuntimeException())),
+        )
+        assertEquals("Can't reroute — no routing server", rerouteFailureText(NoRoutingServerException()))
+        assertEquals("Can't reroute", rerouteFailureText(HttpStatusException(502, "")))
+    }
+
+    @Test fun aRerouteFailureReplacesOffRouteOnlyWhileOffRoute() {
+        fun state(offRoute: Boolean) = navStateFrom(
+            progress(), navigating = true, rerouting = false, ambientSpeedLimitKmh = null,
+            nowMs = 0L, offRoute = offRoute, zone = TimeZone.UTC,
+        )
+        assertEquals("Can't reroute", state(offRoute = true).withRerouteFailure("Can't reroute").arrivalText)
+        assertEquals("Off route", state(offRoute = true).withRerouteFailure(null).arrivalText)
+        val onRoute = state(offRoute = false)
+        assertEquals(onRoute, onRoute.withRerouteFailure("Can't reroute"))
     }
 }

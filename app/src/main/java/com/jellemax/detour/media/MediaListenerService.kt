@@ -138,7 +138,10 @@ class MediaListenerService : NotificationListenerService() {
             (android.os.SystemClock.elapsedRealtime() - state.lastPositionUpdateTime) *
                 state.playbackSpeed
         } else 0f
-        val positionMs = (state.position + elapsedSinceUpdate).coerceIn(0f, durationMs.toFloat())
+        // Live streams and some players report duration -1 (unknown); coerceIn
+        // with an inverted range throws, so only cap when the duration is known.
+        val rawPositionMs = (state.position + elapsedSinceUpdate).coerceAtLeast(0f)
+        val positionMs = if (durationMs > 0) rawPositionMs.coerceAtMost(durationMs.toFloat()) else rawPositionMs
 
         BleNavServer.sendMusic(
             applicationContext,
