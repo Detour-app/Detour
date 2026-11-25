@@ -320,8 +320,12 @@ class NavScreen(
 
     /** Test drive: walks the route at ~50 km/h through the same [onFix] real
      *  GPS feeds, so reviewers (and anyone at a desk) see turn cards, voice
-     *  and arrival without moving. Toggled from the action strip. */
+     *  and arrival without moving. Toggled from the action strip. Every start
+     *  and end drops [ride]: it only moves forward, so a ride left at the sim's
+     *  position would hold turn cards, voice and ETA there when a real fix (or
+     *  a fresh walk from the start) comes in behind it, on the line. */
     private fun toggleSimulation() {
+        ride = null
         if (simulating) {
             simJob?.cancel(); simulating = false; invalidate(); return
         }
@@ -337,6 +341,7 @@ class NavScreen(
                 }.onFailure { Log.w(TAG, "sim fix failed", it) }
                 delay(SIM_TICK_MS)
             }
+            ride = null
             simulating = false
             invalidate()
         }
