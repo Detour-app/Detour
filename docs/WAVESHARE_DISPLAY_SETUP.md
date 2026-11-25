@@ -160,3 +160,15 @@ central to subscribe to **Nav** after the display is switched on in Settings
 subscribe to Nav, and keep a stable BLE address (its public one, not a
 rotating private one). Switching the display off and on forgets it, which is
 how a different board takes over.
+
+**Pairing** (#837, requires firmware with bonding — moto_hud after PR #1).
+With the `ble-encrypted-link` flag on, every characteristic and CCCD needs a
+bonded, MITM-protected link (`PERMISSION_*_ENCRYPTED_MITM`); an unpaired
+central gets an authentication error. On first connect the board starts
+pairing and shows a six-digit passkey; type it into the phone's pairing
+dialog. Both ends keep the bond, so later connects (and a board power-cycle)
+encrypt without asking again. If either side forgets it (unpair in Android's
+Bluetooth settings, or erase the board's NVS), the board pairs again from
+scratch. The flag is read when the display starts: switch the display off
+and on in Settings after flipping it. With the flag off the link is open, as
+before, and only the address pin above applies.

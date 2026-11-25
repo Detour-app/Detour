@@ -24,6 +24,8 @@ import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.data.DisplayPin
+import com.jellemax.detour.data.FeatureFlags
+import com.jellemax.detour.data.Flag
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SunTimes
@@ -63,6 +65,24 @@ private const val ART_MAX_CHUNKS = 255
 private const val ART_SEND_TIMEOUT_MS = 2_000L
 private const val DEFAULT_ATT_MTU = 23
 private const val TAG = "BleNavServer"
+
+/** GATT read/write permissions for every characteristic and CCCD on the display link. */
+internal data class LinkPermissions(val read: Int, val write: Int)
+
+/**
+ * With [encrypted] (#837), only a central bonded with MITM protection (the board's passkey
+ * pairing) can read, subscribe or write; Android starts pairing when one that isn't tries.
+ * Without, anyone in range can, and only [DisplayPin]'s address pin keeps spoofed telemetry
+ * out (#692). The descriptor constants have the same values as the characteristic ones.
+ */
+internal fun linkPermissions(encrypted: Boolean): LinkPermissions = if (encrypted) {
+    LinkPermissions(
+        BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED_MITM,
+        BluetoothGattCharacteristic.PERMISSION_WRITE_ENCRYPTED_MITM,
+    )
+} else {
+    LinkPermissions(BluetoothGattCharacteristic.PERMISSION_READ, BluetoothGattCharacteristic.PERMISSION_WRITE)
+}
 
 /**
  * BLE GATT peripheral broadcasting state to an external display (a
@@ -260,17 +280,14 @@ object BleNavServer {
         val server = manager.openGattServer(context, callback) ?: return
         gattServer = server
 
+        // Read once per start: flipping the flag takes effect when the display is next switched on.
+        val perms = linkPermissions(FeatureFlags.isOn(Flag.BLE_ENCRYPTED_LINK))
         fun notifiable(uuid: UUID) = BluetoothGattCharacteristic(
             uuid,
             BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-            BluetoothGattCharacteristic.PERMISSION_READ,
+            perms.read,
         ).apply {
-            addDescriptor(
-                BluetoothGattDescriptor(
-                    CCCD_UUID,
-                    BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE,
-                ),
-            )
+            addDescriptor(BluetoothGattDescriptor(CCCD_UUID, perms.read or perms.write))
         }
 
         val nav = notifiable(NAV_CHARACTERISTIC_UUID)
@@ -281,7 +298,7 @@ object BleNavServer {
             TELEMETRY_CHARACTERISTIC_UUID,
             BluetoothGattCharacteristic.PROPERTY_WRITE or
                 BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
-            BluetoothGattCharacteristic.PERMISSION_WRITE,
+            perms.write,
         )
         navCharacteristic = nav
         musicCharacteristic = music
