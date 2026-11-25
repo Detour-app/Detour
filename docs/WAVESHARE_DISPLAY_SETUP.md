@@ -81,6 +81,7 @@ disagree, the code wins.
 | Time | `b17a0004-...-0e01` | phone → display, notify | read, notify |
 | Art | `b17a0005-...-0e01` | phone → display, notify | read, notify |
 | Telemetry | `b17a0006-...-0e01` | display → phone, write | write, write-without-response |
+| Map | `b17a0007-...-0e01` | phone → display, notify | read, notify |
 
 All notify characteristics also expose the standard CCCD
 (`00002902-0000-1000-8000-00805f9b34fb`) for subscribing.
@@ -139,6 +140,25 @@ waiting for `onNotificationSent` before the next, since a lost chunk under
 Android's own notification queue would otherwise cost the whole image. A
 newly-subscribed display gets the current cover replayed immediately rather
 than waiting for the next track change.
+
+**Map** (`sendMap`, #1070) — the minimap, not JSON. One frame per GPS fix
+while the map screen is open and the display is on, chunked with art's
+3-byte header and at most 4 KB reassembled (the board's `map_link::MAX_BYTES`).
+Little-endian:
+```
+u16 radiusMeters
+repeated: u8 kind (0 minor, 1 major, 2 route), u8 count,
+          count x (i16 rightMeters, i16 aheadMeters)
+```
+Heading-up (the last bearing above 1.5 m/s), metres, rider at the origin;
+the radius is 25 s of travel at the current speed, clamped to 300–1200 m.
+Lines are clipped to the radius with one point past the edge, thinned to a
+radius/100 step and split at 255 points. The route is last on the wire and
+first in the byte budget, so the board draws it on top and it is never the
+part cut. Roads are the speed-limit ways the phone already holds for the
+ambient sign: 70 km/h and up is major, a road with no `maxspeed` tag is not
+drawn. A newer frame replaces any of the previous one still queued, and a
+display that subscribes gets the last frame replayed.
 
 **Telemetry** (board → phone, write): the one write-direction
 characteristic — the board's own GPS/IMU readings, which the phone prefers
