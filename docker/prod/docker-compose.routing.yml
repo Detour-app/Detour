@@ -13,7 +13,9 @@
 # whole build, which is why start_period is so long; that is expected, not a
 # failure. The result lands in the graphhopper-data volume, so later starts are
 # seconds — deleting that volume, or changing the region or the profile set, pays
-# for the build again.
+# for the build again. The graph never picks up OSM edits on its own:
+# scripts/rebuild-graph.sh rebuilds it beside the served one and swaps it in
+# (README.md, "Keeping the routing graph current").
 #
 # Image mechanics verified against israelhikingmap/graphhopper:11.0 on
 # 2026-09-09 (GraphHopper still publishes no image of its own):
@@ -33,9 +35,10 @@ name: ${PROJECT_NAME:-detour}
 services:
   # ---------------------------------------------------------------------------
   # One-shot: download the OSM extract for OSM_REGION into the osm-data volume.
-  # scripts/fetch-extract.sh is md5-verified and idempotent — it exits early if
-  # the extract is already there — so this runs at every `up` and costs nothing
-  # after the first. graphhopper waits on it completing successfully, so a failed
+  # scripts/fetch-extract.sh is md5-verified and exits early when an extract from
+  # the same URL is already there — GraphHopper would not import a newer one
+  # anyway — so this runs at every `up` and costs nothing after the first.
+  # scripts/rebuild-graph.sh runs it with OSM_REFRESH=1 to fetch a current one. graphhopper waits on it completing successfully, so a failed
   # or truncated download stops the stack instead of producing a half-built graph.
   # ---------------------------------------------------------------------------
   osm-extract:
