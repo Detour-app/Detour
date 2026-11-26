@@ -55,6 +55,8 @@ echo "$OUT" | grep -qi 'not re-downloaded' || fail "expected a kept extract, got
 rm -f "$WORK/osm/region.osm.pbf.src"
 OUT="$(run benelux "")"
 echo "$OUT" | grep -qi 'not re-downloaded' || fail "expected a kept pre-#1077 extract, got: $OUT"
+[ "$(cat "$WORK/osm/region.osm.pbf.src")" = "http://localhost:8199/benelux-latest.osm.pbf" ] \
+    || fail "kept pre-#1077 extract did not record its .src"
 
 # 4. OSM_REFRESH=1 (the graph rebuild) fetches the newer extract.
 run benelux "" 1 || fail "refresh"
@@ -69,6 +71,14 @@ publish luxembourg 'lux-pbf-bytes'
 run luxembourg "" || fail "region change"
 [ "$(md5_of "$WORK/osm/region.osm.pbf")" = "$(md5_of "$WORK/www/luxembourg-latest.osm.pbf")" ] \
     || fail "region change kept the old extract"
+
+# 6b. A pre-#1077 extract kept once still sees a later region change: the keep
+#     recorded its .src, so switching back to benelux downloads.
+rm -f "$WORK/osm/region.osm.pbf.src"
+run luxembourg "" >/dev/null || fail "pre-#1077 keep"
+run benelux "" || fail "region change after a pre-#1077 keep"
+[ "$(md5_of "$WORK/osm/region.osm.pbf")" = "$NEW_MD5" ] \
+    || fail "region change after a pre-#1077 keep kept the old extract"
 
 # 7. OSM_EXTRACT_URL overrides the region.
 rm -f "$WORK/osm/region.osm.pbf"

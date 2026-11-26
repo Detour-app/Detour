@@ -34,9 +34,11 @@ fi
 
 # No .src: an extract downloaded before #1077, which only ever came from this
 # install's region. Changing the region since without a rebuild was already a
-# broken graph, so that case is not worth a 700 MB guess.
+# broken graph, so that case is not worth a 700 MB guess. Record the URL now,
+# so a region change after this start is still seen.
 if [ "${OSM_REFRESH:-}" != 1 ] && [ -f "$DEST" ] \
     && { [ ! -f "$SRC" ] || [ "$(cat "$SRC")" = "$URL" ]; }; then
+    [ -f "$SRC" ] || printf '%s\n' "$URL" > "$SRC"
     echo "extract present, not re-downloaded (scripts/rebuild-graph.sh refreshes it)"
     exit 0
 fi
