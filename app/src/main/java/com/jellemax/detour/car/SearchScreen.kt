@@ -101,9 +101,15 @@ class SearchScreen(
             .setHeaderAction(Action.BACK)
             .setSearchHint(carContext.getString(R.string.car_search_hint))
             .setShowKeyboardByDefault(false)
+            // Every invalidate() rebuilds the template, and one built without the
+            // typed text comes back with an empty field (#1087).
+            .setInitialSearchText(query)
 
         val search = session.state.value
-        if (routing || search.searching) return builder.setLoading(true).build()
+        // Not while a lookup is in flight: swapping to the loading template and back
+        // closed the car keyboard mid-word (#1087). The list keeps the local matches
+        // the session already holds until the live hits replace them.
+        if (routing) return builder.setLoading(true).build()
 
         val list = ItemList.Builder()
         if (query.isBlank()) {
