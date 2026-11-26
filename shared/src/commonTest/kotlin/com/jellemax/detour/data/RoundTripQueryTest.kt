@@ -20,7 +20,7 @@ class RoundTripQueryTest {
             "https://gh.example/route?profile=moto&point=49.81291,6.13084" +
                 "&algorithm=round_trip&round_trip.distance=26892&round_trip.seed=7" +
                 "&ch.disable=true&heading=90" +
-                "&points_encoded=false&details=max_speed&details=roundabout",
+                "&points_encoded=false&details=max_speed&details=roundabout&details=road_class",
             q,
         )
     }

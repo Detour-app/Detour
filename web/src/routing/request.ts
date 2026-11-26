@@ -156,14 +156,14 @@ export function routeViaRequest(
   if (rules.length === 0) {
     let query = `${base}/route?profile=${profile}`;
     for (const p of points) query += `&point=${p.lat},${p.lon}`;
-    query += "&points_encoded=false&details=max_speed&details=roundabout";
+    query += "&points_encoded=false&details=max_speed&details=roundabout&details=road_class";
     return { url: query, body: null };
   }
   const body = {
     profile,
     points: points.map((p) => [p.lon, p.lat]),
     points_encoded: false,
-    details: ["max_speed", "roundabout"],
+    details: ["max_speed", "roundabout", "road_class"],
     "ch.disable": true,
     custom_model: { priority: rules },
   };

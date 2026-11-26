@@ -19,11 +19,11 @@ class CurvyRoutingTest {
     private val car = TravelMode.CAR.ghProfile
 
     private val plainGet = "$base/route?profile=moto&point=50.88,4.7&point=50.8,4.9" +
-        "&points_encoded=false&details=max_speed&details=roundabout"
+        "&points_encoded=false&details=max_speed&details=roundabout&details=road_class"
 
     private fun motoBody(priority: String) =
         """{"profile":"moto","points":[[4.7,50.88],[4.9,50.8]],"points_encoded":false,""" +
-            """"details":["max_speed","roundabout"],"ch.disable":true,""" +
+            """"details":["max_speed","roundabout","road_class"],"ch.disable":true,""" +
             """"custom_model":{"priority":[$priority]}}"""
 
     private val motorwayBalanced = """{"if":"road_class == MOTORWAY || road_class == TRUNK","multiply_by":0.5}"""

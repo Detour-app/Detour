@@ -152,7 +152,7 @@ internal fun roundTripQuery(
         "&round_trip.seed=$seed" +
         "&ch.disable=true" +
         (headingDeg?.let { "&heading=${it.toInt()}" } ?: "") +
-        "&points_encoded=false&details=max_speed&details=roundabout"
+        "&points_encoded=false&details=max_speed&details=roundabout&details=road_class"
 
 /**
  * The GET [RoutingClient.randomRoadDestination] snaps a random spin target
@@ -197,7 +197,7 @@ internal fun routeViaRequest(
             append(base)
             append("/route?profile=").append(profile)
             for (p in points) append("&point=${p.lat},${p.lon}")
-            append("&points_encoded=false&details=max_speed&details=roundabout")
+            append("&points_encoded=false&details=max_speed&details=roundabout&details=road_class")
             if (heading != null) {
                 append("&ch.disable=true")
                 append(headingQuery(heading))
@@ -211,7 +211,7 @@ internal fun routeViaRequest(
             for (p in points) addJsonArray { add(p.lon); add(p.lat) }
         }
         put("points_encoded", false)
-        putJsonArray("details") { add("max_speed"); add("roundabout") }
+        putJsonArray("details") { add("max_speed"); add("roundabout"); add("road_class") }
         put("ch.disable", true)
         if (heading != null) {
             putJsonArray("headings") { add(headingDegInt(heading.deg)) }
@@ -284,6 +284,12 @@ private fun penaltyAreaGeoJson(area: PenaltyArea): JsonObject = buildJsonObject 
  */
 object RoutingClient {
 
+    /** Via points a route carries for the Google Maps handoff, which takes at most 9. */
+    private const val GOOGLE_VIAS = 8
+
+    /** `road_class` values a via must stay off ([ViaSampler]); `motorway` covers its ramps. */
+    private val FAST_ROAD_CLASSES = setOf("motorway", "trunk")
+
     /** [routingBase], or a distinguishable error when no routing server is
      *  configured — same shape as [routeVia]'s point-count guard, and what
      *  keeps a blank base from being concatenated into a bare "/route" URL. */
@@ -346,7 +352,7 @@ object RoutingClient {
             put("round_trip.distance", distanceMeters.toInt())
             put("round_trip.seed", seed)
             put("points_encoded", false)
-            putJsonArray("details") { add("max_speed"); add("roundabout") }
+            putJsonArray("details") { add("max_speed"); add("roundabout"); add("road_class") }
             put("ch.disable", true)
             putJsonObject("custom_model") {
                 put("priority", rules)
@@ -527,9 +533,21 @@ object RoutingClient {
                 )
             }
 
+        // Motorway (which covers its `_link` ramps) and trunk spans: a via
+        // there can snap to the other carriageway in Google Maps (#1079).
+        val fastRoadSpans = path.optObject("details")?.optArray("road_class")?.arrays().orEmpty()
+            .mapNotNull { seg ->
+                if (seg.optString(2) in FAST_ROAD_CLASSES) seg.optInt(0)..seg.optInt(1) else null
+            }
+
         return RouteResult(
             polyline = polyline,
-            waypoints = sampleInterior(polyline, 8),
+            waypoints = ViaSampler.sample(
+                polyline,
+                GOOGLE_VIAS,
+                turnIndices = instructions.map { it.startIndex },
+                avoidSpans = fastRoadSpans,
+            ),
             distanceMeters = path.optDouble("distance").takeIf { !it.isNaN() },
             instructions = instructions,
             timeMs = path.optLong("time").takeIf { it > 0 },
@@ -590,14 +608,5 @@ object RoutingClient {
             ?.optObject("snapped_waypoints")?.optArray("coordinates") ?: return null
         val last = snapped.optArray(snapped.size - 1) ?: return null // [lon, lat]
         return LatLon(last.optDouble(1), last.optDouble(0))
-    }
-
-    /** [count] evenly spaced interior points, excluding start and end. */
-    internal fun sampleInterior(line: List<LatLon>, count: Int): List<LatLon> {
-        val n = line.size
-        if (n <= 2) return emptyList()
-        return (1..count)
-            .map { i -> line[(i * (n - 1)) / (count + 1)] }
-            .distinct()
     }
 }
