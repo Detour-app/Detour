@@ -13,7 +13,7 @@
 #   AGP 8.5.2 / Kotlin 2.0.20 / Gradle 8.9 — all satisfied by JDK 17.
 # The host cannot build either half: it has only java-26-openjdk, which Gradle
 # 8.9 rejects outright, and /opt/android-sdk with platform-tools and nothing else.
-FROM mcr.microsoft.com/devcontainers/dotnet:2-10.0-noble
+FROM mcr.microsoft.com/devcontainers/dotnet:10.0-noble
 
 # The image already defines vscode at 1000:1000, which matches the host user, so
 # files written into the bind-mounted workspace stay owned by them. Named here
