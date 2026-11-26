@@ -25,7 +25,7 @@ class PenaltyAreaRequestTest {
     private val moto = TravelMode.MOTO.ghProfile
 
     private val plainGet = "$base/route?profile=moto&point=50.88,4.7&point=50.8,4.9" +
-        "&points_encoded=false&details=max_speed&details=roundabout"
+        "&points_encoded=false&details=max_speed&details=roundabout&details=road_class"
 
     // An open ring (no repeated first point) and an already closed one.
     private val openRing = listOf(LatLon(50.0, 4.0), LatLon(50.0, 4.1), LatLon(50.1, 4.1))
@@ -51,7 +51,7 @@ class PenaltyAreaRequestTest {
         val expected = RouteRequest(
             "$base/route",
             """{"profile":"moto","points":[[4.7,50.88],[4.9,50.8]],"points_encoded":false,""" +
-                """"details":["max_speed","roundabout"],"ch.disable":true,""" +
+                """"details":["max_speed","roundabout","road_class"],"ch.disable":true,""" +
                 """"custom_model":{"priority":[""" +
                 """{"if":"road_class == MOTORWAY || road_class == TRUNK","multiply_by":0.5},""" +
                 """{"if":"curvature >= 0.98","multiply_by":0.7}]}}""",

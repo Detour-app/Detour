@@ -20,7 +20,7 @@ class RouteJoinTest {
 
     private val out = RouteResult(
         polyline = line(51.0, 0, 10), // 11 points, ends on the turnaround
-        waypoints = emptyList(),
+        waypoints = line(51.0, 1, 8), // the leg's own eight vias
         distanceMeters = 700.0,
         instructions = listOf(
             NavInstruction("Continue", 400.0, 0, 0, 6),
@@ -33,7 +33,7 @@ class RouteJoinTest {
 
     private val back = RouteResult(
         polyline = listOf(turnaround) + line(51.001, 10, 0), // 12 points, starts on the turnaround
-        waypoints = emptyList(),
+        waypoints = line(51.001, 9, 2),
         distanceMeters = 800.0,
         instructions = listOf(
             NavInstruction("Turn right", 500.0, 2, 0, 7),
@@ -109,8 +109,9 @@ class RouteJoinTest {
         val viaAt = wp.indexOf(turnaround)
         assertTrue(viaAt >= 0, "via missing from $wp")
         // Before the via: outbound points; after it: return points, more of them.
-        assertTrue(wp.take(viaAt).all { it in out.polyline })
-        assertTrue(wp.drop(viaAt + 1).all { it in back.polyline })
+        // Taken from each leg's own vias, which already keep clear of turns (#1079).
+        assertTrue(wp.take(viaAt).all { it in out.waypoints })
+        assertTrue(wp.drop(viaAt + 1).all { it in back.waypoints })
         assertTrue(wp.size - viaAt - 1 > viaAt, "return should carry most waypoints: $wp")
         val order = wp.map { joined.polyline.indexOf(it) }
         assertEquals(order.sorted(), order)

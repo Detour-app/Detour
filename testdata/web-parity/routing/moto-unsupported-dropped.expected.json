@@ -6,7 +6,7 @@
     "profile": "moto",
     "points": [[4.3517, 50.8503], [5.3442, 50.2268]],
     "points_encoded": false,
-    "details": ["max_speed", "roundabout"],
+    "details": ["max_speed", "roundabout", "road_class"],
     "ch.disable": true,
     "custom_model": {
       "priority": [

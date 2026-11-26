@@ -46,9 +46,8 @@ object RouteJoin {
         val backLimits = back.speedLimits.map {
             it.copy(fromIndex = it.fromIndex + offset, toIndex = it.toIndex + offset)
         }
-        val waypoints = RoutingClient.sampleInterior(out.polyline, OUT_WAYPOINTS) +
-            via +
-            RoutingClient.sampleInterior(back.polyline, BACK_WAYPOINTS)
+        // Each leg's own vias already keep clear of turns and fast roads (#1079).
+        val waypoints = evenly(out.waypoints, OUT_WAYPOINTS) + via + evenly(back.waypoints, BACK_WAYPOINTS)
         return RouteResult(
             polyline = out.polyline + back.polyline.drop(1),
             waypoints = waypoints,
@@ -57,5 +56,11 @@ object RouteJoin {
             timeMs = out.timeMs?.let { o -> back.timeMs?.let { o + it } },
             speedLimits = out.speedLimits + backLimits,
         )
+    }
+
+    /** [count] of [points], spread evenly and kept in order; all of them when there are no more. */
+    private fun evenly(points: List<LatLon>, count: Int): List<LatLon> {
+        if (points.size <= count) return points
+        return (0 until count).map { i -> points[(2 * i + 1) * points.size / (2 * count)] }
     }
 }

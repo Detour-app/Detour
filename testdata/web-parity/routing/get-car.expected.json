@@ -17,7 +17,8 @@
     ],
     ["points_encoded", "false"],
     ["details", "max_speed"],
-    ["details", "roundabout"]
+    ["details", "roundabout"],
+    ["details", "road_class"]
   ],
   "body": null
 }
