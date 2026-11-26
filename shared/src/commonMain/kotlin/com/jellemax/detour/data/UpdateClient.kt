@@ -58,6 +58,49 @@ object UpdateClient {
     }
 
     /**
+     * The build on [repo]'s rolling `dev` pre-release, if it was made from a
+     * different commit than [installedSha]; else null (#1064).
+     *
+     * For the debug build, which `dev.yml` publishes on every push to `main`.
+     * The tag never moves to a new name and versionName often stays put
+     * between pushes, so neither [newerThan]'s `releases/latest` nor its
+     * version comparison can see a new dev build. The commit can: `dev.yml`
+     * writes it into the release name, and this build has its own baked in.
+     *
+     * "Different", not "newer": a sha has no order, and the release only ever
+     * moves forward along `main`, so any other commit is the newer one. Were it
+     * not, the installer would refuse the lower versionCode.
+     *
+     * Size and sha256 come from the asset's own GitHub `digest`, so the
+     * download is verified the same way a tagged release's `update.json` makes
+     * it. An asset without a digest is still offered, unverified, as a
+     * manifest-less release is.
+     *
+     * Throws on a failed fetch, like [newerThan].
+     */
+    @Throws(Exception::class)
+    suspend fun devBuildOtherThan(repo: String, installedSha: String): PendingUpdate? {
+        if (repo.isBlank() || installedSha.isBlank()) return null
+        val releaseText = Http.get(
+            "https://api.github.com/repos/$repo/releases/tags/${UpdateCheck.DEV_TAG}",
+            HEADERS,
+        )
+        val release = UpdateCheck.parseRelease(releaseText) ?: return null
+        val build = UpdateCheck.parseDevBuild(release.name) ?: return null
+        if (!UpdateCheck.isOtherBuild(installedSha, build.sha)) return null
+        val url = release.assetUrl(UpdateCheck.DEV_ASSET) ?: return null
+        val details = release.assetDetails[UpdateCheck.DEV_ASSET]
+        return PendingUpdate(
+            version = build.label,
+            asset = UpdateCheck.DEV_ASSET,
+            downloadUrl = url,
+            size = details?.size ?: 0L,
+            sha256 = details?.sha256.orEmpty(),
+            notes = release.notes,
+        )
+    }
+
+    /**
      * The newest release of [repo] if it is newer than [installedVersion],
      * else null.
      *

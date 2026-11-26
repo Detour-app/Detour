@@ -62,6 +62,14 @@ object UpdateCheck {
          *  is already trusted to hand the app a binary it installs. See
          *  CONTRIBUTING.md's "Release notes" section. */
         val notes: String? = null,
+        /** The release's display name, which for the rolling `dev` pre-release
+         *  is the only place the build's commit is written (#1064). */
+        val name: String = "",
+        /** Asset name to the size and digest GitHub reports for it. The
+         *  digest is blank for an asset uploaded before GitHub started
+         *  computing one. Only the dev channel reads this: a tagged release
+         *  carries `update.json`, which predates GitHub's digests. */
+        val assetDetails: Map<String, Artifact> = emptyMap(),
     ) {
         fun assetUrl(name: String): String? = assets[name]
     }
@@ -97,15 +105,69 @@ object UpdateCheck {
     /** One release object, shared by [parseRelease] and [parseReleaseList] so
      *  the two cannot drift about what a release is. */
     private fun releaseFrom(o: JsonObject): Release {
-        val assets = (o.optArray("assets")?.objects() ?: emptyList()).associate {
+        val assetObjects = o.optArray("assets")?.objects() ?: emptyList()
+        val assets = assetObjects.associate {
             it.optString("name") to it.optString("browser_download_url")
+        }
+        val details = assetObjects.associate {
+            val name = it.optString("name")
+            name to Artifact(
+                asset = name,
+                size = it.optLong("size", 0L),
+                sha256 = it.optString("digest").takeIf { d -> d.startsWith(SHA256_PREFIX) }
+                    ?.removePrefix(SHA256_PREFIX).orEmpty(),
+            )
         }
         return Release(
             version = o.optString("tag_name").removePrefix("v"),
             prerelease = o.optBoolean("prerelease", false),
             assets = assets,
             notes = o.optString("body").trim().ifBlank { null },
+            name = o.optString("name"),
+            assetDetails = details,
         )
+    }
+
+    /** GitHub's asset `digest` is `<algorithm>:<hex>`; only SHA-256 is one the
+     *  downloader can check. */
+    private const val SHA256_PREFIX = "sha256:"
+
+    /** The tag `dev.yml` moves to every push to `main`. */
+    const val DEV_TAG = "dev"
+
+    /** The one asset `dev.yml` attaches to the dev pre-release. */
+    const val DEV_ASSET = "detour-dev.apk"
+
+    /** A dev build as its release names it: `Dev build (<versionName>, <sha>)`. */
+    data class DevBuild(val versionName: String, val sha: String) {
+        /** What the rider is shown, and the key the notification, the partial
+         *  download's sidecar and the row all use: versionName alone often
+         *  stays the same across pushes, the commit never does. */
+        val label: String get() = "$versionName ($sha)"
+    }
+
+    private val DEV_NAME = Regex("""^Dev build \((.+), ([0-9a-fA-F]{7,40})\)$""")
+
+    /** Null for a name `dev.yml` did not write — a hand-edited release, or a
+     *  workflow that changed its format. No guess: an unreadable name is no
+     *  update, as with [isNewer]. */
+    fun parseDevBuild(releaseName: String): DevBuild? {
+        val m = DEV_NAME.matchEntire(releaseName.trim()) ?: return null
+        return DevBuild(m.groupValues[1].trim(), m.groupValues[2].lowercase())
+    }
+
+    /**
+     * Whether the dev release at [releaseSha] is a different commit from the
+     * [installedSha] this build was made from. The release carries the short
+     * sha and the build the full one, so they are compared on the shorter's
+     * length. Blank on either side is false: without both commits there is
+     * nothing to compare, and offering an update on a guess could put a rider
+     * in a loop of reinstalling the build they already have.
+     */
+    fun isOtherBuild(installedSha: String, releaseSha: String): Boolean {
+        if (installedSha.isBlank() || releaseSha.isBlank()) return false
+        val n = minOf(installedSha.length, releaseSha.length)
+        return !installedSha.take(n).equals(releaseSha.take(n), ignoreCase = true)
     }
 
     fun parseManifest(text: String): UpdateManifest? = try {

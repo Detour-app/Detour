@@ -87,7 +87,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "4.26.7"
+        versionName = "4.27.0"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -113,6 +113,11 @@ android {
         // fills it in. A local build is signed with a different key and could
         // never install a CI APK anyway.
         buildConfigField("String", "UPDATE_REPO", "\"\"")
+        // The commit this build was made from, and whether updates follow the
+        // rolling `dev` pre-release (compared by that commit) rather than the
+        // latest release (compared by version). Only debug below sets either.
+        buildConfigField("String", "BUILD_SHA", "\"\"")
+        buildConfigField("boolean", "UPDATE_FOLLOWS_DEV", "false")
 
         // Where convoy invite links open (#764): `<api.url>/convoy-invite`, the
         // link shared/'s convoyInviteLink builds for the baked server. Android
@@ -157,6 +162,19 @@ android {
             if (releaseKeystore != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // The dev build updates itself from the `dev` pre-release dev.yml
+            // publishes on every push to main (#1064). Actions sets
+            // GITHUB_REPOSITORY and GITHUB_SHA in every job, so no workflow
+            // passes anything. Off without the release key too: a build signed
+            // with a throwaway debug key (a local one, a fork without the
+            // secret) can never install the next build over itself.
+            // UPDATE_REPO wins over GITHUB_REPOSITORY, as for githubRelease.
+            val devSha = System.getenv("GITHUB_SHA").orEmpty()
+            val devRepo = if (devSha.isBlank() || releaseKeystore == null) "" else
+                System.getenv("UPDATE_REPO") ?: System.getenv("GITHUB_REPOSITORY").orEmpty()
+            buildConfigField("String", "UPDATE_REPO", "\"$devRepo\"")
+            buildConfigField("String", "BUILD_SHA", "\"$devSha\"")
+            buildConfigField("boolean", "UPDATE_FOLLOWS_DEV", "true")
         }
         release {
             // R8 shrinks and obfuscates; MapLibre and Play Services ship their
@@ -208,6 +226,11 @@ android {
         create("automotive") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".automotive"
+            // initWith copied debug's dev-channel updater; this build has
+            // neither the manifest entries to run it (src/debug's manifest is
+            // not merged here) nor a release of its own to follow.
+            buildConfigField("String", "UPDATE_REPO", "\"\"")
+            buildConfigField("boolean", "UPDATE_FOLLOWS_DEV", "false")
             // Nothing depends on this build type's output, but AGP needs a
             // fallback for any dependency that publishes debug/release only.
             matchingFallbacks += listOf("debug")
