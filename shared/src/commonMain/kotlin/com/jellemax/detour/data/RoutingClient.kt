@@ -608,4 +608,5 @@ object RoutingClient {
             ?.optObject("snapped_waypoints")?.optArray("coordinates") ?: return null
         val last = snapped.optArray(snapped.size - 1) ?: return null // [lon, lat]
         return LatLon(last.optDouble(1), last.optDouble(0))
-    }}
+    }
+}
