@@ -150,7 +150,7 @@ services:
   # other.
   # ---------------------------------------------------------------------------
   db:
-    image: postgres:18-alpine
+    image: postgres:19-alpine
     restart: unless-stopped
     networks:
       - detour-int

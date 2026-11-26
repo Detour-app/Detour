@@ -90,7 +90,7 @@ services:
       start_period: 60s
 
   keycloak-db:
-    image: postgres:18-alpine
+    image: postgres:19-alpine
     restart: unless-stopped
     networks:
       - keycloak-int
