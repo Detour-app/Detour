@@ -41,7 +41,7 @@ graphhopper:
   # themselves are request-time rules — see docker/prod/config/graphhopper/
   # presets/ and docker/prod/README.md, "Curvy routing presets".
   # Changing this list means rebuilding the graph — see docker/prod/README.md,
-  # "Rebuilding the routing graph".
+  # "Rebuilding after a config change".
   graph.encoded_values: >-
     road_class, road_environment, road_access, surface, track_type, toll,
     max_speed, car_access, car_average_speed, curvature

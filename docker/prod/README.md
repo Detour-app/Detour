@@ -120,7 +120,8 @@ do not, and that is expected, not a failure:
   container sits at `health: starting` — `start_period` is sized to outlast it.
   `docker compose logs -f graphhopper` shows progress. The result lands in the
   `graphhopper-data` volume, so later starts are seconds; deleting that volume,
-  or changing `OSM_REGION` or the profile set, pays for the build again.
+  or changing `OSM_REGION` or the profile set, pays for the build again. It does
+  not follow later OSM edits on its own: see "Keeping the routing graph current".
 - **Photon** downloads `PHOTON_REGION`'s prebuilt country index (a few hundred MB
   and up), extracts it, then serves. Until it finishes, `/status` is down and
   every query returns zero results rather than an error.
@@ -283,7 +284,51 @@ docker compose exec -T keycloak-db psql -U keycloak keycloak < kc.sql
 Or accept a fresh realm database: the next start imports the realm again, with no
 accounts (see "The realm" above).
 
-### Rebuilding the routing graph
+### Keeping the routing graph current
+
+GraphHopper reads the OSM extract only when it builds the graph. After that it
+loads `graphhopper-data` and never looks at OSM again, so the router stays on the
+map of the day it was built. The basemap (OpenFreeMap) refreshes weekly: a street
+made one-way since your first boot shows the new arrows on the map while the
+route line still runs the old way down it (#1077). Restarting does not help, and
+since #1077 a restart does not download a new extract either (before, it fetched
+the whole file again whenever Geofabrik had published a newer one, about daily,
+and nothing imported it).
+
+`scripts/rebuild-graph.sh` downloads the current extract, builds a new graph next
+to the one being served, and swaps it in:
+
+```bash
+./scripts/rebuild-graph.sh               # routing stays up during the build
+./scripts/rebuild-graph.sh --stop-first  # stop GraphHopper first, to free its RAM
+```
+
+The build takes the time in the Regions table above (~25 min for `benelux`).
+Routing is down only for the swap: the time GraphHopper takes to load a graph,
+seconds to a few minutes. If the new graph does not come up within
+`REBUILD_LOAD_TIMEOUT` (900 s), the script puts the previous one back and exits
+non-zero. A failed download or build leaves the served graph as it was. The last
+line it prints is the new graph's `data_date`, the OSM timestamp your routes now
+reflect; `curl localhost:7510/info` shows it any time.
+
+What it needs beyond the stack's own:
+
+- **Disk** for a second graph on the `graphhopper-data` volume while it builds
+  (about the size of the current one; `docker system df -v`).
+- **RAM** for a second JVM: the build gets `GRAPHHOPPER_HEAP` while the running
+  server keeps its own. On a box that can hold only one, use `--stop-first`:
+  routing is then down for the whole build, as on first boot.
+
+**Run it monthly**, from cron on the host, at an hour nobody rides. Weekly
+matches the basemap if the box has the RAM to spare; Geofabrik publishes daily,
+so more often buys nothing worth a build.
+
+```cron
+# m h dom mon dow
+0 4 1 * * cd /opt/detour/docker/prod && ./scripts/rebuild-graph.sh >> /var/log/detour-graph.log 2>&1
+```
+
+### Rebuilding after a config change
 
 `graph.encoded_values` in `config/graphhopper/config.yml` has grown twice:
 `toll` (#586), so the app's avoid-tolls, -unpaved and -ferries rules have
@@ -291,7 +336,12 @@ something to read, and `curvature` (#650), for the curvy A→B presets below. A
 graph built before either is missing it. GraphHopper fixes its encoded values when
 it builds the graph, so an existing `graphhopper-data` volume does not gain one
 by restarting (and GraphHopper may refuse to load a graph whose values differ
-from the config) — drop the volume and let the next `up` build it again:
+from the config). Pull the new config and run `./scripts/rebuild-graph.sh`: the
+build reads the current `config.yml` and `.env`, so the graph it swaps in has the
+new values, and the extract is refreshed on the way.
+
+Dropping the volume still works and needs no second graph's worth of disk or
+RAM, but routing is down for the whole build:
 
 ```bash
 # rm, not stop: a stopped container still holds the volume and `volume rm` refuses.
@@ -300,11 +350,6 @@ docker compose rm --stop --force graphhopper
 docker volume rm detour_graphhopper-data
 docker compose up -d graphhopper
 ```
-
-That is the first-boot build again: the time and `GRAPHHOPPER_HEAP` in the
-region table above (~25 min and ~10 GB for `benelux`). Routing is down until
-`/health` comes up. The OSM extract in `osm-data` is kept, so nothing is
-downloaded again.
 
 While GraphHopper is still serving a graph without `toll` or `curvature`,
 routing works as before. The app can read GraphHopper's `/info` for the values
@@ -319,9 +364,10 @@ Off by default. With it on, the web planner (`/planner`) draws an elevation
 profile and the total climb under the map for the route it has open (#916).
 Nothing else changes: saved routes stay 2-D and the app never asks for heights.
 
-Set a provider in `.env` and rebuild the graph as in "Rebuilding the routing
-graph" above, in the same step: change the variable only together with dropping
-`graphhopper-data`. GraphHopper refuses to load a graph built the other way, so
+Set a provider in `.env` and rebuild the graph as in "Rebuilding after a config
+change" above, in the same step: edit the variable, then run
+`./scripts/rebuild-graph.sh` (the running server keeps its old setting until the
+swap recreates it), or drop `graphhopper-data`. GraphHopper refuses to load a graph built the other way, so
 a plain `docker compose up -d` after the edit leaves it crash-looping on
 `Configured dimension elevation=true is not equal to dimension of loaded graph`
 and routing down until the rebuild. Turning it off without a rebuild fails the
@@ -333,8 +379,8 @@ GRAPHHOPPER_ELEVATION=srtm   # or cgiar; blank = off
 
 The build then downloads the region's elevation tiles (SRTM 1°×1° tiles from
 `srtm.kurviger.de`, GraphHopper's default mirror) into `elevation-cache/` on the
-`graphhopper-data` volume. That is the volume a rebuild drops, so every rebuild
-downloads them again. Measured on GraphHopper 11 for `luxembourg` (4 tiles, 5 MB):
+`graphhopper-data` volume. `scripts/rebuild-graph.sh` keeps that directory for
+the next build; dropping the volume downloads them again. Measured on GraphHopper 11 for `luxembourg` (4 tiles, 5 MB):
 about 30 s either way, so the tiles cost less than the build itself. `benelux`
 spans up to ~30 tiles (fewer: SRTM has none over the sea); its build with
 elevation has not been timed yet, so expect the ~25 min above plus their
