@@ -14,6 +14,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- The dev build's in-app updater (#1064): the same two permissions and
+         the same service src/githubRelease/AndroidManifest.xml declares, which
+         says why each is there. Declared in both rather than in main because
+         the Play bundle (`release`) must carry none of them. Inert in a local
+         build: BuildConfig.UPDATE_REPO is blank there (app/build.gradle.kts),
+         so nothing ever starts the service. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <application
         android:usesCleartextTraffic="true"
         tools:ignore="UnusedAttribute">
@@ -43,6 +52,11 @@
                 <action android:name="com.jellemax.detour.DEBUG_REPLAY" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name="com.jellemax.detour.update.UpdateDownloadService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
     </application>
 
 </manifest>

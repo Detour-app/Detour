@@ -121,12 +121,26 @@ object UpdateChecker {
 
     /**
      * Whether this build knows a repository to check. False in every build
-     * but `githubRelease` made with `UPDATE_REPO` in the environment
-     * (`app/build.gradle.kts`) — the Play bundle included, which must not
-     * update itself from GitHub. Every entry point here is then a no-op, so the
-     * Settings row is not rendered at all rather than sitting there dead.
+     * but `githubRelease` made with `UPDATE_REPO` in the environment and
+     * `debug` made by Actions with the release key (`app/build.gradle.kts`) —
+     * the Play bundle included, which must not update itself from GitHub.
+     * Every entry point here is then a no-op, so the Settings row is not
+     * rendered at all rather than sitting there dead.
      */
-    val isConfigured: Boolean get() = BuildConfig.UPDATE_REPO.isNotBlank()
+    val isConfigured: Boolean get() = BuildConfig.UPDATE_REPO.isNotBlank() &&
+        (!BuildConfig.UPDATE_FOLLOWS_DEV || BuildConfig.BUILD_SHA.isNotBlank())
+
+    /**
+     * The one place the two channels part: the debug build asks the rolling
+     * `dev` pre-release whether it is another commit (#1064), every other
+     * build asks the latest release whether it is a higher version.
+     */
+    private suspend fun fetchOffer(repo: String): UpdateClient.PendingUpdate? =
+        if (BuildConfig.UPDATE_FOLLOWS_DEV) {
+            UpdateClient.devBuildOtherThan(repo, BuildConfig.BUILD_SHA)
+        } else {
+            UpdateClient.newerThan(repo, BuildConfig.VERSION_NAME)
+        }
 
     /**
      * The automatic check: throttled to once an hour, and it never tells the
@@ -233,7 +247,7 @@ object UpdateChecker {
     private suspend fun performCheck(context: Context, repo: String, notify: Boolean): Outcome =
         withContext(Dispatchers.IO) {
             val fetched = runCatching {
-                UpdateClient.newerThan(repo, BuildConfig.VERSION_NAME)
+                fetchOffer(repo)
             }
             // A thrown request and a "nothing newer" response both land here as
             // null. The returned Outcome tells them apart via
@@ -307,7 +321,9 @@ object UpdateChecker {
      */
     suspend fun loadRangeNotes() {
         val repo = BuildConfig.UPDATE_REPO
-        if (!isConfigured) return
+        // The dev channel has one release, replaced on every push, so there is
+        // no range of skipped releases to merge.
+        if (!isConfigured || BuildConfig.UPDATE_FOLLOWS_DEV) return
         val offered = (UpdateState.status.value as? UpdateStatus.Available)?.update?.version ?: return
         val key = BuildConfig.VERSION_NAME to offered
         rangeGate.withLock {

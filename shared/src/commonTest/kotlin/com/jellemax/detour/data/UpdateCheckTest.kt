@@ -209,4 +209,75 @@ class UpdateCheckTest {
     fun theConventionalAssetNameIsBuiltFromTheVersion() {
         assertEquals("detour-1.88.0.apk", UpdateCheck.conventionalPhoneAsset("1.88.0"))
     }
+
+    // ---- dev channel (#1064) ----
+
+    /** The shape `dev.yml` publishes, trimmed from the live `releases/tags/dev`. */
+    private val devRelease = """
+        {"tag_name":"dev","name":"Dev build (4.26.7, 5c54252)","prerelease":true,
+         "body":"Unreleased build of `main` at 5c54252.",
+         "assets":[{"name":"detour-dev.apk","size":71258737,
+           "digest":"sha256:55838945ee25e622664c4f66be5641da0b731ab5f218f3b49b29211e6b69ab83",
+           "browser_download_url":"https://github.com/o/r/releases/download/dev/detour-dev.apk"}]}
+    """.trimIndent()
+
+    @Test
+    fun aDevReleaseNameYieldsItsVersionAndCommit() {
+        val release = assertNotNull(UpdateCheck.parseRelease(devRelease))
+        val build = assertNotNull(UpdateCheck.parseDevBuild(release.name))
+        assertEquals("4.26.7", build.versionName)
+        assertEquals("5c54252", build.sha)
+        assertEquals("4.26.7 (5c54252)", build.label)
+    }
+
+    /** The asset's own digest is what verifies a dev download; the prefix is
+     *  GitHub's and must not reach the hex comparison. */
+    @Test
+    fun anAssetDigestIsReadAsBareSha256() {
+        val release = assertNotNull(UpdateCheck.parseRelease(devRelease))
+        val apk = assertNotNull(release.assetDetails[UpdateCheck.DEV_ASSET])
+        assertEquals(71258737L, apk.size)
+        assertEquals("55838945ee25e622664c4f66be5641da0b731ab5f218f3b49b29211e6b69ab83", apk.sha256)
+    }
+
+    /** A digest in any other algorithm, or none, leaves the download unverified
+     *  rather than comparing against the wrong hash. */
+    @Test
+    fun aNonSha256DigestIsBlank() {
+        val text = """{"tag_name":"dev","assets":[{"name":"a.apk","size":1,"digest":"md5:abcd"},
+            {"name":"b.apk","size":2}]}"""
+        val release = assertNotNull(UpdateCheck.parseRelease(text))
+        assertEquals("", release.assetDetails.getValue("a.apk").sha256)
+        assertEquals("", release.assetDetails.getValue("b.apk").sha256)
+    }
+
+    @Test
+    fun aNameDevYmlDidNotWriteIsNoDevBuild() {
+        assertNull(UpdateCheck.parseDevBuild("Dev build"))
+        assertNull(UpdateCheck.parseDevBuild("Dev build (4.26.7)"))
+        assertNull(UpdateCheck.parseDevBuild("Dev build (4.26.7, not-a-sha)"))
+        assertNull(UpdateCheck.parseDevBuild(""))
+    }
+
+    /** The release has the short sha, the build the full one. */
+    @Test
+    fun theSameCommitAtDifferentLengthsIsNotAnotherBuild() {
+        val full = "5c542526e0f1a2b3c4d5e6f708192a3b4c5d6e7f"
+        assertFalse(UpdateCheck.isOtherBuild(installedSha = full, releaseSha = "5c54252"))
+        assertFalse(UpdateCheck.isOtherBuild(installedSha = full, releaseSha = "5C54252"))
+    }
+
+    @Test
+    fun aDifferentCommitIsAnotherBuild() {
+        val full = "5c542526e0f1a2b3c4d5e6f708192a3b4c5d6e7f"
+        assertTrue(UpdateCheck.isOtherBuild(installedSha = full, releaseSha = "4f3616a"))
+    }
+
+    /** No commit on either side is no comparison, so no offer — a build with
+     *  no baked sha must not offer itself the release forever. */
+    @Test
+    fun aMissingCommitIsNeverAnotherBuild() {
+        assertFalse(UpdateCheck.isOtherBuild(installedSha = "", releaseSha = "4f3616a"))
+        assertFalse(UpdateCheck.isOtherBuild(installedSha = "5c54252", releaseSha = ""))
+    }
 }
